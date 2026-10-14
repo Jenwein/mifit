@@ -60,7 +60,7 @@ def test_registered_under_consumption():
 def test_one_day_maps_fields():
     transport = FakeTransport({DAY_1 + NOON: envelope(1907.5, 365, 0)})
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     assert result.records == [
         ConsumptionRecord(
@@ -85,7 +85,7 @@ def test_range_yields_one_record_per_day_with_correct_time():
         }
     )
 
-    result = fetch_consumption(transport, DAY_1, DAY_3 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_3)
 
     assert [c["endpoint_path"] for c in transport.calls] == [ENDPOINT] * 3
     assert [c["data_obj"] for c in transport.calls] == [
@@ -103,11 +103,57 @@ def test_range_yields_one_record_per_day_with_correct_time():
     assert result.notes == []
 
 
-def test_mid_day_bounds_cover_the_days_they_fall_in():
-    # Start mid-day 1 and end mid-day 2: both whole days are queried, no others.
+def test_local_midnight_bound_is_labeled_with_its_own_local_date():
+    # A UTC+8 user asks for local 2025-10-15: local midnight is 2025-10-14T16:00Z
+    # (DAY_1 + 16h). Flooring that to the UTC day would label the record 2025-10-14;
+    # rounding to the nearest UTC midnight lands on 2025-10-15, the day asked for.
+    local_midnight_plus8 = DAY_1 + 16 * 3600
+    transport = FakeTransport({DAY_2 + NOON: envelope(1907.5, 365, 0)})
+
+    result = fetch_consumption(transport, local_midnight_plus8, local_midnight_plus8)
+
+    assert [c["data_obj"] for c in transport.calls] == [{"time": DAY_2 + NOON}]
+    (record,) = result.records
+    assert record.date == "2025-10-15"
+    assert record.epoch_s == DAY_2
+    assert result.notes == []
+
+
+def test_local_midnight_range_east_of_utc_keeps_the_requested_dates():
+    # UTC+8: local midnights of 2025-10-15 and 2025-10-16 (the facade passes the end
+    # date's own local midnight, not its last second).
+    start = DAY_1 + 16 * 3600
+    end = DAY_2 + 16 * 3600
+    transport = FakeTransport({DAY_2 + NOON: envelope(), DAY_3 + NOON: envelope()})
+
+    result = fetch_consumption(transport, start, end)
+
+    assert [c["data_obj"]["time"] for c in transport.calls] == [
+        DAY_2 + NOON,
+        DAY_3 + NOON,
+    ]
+    assert [r.date for r in result.records] == ["2025-10-15", "2025-10-16"]
+
+
+def test_local_midnight_bound_west_of_utc_keeps_the_requested_date():
+    # UTC-5: local midnight of 2025-10-14 is 2025-10-14T05:00Z, which still belongs to
+    # 2025-10-14 whether rounded or floored; rounding must not push it forward.
+    local_midnight_minus5 = DAY_1 + 5 * 3600
+    transport = FakeTransport({DAY_1 + NOON: envelope()})
+
+    result = fetch_consumption(transport, local_midnight_minus5, local_midnight_minus5)
+
+    assert [c["data_obj"]["time"] for c in transport.calls] == [DAY_1 + NOON]
+    assert [r.date for r in result.records] == ["2025-10-14"]
+
+
+def test_bounds_round_to_the_nearest_utc_midnight():
+    # One second before noon rounds down to that day's midnight; noon itself rounds up
+    # to the next one. Start just before noon of day 1 and end at noon of day 1 gives
+    # day 1 .. day 2.
     transport = FakeTransport({DAY_1 + NOON: envelope(), DAY_2 + NOON: envelope()})
 
-    result = fetch_consumption(transport, DAY_1 + 50000, DAY_2 + 100)
+    result = fetch_consumption(transport, DAY_1 + NOON - 1, DAY_1 + NOON)
 
     assert [c["data_obj"]["time"] for c in transport.calls] == [
         DAY_1 + NOON,
@@ -146,7 +192,7 @@ def test_missing_day_is_noted_not_fabricated():
         }
     )
 
-    result = fetch_consumption(transport, DAY_1, DAY_3 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_3)
 
     assert [r.date for r in result.records] == ["2025-10-14", "2025-10-16"]
     assert len(result.notes) == 1
@@ -167,7 +213,7 @@ def test_api_error_day_is_noted_and_other_days_still_returned():
         }
     )
 
-    result = fetch_consumption(transport, DAY_1, DAY_2 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_2)
 
     assert [r.date for r in result.records] == ["2025-10-15"]
     assert len(result.raw) == 1  # nothing was received for the failed day
@@ -179,7 +225,7 @@ def test_auth_error_is_not_swallowed():
     transport = FakeTransport({DAY_1 + NOON: AuthError("rejected")})
 
     with pytest.raises(AuthError):
-        fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+        fetch_consumption(transport, DAY_1, DAY_1)
 
 
 def test_values_read_from_result_wrapper():
@@ -193,7 +239,7 @@ def test_values_read_from_result_wrapper():
     }
     transport = FakeTransport({DAY_1 + NOON: payload})
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     (record,) = result.records
     assert record.resting_kcal == 1907.5
@@ -207,7 +253,7 @@ def test_payload_without_result_wrapper_falls_back_to_top_level():
         {DAY_1 + NOON: {"basal": 1907.5, "exercise": 365, "intake": 0}}
     )
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     (record,) = result.records
     assert record.resting_kcal == 1907.5
@@ -217,7 +263,7 @@ def test_payload_without_result_wrapper_falls_back_to_top_level():
 def test_zero_intake_is_a_value_not_missing():
     transport = FakeTransport({DAY_1 + NOON: envelope(1907.5, 0, 0)})
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     (record,) = result.records
     assert record.intake_kcal == 0
@@ -234,7 +280,7 @@ def test_total_is_none_unless_resting_and_active_are_both_present():
         }
     )
 
-    result = fetch_consumption(transport, DAY_1, DAY_2 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_2)
 
     first, second = result.records
     assert (first.resting_kcal, first.active_kcal, first.intake_kcal) == (
@@ -256,7 +302,7 @@ def test_non_numeric_values_are_treated_as_missing():
     bad = {"basal": "n/a", "exercise": None, "intake": True}
     transport = FakeTransport({DAY_1 + NOON: {"code": 0, "result": bad}})
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     assert result.records == []
     assert len(result.notes) == 1
@@ -266,7 +312,7 @@ def test_non_numeric_values_are_treated_as_missing():
 def test_non_object_result_is_noted_and_skipped():
     transport = FakeTransport({DAY_1 + NOON: {"code": 0, "result": None}})
 
-    result = fetch_consumption(transport, DAY_1, DAY_1 + 86399)
+    result = fetch_consumption(transport, DAY_1, DAY_1)
 
     assert result.records == []
     assert result.raw == []

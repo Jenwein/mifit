@@ -6,6 +6,12 @@ data comes back under the ``result`` wrapper as ``{"basal", "exercise", "intake"
 (resting, active and food kilocalories). This domain walks the UTC days of the
 requested window, one call each, and maps each answer onto a ``ConsumptionRecord``.
 The decoded ``result`` object of every answered day goes to ``DomainResult.raw``.
+
+Day keys sit at UTC midnight, as the service keys its daily data. Each bound of the
+window is mapped to the UTC midnight *nearest* to it, not the one at or before it: a
+caller's bound is typically its *local* midnight (for UTC+8, 16:00 UTC the evening
+before), which floors onto the wrong UTC day but rounds onto the intended date for any
+timezone within +/-12h.
 """
 
 from __future__ import annotations
@@ -21,24 +27,28 @@ from mifit.transport import Transport
 _ENDPOINT = "diet/user_consumption"
 _DAY_S = 86400
 _NOON_S = _DAY_S // 2
-"""Offset from UTC midnight used as the request ``time``: safely inside the day."""
+"""Half a day: the request ``time`` offset (safely inside the day) and the rounding
+bias that maps a bound to the nearest UTC midnight."""
 
 
 @register("consumption")
 def fetch_consumption(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainResult:
     """Fetch the daily calorie figures for every UTC day from start to end.
 
-    The first day is the UTC day containing ``start_epoch_s`` and the last is the one
-    containing ``end_epoch_s`` (both inclusive); an ``end_epoch_s`` before
-    ``start_epoch_s`` queries nothing. A day whose request fails with an ``ApiError``,
-    or whose answer holds no usable figure, is skipped with a note and never
-    fabricated as zeros; the decoded answer of such a day (when there is one) is
+    The first day is keyed by the UTC midnight nearest to ``start_epoch_s`` and the
+    last by the one nearest to ``end_epoch_s`` (both inclusive), so a local-midnight
+    bound maps to the local calendar date it names. Pass the end date's own midnight,
+    not its last second: an end-of-day bound is nearer the *next* midnight and would
+    include one extra day. An ``end_epoch_s`` that rounds to a day before the
+    ``start_epoch_s`` day queries nothing. A day whose request fails with an
+    ``ApiError``, or whose answer holds no usable figure, is skipped with a note and
+    never fabricated as zeros; the decoded answer of such a day (when there is one) is
     still kept in ``raw``. A reported ``0`` (notably ``intake``) is a real value. Any
     other failure, such as an ``AuthError``, is not about one day and propagates.
     """
     result = DomainResult()
-    day_start = start_epoch_s - start_epoch_s % _DAY_S
-    last_day_start = end_epoch_s - end_epoch_s % _DAY_S
+    day_start = ((start_epoch_s + _NOON_S) // _DAY_S) * _DAY_S
+    last_day_start = ((end_epoch_s + _NOON_S) // _DAY_S) * _DAY_S
     while day_start <= last_day_start:
         _fetch_day(t, day_start, result)
         day_start += _DAY_S

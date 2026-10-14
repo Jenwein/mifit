@@ -143,7 +143,7 @@ CONSUMPTION_PAYLOAD = {
 def test_consumption_delegates_to_domain(build):
     client, fake, _ = build(CONSUMPTION_PAYLOAD)
 
-    result = client.consumption(1760400000, 1760486399)
+    result = client.consumption(1760400000, 1760400000)
 
     assert isinstance(result, DomainResult)
     assert result.records == [
@@ -163,7 +163,7 @@ def test_consumption_delegates_to_domain(build):
     ]
     assert fake.calls == []
     # Same answer as calling the domain directly with the same transport.
-    assert result == fetch_consumption(fake, 1760400000, 1760486399)
+    assert result == fetch_consumption(fake, 1760400000, 1760400000)
 
 
 def test_consumption_converts_date_strings_to_day_bounds(build, monkeypatch):
@@ -182,10 +182,11 @@ def test_consumption_converts_date_strings_to_day_bounds(build, monkeypatch):
     assert result is sentinel
     (transport, start_s, end_s) = seen[0]
     assert transport is fake
-    # Same local-day bounds as ``steps``: first second of the first day to the last
-    # second of the last day.
+    # Unlike ``steps``, both bounds are local midnights: the domain rounds each bound
+    # to the nearest UTC midnight to get its day key, so a local end-of-day
+    # (23:59:59) would round up and over-include the following day.
     assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
-    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 0, 0, 0)
 
 
 def test_date_string_converts_to_epoch_day_bounds(build):

@@ -108,10 +108,12 @@ class MiFit:
         is resting plus active. The app's calorie ring is composited on the device
         (cloud activity plus phone-side activity), so the most recent day can read
         lower than the app.
+
+        Both bounds are passed as local midnights (the end date's own, not its last
+        second): the domain rounds each to the nearest UTC midnight to get its day key,
+        so each record's ``date`` is the local calendar date requested.
         """
-        return fetch_consumption(
-            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
-        )
+        return fetch_consumption(self._transport, to_epoch_s(start), to_epoch_s(end))
 
     def heart_rate(
         self, start: DateArg, end: DateArg, *, full: bool = False
