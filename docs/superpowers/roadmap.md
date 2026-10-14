@@ -42,7 +42,7 @@
   - `heart_rate`：原始心率点，单日区间和均值与 app 一致；`--full` 为候选全量读法。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 273 个通过、2 个跳过，全部离线（假 Transport，无真实数据）。
+- 测试 273 个通过、2 个跳过，全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 
@@ -130,7 +130,7 @@
 
 ## 4. 横向工作
 
-### T1 合规与仓库卫生（尽快）
+### T1 合规与仓库卫生（完成）
 - 本项目 LICENSE：**MIT**（已定，2026-10-14）。仓库公开。
 - 对移植自 kevinkwee/Mi-Fitness-Sync 的部分（签名/RC4、传输、登录流程思路）在源文件头和 `THIRD_PARTY_NOTICES` 里保留其 MIT 版权声明（设计 §5 要求）。
 - 写 README：安装、扫码登录、导出、已知限制（云端滞后、卡路里环是 app 端合成、心率完整性、只读）。
