@@ -1,5 +1,7 @@
 # mifit
 
+[![CI](https://github.com/Jenwein/mifit/actions/workflows/ci.yml/badge.svg)](https://github.com/Jenwein/mifit/actions/workflows/ci.yml)
+
 Read your own Mi Fitness (小米运动健康) data from the Xiaomi cloud: a small
 Python library and a command-line tool.
 
@@ -143,6 +145,19 @@ as `requests` exceptions, and a bad date argument raises `ValueError` or
 - **Be gentle with the service.** Requests are sent one at a time with about a
   second's pause; long ranges are not split up yet, so export a few weeks at a
   time.
+
+## Development
+
+```bash
+pip install -e ".[test]"
+python -m pytest -q
+```
+
+The tests are offline: a fake transport stands in for the Xiaomi cloud, and
+any attempt to open a network connection fails the test. The `test` extra
+includes `tzdata`, so the daylight-saving tests also run on Windows, which has
+no time-zone database of its own. CI runs the suite on Linux with Python 3.12,
+3.13 and 3.14.
 
 ## Disclaimer
 
