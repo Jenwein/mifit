@@ -269,6 +269,24 @@ def test_stored_session_is_loaded_when_none_passed(monkeypatch):
     assert client.steps(1759276800, 1759363199).records
 
 
+def test_corrupt_stored_session_raises_AuthError(monkeypatch):
+    secret = "SYNTH-CORRUPT-SECRET-9999"
+
+    def corrupt(path=None):
+        # What a corrupt/incomplete session.json makes the loader raise.
+        raise ValueError(f"bad session file containing {secret}")
+
+    monkeypatch.setattr(client_module, "load_session", corrupt)
+
+    with pytest.raises(AuthError) as excinfo:
+        MiFit()
+
+    assert not isinstance(excinfo.value, ValueError)
+    assert secret not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__suppress_context__ is True
+
+
 def test_invalid_stored_session_raises_AuthError(monkeypatch):
     monkeypatch.setattr(
         client_module, "load_session", lambda path=None: make_session(token="")

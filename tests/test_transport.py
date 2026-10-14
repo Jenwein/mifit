@@ -3,6 +3,7 @@ touches the network, and all credentials/payloads are synthetic."""
 
 import base64
 import json
+import random
 from urllib.parse import urlparse
 
 import pytest
@@ -221,6 +222,8 @@ def test_delay_is_applied_before_the_request(monkeypatch):
     monkeypatch.setattr(
         transport_module.time, "sleep", lambda seconds: events.append(("sleep", seconds))
     )
+    # No jitter, so the slept amount is exactly ``delay_s``.
+    monkeypatch.setattr(random, "uniform", lambda low, high: 0.0)
     http = FakeHttp()
     original_get = http.get
 
@@ -233,11 +236,35 @@ def test_delay_is_applied_before_the_request(monkeypatch):
     assert events == [("sleep", 1.5), ("get", None)]
 
 
+def test_delay_has_bounded_jitter(monkeypatch):
+    slept = []
+    bounds = []
+
+    def fake_uniform(low, high):
+        bounds.append((low, high))
+        return high  # the largest jitter the transport allows
+
+    monkeypatch.setattr(transport_module.time, "sleep", slept.append)
+    monkeypatch.setattr(random, "uniform", fake_uniform)
+
+    Transport(make_session(), http=FakeHttp(), delay_s=2.0).get_json(ENDPOINT, DATA_OBJ)
+
+    # Jitter is drawn from 0..0.5*delay_s and added on top of the base delay.
+    assert bounds == [(0, 1.0)]
+    (seconds,) = slept
+    assert 2.0 <= seconds <= 2.0 + 1.0
+    assert seconds == 3.0
+
+
 def test_no_sleep_when_delay_is_zero(monkeypatch):
     def fail(_seconds):
         raise AssertionError("sleep must not be called when delay_s == 0")
 
+    def fail_uniform(_low, _high):
+        raise AssertionError("no jitter is drawn when delay_s == 0")
+
     monkeypatch.setattr(transport_module.time, "sleep", fail)
+    monkeypatch.setattr(random, "uniform", fail_uniform)
     make_transport(FakeHttp()).get_json(ENDPOINT, DATA_OBJ)
 
 

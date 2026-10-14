@@ -9,6 +9,7 @@ business ``code`` second.
 from __future__ import annotations
 
 import json
+import random
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -19,6 +20,8 @@ from mifit.errors import ApiError, AuthError
 from mifit.region import BASE_HOST, BASE_PATH, regionalize
 
 _DEFAULT_TIMEOUT_S = 30.0
+_JITTER_FRACTION = 0.5
+"""Up to this fraction of ``delay_s`` is added at random to each pause."""
 
 
 class Transport:
@@ -26,8 +29,9 @@ class Transport:
 
     ``http`` is any object with ``.get(url, params=..., headers=..., timeout=...)``
     returning something with ``.status_code`` and ``.text`` (a ``requests.Session``
-    by default). ``delay_s`` is slept before every request to stay polite to the
-    service; set it to 0 to disable.
+    by default). ``delay_s`` plus a random jitter of up to half of ``delay_s`` is
+    slept before every request to stay polite to the service (and to avoid a
+    metronomic request pattern); set ``delay_s`` to 0 to disable both.
     """
 
     def __init__(
@@ -73,7 +77,9 @@ class Transport:
         )
 
         if self._delay_s > 0:
-            time.sleep(self._delay_s)
+            time.sleep(
+                self._delay_s + random.uniform(0, _JITTER_FRACTION * self._delay_s)
+            )
         response = self._http.get(
             url,
             params=params,

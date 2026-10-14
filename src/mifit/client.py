@@ -73,7 +73,15 @@ class MiFit:
 
     def __init__(self, session: Session | None = None, *, http: Any = None) -> None:
         if session is None:
-            session = load_session()
+            try:
+                session = load_session()
+            except ValueError:
+                # `from None`: the loader's message may quote file contents, and
+                # the file holds credentials.
+                raise AuthError(
+                    "The stored Mi Fitness session is unreadable. Log in again "
+                    "(MiFit.login_qr) to replace it."
+                ) from None
         if session is None or not session.is_valid():
             # No detail about the session: it holds credentials.
             raise AuthError(
