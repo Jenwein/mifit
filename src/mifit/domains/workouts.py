@@ -17,6 +17,11 @@ ignored. The read follows the service's cursor for at most ``_MAX_PAGES`` pages,
 and when that cap cuts it short the result carries a note saying so; so does a read
 that stalls on an unusable cursor.
 
+``sport_rows`` does this list read for ``workouts`` and for the workout-detail
+domain, so both select the same workouts with the same notes. It also keeps each
+row's outer ``sid`` (the source device's id, which names the workout's detail
+files) in memory; ``workouts`` never outputs it.
+
 ``_SPORTS`` covers only the sport types verified so far and is the place to add
 more: one entry here plus one line in the sport-type test (notes/10 §4). A type
 with no entry still gives a record, with ``sport=None`` and its number in
@@ -31,6 +36,8 @@ notes/10 for the shapes and the open points.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 from mifit.domains.base import (
     DomainResult,
@@ -64,6 +71,33 @@ _VALUE_NOTES = {
 }
 
 
+@dataclass(frozen=True)
+class SportRow:
+    """One row of the workout list as ``sport_rows`` keeps it: a decoded value, or the
+    note for a row that was skipped."""
+
+    value: dict | None
+    """The decoded value (the object ``raw`` gets), or ``None`` when the row was
+    skipped."""
+    note: str | None = None
+    """Why the row was skipped: the exact note ``fetch_workouts`` gives for it."""
+    sid: str | None = field(default=None, repr=False)
+    """The outer row's ``sid`` when it is a non-empty string, else ``None`` (always
+    ``None`` for a skipped row). It names the workout's FDS files and is never
+    output."""
+
+
+@dataclass(frozen=True)
+class SportRows:
+    """What ``sport_rows`` read."""
+
+    rows: list[SportRow]
+    """In service order (newest first); rows outside the window and deleted rows are
+    absent."""
+    end_notes: list[str]
+    """The page-cap and stalled-cursor notes, which follow every row's own note."""
+
+
 @register("workouts")
 def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainResult:
     """Fetch the workouts that start between two Unix-second timestamps, both
@@ -79,6 +113,33 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
     a number becomes ``None``: ``0`` means "not reported". A window with no rows
     gives an empty result, never a fabricated workout.
     """
+    read = sport_rows(t, start_epoch_s, end_epoch_s)
+
+    result = DomainResult()
+    for row in read.rows:
+        if row.value is None:
+            result.notes.append(row.note)
+            continue
+        result.raw.append(row.value)
+        workout = to_workout(row.value)
+        if workout is None:
+            result.notes.append("Skipped a workout without a usable start time.")
+            continue
+        result.records.append(workout)
+
+    result.notes.extend(read.end_notes)
+    return result
+
+
+def sport_rows(t: Transport, start_epoch_s: int, end_epoch_s: int) -> SportRows:
+    """Read the workout list for ``fetch_workouts`` and the workout-detail domain.
+
+    One paged read, at most ``_MAX_PAGES`` pages, from one second before
+    ``start_epoch_s``; the rows whose outer ``time`` lies in
+    ``[start_epoch_s, end_epoch_s]`` and that are not deleted are decoded, in service
+    order. A row whose outer ``time`` is missing or unusable, or whose value is not a
+    JSON object, stays in place as a ``SportRow`` with no value and its note.
+    """
     paged = t.get_paged_result(
         _ENDPOINT,
         {
@@ -91,13 +152,13 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
         max_pages=_MAX_PAGES,
     )
 
-    result = DomainResult()
+    rows = []
     for entry in paged.items:
         # Which window the row belongs to is decided by the OUTER ``time``, the
         # workout's start instant.
         outer_time = as_int(entry.get("time")) if isinstance(entry, dict) else None
         if outer_time is None:
-            result.notes.append("Skipped a workout row without a usable time.")
+            rows.append(SportRow(None, "Skipped a workout row without a usable time."))
             continue
         if not start_epoch_s <= outer_time <= end_epoch_s:
             continue
@@ -106,27 +167,26 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
 
         value, problem = decode_value(entry)
         if problem is not None:
-            result.notes.append(_VALUE_NOTES[problem])
+            rows.append(SportRow(None, _VALUE_NOTES[problem]))
             continue
 
-        result.raw.append(value)
-        workout = _to_workout(value)
-        if workout is None:
-            result.notes.append("Skipped a workout without a usable start time.")
-            continue
-        result.records.append(workout)
+        sid = entry.get("sid")
+        rows.append(SportRow(value, sid=sid if isinstance(sid, str) and sid else None))
 
+    end_notes = []
     if paged.truncated:
-        result.notes.append(
+        end_notes.append(
             f"Workout list stopped at its {_MAX_PAGES}-page cap while the service had "
             "more: the oldest workouts in the range are missing; ask for a shorter range."
         )
     if paged.stalled:
-        result.notes.append(stalled_note("workout rows"))
-    return result
+        end_notes.append(stalled_note("workout rows"))
+    return SportRows(rows, end_notes)
 
 
-def _to_workout(value: dict) -> Workout | None:
+def to_workout(value: dict) -> Workout | None:
+    """The ``Workout`` of a decoded workout value, or ``None`` when it has no usable
+    start time."""
     start = as_positive_int(value.get("start_time"))
     if start is None:
         return None

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.workouts import fetch_workouts
+from mifit.domains.workouts import sport_rows
 from mifit.models.workouts import Workout
 from support import PagedFake
 
@@ -418,3 +419,112 @@ def test_stalled_read_says_so():
     # After the row's own note, and the workouts that were read are still returned.
     assert result.notes == [NOTE_NO_TIME, stalled_note("workout rows")]
     assert result.records == [expected_run()]
+
+
+def read_rows(payload, **options):
+    """``sport_rows`` over ``PagedFake(payload, **options)`` for the test window."""
+    return sport_rows(PagedFake(payload, **options), START, END)
+
+
+def test_sport_rows_carry_the_outer_sid():
+    fixture_rows = read_rows(load_fixture()).rows
+    own_rows = read_rows(
+        payload_with_rows(
+            row(RUN_START, run_value(), sid="synthetic-sid-a"),
+            row(RUN_START, run_value(), sid="synthetic-sid-b"),
+        )
+    ).rows
+
+    assert [r.sid for r in fixture_rows] == [STRENGTH_ROW["sid"], RUN_ROW["sid"]]
+    assert [r.value for r in fixture_rows] == [STRENGTH_VALUE, RUN_VALUE]
+    assert [r.sid for r in own_rows] == ["synthetic-sid-a", "synthetic-sid-b"]
+
+
+def test_sport_rows_keep_skipped_rows_in_place():
+    first = run_value(start_time=RUN_START + 1)
+    payload = payload_with_rows(
+        row(RUN_START, first),
+        row(RUN_START, "not json"),
+        row(RUN_START, run_value()),
+    )
+
+    read = read_rows(payload)
+
+    assert [(r.value, r.note) for r in read.rows] == [
+        (first, None),
+        (None, NOTE_NOT_JSON),
+        (RUN_VALUE, None),
+    ]
+    assert read.end_notes == []
+
+
+def test_sport_rows_leave_out_rows_outside_the_window_and_deleted_ones():
+    payload = payload_with_rows(
+        row(END + 1, run_value()),
+        row(RUN_START, run_value(), deleted=True),
+        row(ABSENT, run_value()),
+        row(RUN_START, run_value()),
+    )
+
+    read = read_rows(payload)
+
+    assert [(r.value, r.note) for r in read.rows] == [
+        (None, NOTE_NO_TIME),
+        (RUN_VALUE, None),
+    ]
+
+
+def test_sport_row_sid_must_be_a_non_empty_string():
+    absent = row(RUN_START, run_value())
+    del absent["sid"]
+    payload = payload_with_rows(
+        row(RUN_START, run_value(), sid=123),
+        row(RUN_START, run_value(), sid=""),
+        row(RUN_START, run_value(), sid=None),
+        absent,
+    )
+
+    rows = read_rows(payload).rows
+
+    assert [r.value for r in rows] == [RUN_VALUE] * 4
+    assert [r.sid for r in rows] == [None] * 4
+
+
+def test_sport_row_repr_hides_the_sid():
+    mark = "synthetic-sid-mark-4711"
+
+    read = read_rows(payload_with_rows(row(RUN_START, run_value(), sid=mark)))
+
+    assert read.rows[0].sid == mark
+    assert mark not in repr(read.rows[0])
+    assert mark not in repr(read)
+
+
+def test_sport_rows_end_notes_are_the_cap_then_the_stall():
+    payload = payload_with_rows(row(ABSENT, run_value()), row(RUN_START, run_value()))
+
+    read = read_rows(payload, truncated=True, stalled=True)
+    result = fetch(payload, truncated=True, stalled=True)
+
+    assert len(read.end_notes) == 2
+    assert "20-page cap" in read.end_notes[0]
+    assert read.end_notes[1] == stalled_note("workout rows")
+    # The rows' own notes come first, then the end notes, as before.
+    assert result.notes == [NOTE_NO_TIME, *read.end_notes]
+
+
+def test_notes_keep_their_order():
+    payload = payload_with_rows(
+        row(RUN_START, "not json"),
+        row(RUN_START, run_value(start_time=ABSENT)),
+        row(RUN_START, "not json"),
+    )
+
+    result = fetch(payload, stalled=True)
+
+    assert result.notes == [
+        NOTE_NOT_JSON,
+        NOTE_NO_START,
+        NOTE_NOT_JSON,
+        stalled_note("workout rows"),
+    ]
