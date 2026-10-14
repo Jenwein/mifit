@@ -46,6 +46,7 @@ def test_as_int_rejects_everything_else(raw):
         (72, 72),
         (1, 1),
         (72.9, 72),
+        (96.0, 96),
         (1e3, 1000),
     ],
 )

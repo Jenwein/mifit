@@ -31,6 +31,7 @@ from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
+from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError, RenewalError
@@ -38,6 +39,7 @@ from mifit.region import SID
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
+from mifit.models.spo2 import Spo2DailySummary
 from mifit.models.steps import StepRecord
 from mifit.models.workouts import Workout
 from mifit.transport import PagedResult, Transport
@@ -1018,7 +1020,8 @@ def test_importing_client_registers_the_domains():
     )
 
     assert out.stdout.strip() == (
-        "['consumption', 'heart_rate', 'heart_rate_daily', 'sleep', 'steps', 'workouts']"
+        "['consumption', 'heart_rate', 'heart_rate_daily', 'sleep', 'spo2_daily', "
+        "'steps', 'workouts']"
     )
 
 
@@ -1036,6 +1039,10 @@ def test_heart_rate_daily_is_registered_once_client_is_imported():
 
 def test_workouts_is_registered_once_client_is_imported():
     assert REGISTRY["workouts"] is fetch_workouts
+
+
+def test_spo2_daily_is_registered_once_client_is_imported():
+    assert REGISTRY["spo2_daily"] is fetch_spo2_daily
 
 
 def test_sleep_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
@@ -1098,6 +1105,26 @@ def test_workouts_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
+def test_spo2_daily_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
+    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, start_epoch_s, end_epoch_s):
+        seen.append((transport, start_epoch_s, end_epoch_s))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_spo2_daily", spy)
+
+    result = client.spo2_daily("2026-10-01", "2026-10-03")
+
+    assert result is sentinel
+    ((transport, start_s, end_s),) = seen
+    assert transport is fake
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
+
+
 def test_package_exports():
     from mifit.auth.session import Session as SessionClass
     from mifit.errors import (
@@ -1122,6 +1149,7 @@ def test_package_exports():
     assert mifit.SleepStage is SleepStage
     assert mifit.ConsumptionRecord is ConsumptionRecord
     assert mifit.Workout is Workout
+    assert mifit.Spo2DailySummary is Spo2DailySummary
     for name in (
         "MiFit",
         "Session",
@@ -1138,5 +1166,6 @@ def test_package_exports():
         "SleepSession",
         "SleepStage",
         "Workout",
+        "Spo2DailySummary",
     ):
         assert name in mifit.__all__

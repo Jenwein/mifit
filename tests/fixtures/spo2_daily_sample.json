@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "spo2",
+        "time": 1760400000,
+        "value": "{\"avg_spo2\":96,\"max_spo2\":99,\"min_spo2\":92,\"lack_spo2_count\":0,\"latest_spo2\":{\"spo2\":97,\"time\":1760486400,\"dbTime\":1760457600,\"dbKey\":\"spo2\",\"sid\":\"synthetic\"}}",
+        "update_time": 1760430000,
+        "watermark": 1
+      },
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "spo2",
+        "time": 1760486400,
+        "value": "{\"avg_spo2\":95,\"max_spo2\":98,\"lack_spo2_count\":1,\"latest_spo2\":{\"spo2\":96,\"time\":1760572800,\"dbTime\":1760544000,\"dbKey\":\"spo2\",\"sid\":\"synthetic\"}}",
+        "update_time": 1760516400,
+        "watermark": 2
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}

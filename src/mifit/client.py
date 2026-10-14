@@ -27,6 +27,7 @@ from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
+from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError
@@ -274,6 +275,16 @@ class MiFit:
         steps; the full source report for each workout is in ``raw``.
         """
         return fetch_workouts(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def spo2_daily(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Daily SpO2 summaries from ``start`` to ``end`` (inclusive days).
+
+        One record per local day with SpO2 data, giving the day's average, highest
+        and lowest SpO2 % as the service's daily report states them.
+        """
+        return fetch_spo2_daily(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 

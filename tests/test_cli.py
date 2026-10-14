@@ -26,6 +26,7 @@ from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
+from mifit.models.spo2 import Spo2DailySummary
 from mifit.models.steps import StepRecord
 from mifit.models.workouts import Workout
 
@@ -86,6 +87,13 @@ HR_DAY = HeartRateDailySummary(
     max_bpm=130,
     min_bpm=50,
     resting_bpm=None,
+)
+SPO2_DAY = Spo2DailySummary(
+    date="2026-10-01",
+    epoch_s=1790812800,
+    avg_spo2_pct=96,
+    max_spo2_pct=99,
+    min_spo2_pct=None,
 )
 WORKOUT = Workout(
     start_epoch_s=1790820000,
@@ -148,6 +156,10 @@ class FakeMiFit:
     def heart_rate_daily(self, start, end):
         self.calls.append(("heart_rate_daily", start, end, {}))
         return DomainResult(records=[HR_DAY], raw=[{"avg_hr": 70}], notes=[])
+
+    def spo2_daily(self, start, end):
+        self.calls.append(("spo2_daily", start, end, {}))
+        return DomainResult(records=[SPO2_DAY], raw=[{"avg_spo2": 96}], notes=[])
 
     def workouts(self, start, end):
         self.calls.append(("workouts", start, end, {}))
@@ -265,6 +277,28 @@ def test_export_heart_rate_daily_writes_records(fake_mifit, tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["records"] == [asdict(HR_DAY)]
     assert fake_mifit.instances[0].calls == [("heart_rate_daily", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_spo2_daily_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "spo2_daily.json"
+
+    rc = cli.main(
+        [
+            "export",
+            "spo2_daily",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+        ]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(SPO2_DAY)]
+    assert fake_mifit.instances[0].calls == [("spo2_daily", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_workouts_writes_records(fake_mifit, tmp_path):
