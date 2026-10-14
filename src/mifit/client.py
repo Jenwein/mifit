@@ -19,6 +19,7 @@ from mifit.auth.session import Session, load_session, save_session
 from mifit.domains.base import DomainResult
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
+from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
 from mifit.errors import AuthError
 from mifit.transport import Transport
@@ -114,6 +115,18 @@ class MiFit:
         covers.
         """
         return fetch_consumption(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def sleep(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Sleep per local day from ``start`` to ``end`` (inclusive).
+
+        One record per day that has sleep: its totals and each session that ended on
+        that day (a night, a nap), with the stage timeline where the service has one.
+        Session times are true Unix seconds; ``utc_offset_s`` gives the zone they
+        were recorded in.
+        """
+        return fetch_sleep(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 

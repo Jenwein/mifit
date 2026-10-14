@@ -10,6 +10,7 @@ from mifit.errors import (
 )
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRatePoint
+from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.steps import StepRecord
 
 __all__ = [
@@ -22,4 +23,7 @@ __all__ = [
     "StepRecord",
     "HeartRatePoint",
     "ConsumptionRecord",
+    "SleepRecord",
+    "SleepSession",
+    "SleepStage",
 ]

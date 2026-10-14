@@ -20,6 +20,7 @@ from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRatePoint
+from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.steps import StepRecord
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,35 @@ NOTIFICATION_URL = "https://account.xiaomi.com/synthetic/cli-notify?t=synthetic-
 
 STEP = StepRecord(
     date="2026-10-01", steps=4321, distance_m=3100, step_calories=150, epoch_s=1790812800
+)
+SLEEP = SleepRecord(
+    date="2026-10-01",
+    epoch_s=1790812800,
+    asleep_min=60,
+    deep_min=60,
+    light_min=0,
+    rem_min=None,
+    awake_min=0,
+    score=70,
+    avg_hr_bpm=60,
+    min_hr_bpm=55,
+    max_hr_bpm=70,
+    avg_spo2_pct=None,
+    min_spo2_pct=None,
+    max_spo2_pct=None,
+    sessions=[
+        SleepSession(
+            start_epoch_s=1790812800,
+            end_epoch_s=1790816400,
+            utc_offset_s=28800,
+            asleep_min=60,
+            deep_min=60,
+            light_min=0,
+            rem_min=None,
+            awake_min=0,
+            stages=[SleepStage(1790812800, 1790816400, "deep")],
+        )
+    ],
 )
 CONSUMPTION = ConsumptionRecord(
     date="2026-10-01",
@@ -83,6 +113,10 @@ class FakeMiFit:
             raw=[{"basal": 1907.5, "exercise": 365, "intake": 0}],
             notes=[],
         )
+
+    def sleep(self, start, end):
+        self.calls.append(("sleep", start, end, {}))
+        return DomainResult(records=[SLEEP], raw=[{"total_duration": 60}], notes=[])
 
     def heart_rate(self, start, end, *, full=False):
         self.calls.append(("heart_rate", start, end, {"full": full}))
@@ -160,6 +194,20 @@ def test_export_consumption_dispatches_to_the_client(fake_mifit, tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["records"] == [asdict(CONSUMPTION)]
     assert fake_mifit.instances[0].calls == [("consumption", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_sleep_writes_nested_records(fake_mifit, tmp_path):
+    out = tmp_path / "sleep.json"
+
+    rc = cli.main(
+        ["export", "sleep", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(SLEEP)]
+    assert data["records"][0]["sessions"][0]["stages"][0]["stage"] == "deep"
+    assert fake_mifit.instances[0].calls == [("sleep", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_unknown_domain_errors(fake_mifit, capsys):
