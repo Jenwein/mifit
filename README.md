@@ -28,13 +28,14 @@ Python objects, so you can build on it.
 | `spo2` | raw SpO2 readings | `Spo2Point` | pending |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
 | `profile` (its own command: `mifit profile`) | height, weight, daily step and calorie goals | `UserProfile` | pending |
-| `raw` (Python only: `client.raw(key, ...)`) | the rows of any fitness-data key, as the service sends them | none: a list of the service's rows | not applicable: nothing is interpreted |
+| `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
 
 "Checked against the app" means the values were compared with what the Mi
 Fitness app shows, on one real account (China region, UTC+8). "Pending" means
 implemented and tested offline, but not yet compared with the app. More is
-planned. Meanwhile, `raw` returns the rows of any other key of the
-fitness-data endpoint, uninterpreted.
+planned. Meanwhile, `mifit raw` (in Python `raw_window` and `daily_report`)
+returns the rows of any other key of the fitness-data endpoint,
+uninterpreted.
 
 ## Install
 
@@ -139,8 +140,8 @@ it separately.
 mifit raw <key> --from YYYY-MM-DD --to YYYY-MM-DD [--daily [--tag TAG]] [--json PATH] [--long]
 ```
 
-Reads one key of the fitness-data endpoint without a domain of its own
-(`stress`, for example):
+Reads any key of the fitness-data endpoint as the service sends it, whether
+or not mifit also has a domain for it (`heart_rate` has one):
 
 - It writes `{records: [], raw, notes}`. `raw` holds the service's rows, with
   their own fields and `value` decoded from its JSON string; `records` is

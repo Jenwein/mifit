@@ -1,6 +1,6 @@
-"""Command-line interface: ``mifit login``, ``mifit export``, ``mifit profile`` and
-``mifit raw``.
+"""Command-line interface for mifit.
 
+The commands are ``mifit login``, ``mifit export``, ``mifit profile`` and ``mifit raw``.
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
 sleep, spo2, spo2 daily, weight, workouts, workout detail) for a date range and writes
@@ -331,10 +331,10 @@ def _write_result(result: DomainResult, json_path: str | None, *, noun: str = "r
     return _EXIT_OK
 
 
-def _long_range_message(command: str, days: int) -> str:
+def _long_range_message(command: str, days: int, reason: str) -> str:
     return (
         f"{command}: the range is {days} days long; a range over {_LONG_RANGE_DAYS} days "
-        "takes many requests and needs --long"
+        f"{reason} and needs --long"
     )
 
 
@@ -353,7 +353,7 @@ def _export_usage_error(args: argparse.Namespace) -> str | None:
         )
     days = (parse_day(args.end) - parse_day(args.start)).days + 1
     if days > _LONG_RANGE_DAYS and not args.long and not full:  # --full ignores --from
-        return _long_range_message("export", days)
+        return _long_range_message("export", days, "takes many requests")
     return None
 
 
@@ -565,7 +565,11 @@ def _raw_usage_error(args: argparse.Namespace) -> str | None:
         return "raw: --tag only applies with --daily"
     days = (parse_day(args.end) - parse_day(args.start)).days + 1
     if days > _LONG_RANGE_DAYS and not args.long:
-        return _long_range_message("raw", days)
+        return _long_range_message("raw", days, "is one long paged read that can take minutes")
+    if not args.key.strip():  # the client refuses it with a ValueError, once it is open
+        return "raw: KEY must not be empty"
+    if args.tag is not None and not args.tag.strip():
+        return "raw: --tag must not be empty"
     return None
 
 

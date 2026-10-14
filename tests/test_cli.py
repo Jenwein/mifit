@@ -1036,6 +1036,10 @@ def test_long_range_needs_long_flag(fake_mifit, capsys):
     assert rc == 2
     err = capsys.readouterr().err
     assert "93 days" in err and "92" in err and "--long" in err
+    assert (
+        "mifit: error: export: the range is 93 days long; a range over 92 days "
+        "takes many requests and needs --long\n"
+    ) in err
     assert fake_mifit.instances == []
 
 
@@ -1901,6 +1905,24 @@ def test_raw_tag_without_daily_is_a_usage_error(fake_mifit, capsys):
     assert fake_mifit.instances == []
 
 
+@pytest.mark.parametrize("key", ["", "   "])
+def test_raw_empty_key_is_a_usage_error(fake_mifit, key, capsys):
+    rc = cli.main(["raw", key, "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc == 2
+    assert "KEY must not be empty" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
+@pytest.mark.parametrize("tag", ["", "   "])
+def test_raw_blank_tag_is_a_usage_error(fake_mifit, tag, capsys):
+    rc = cli.main([*RAW_ARGS, "--daily", "--tag", tag])
+
+    assert rc == 2
+    assert "--tag must not be empty" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
 def test_raw_long_range_needs_long(fake_mifit, tmp_path, capsys):
     long_args = ["raw", "stress", "--from", "2026-01-01", "--to", "2026-04-03"]  # 93 days
 
@@ -1910,6 +1932,9 @@ def test_raw_long_range_needs_long(fake_mifit, tmp_path, capsys):
     err = capsys.readouterr().err
     assert "--long" in err
     assert "92" in err
+    # One long paged read, not many chunk requests: the message says so.
+    assert "paged read" in err
+    assert "many requests" not in err
     assert fake_mifit.instances == []
 
     rc = cli.main([*long_args, "--long", "--json", str(tmp_path / "out.json")])
