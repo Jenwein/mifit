@@ -188,6 +188,8 @@ the rows of your window, with `value` decoded. `daily_report(key, ...)` returns
 the key's daily rows, one per local day that has data, with `tag=` to pick a
 tag other than `daily_report`. Both give `records=[]` and the rows in `raw`.
 
+Which keys exist and what is verified: `notes/domain-catalog.md`.
+
 `workout_detail` gives one `WorkoutDetail` per workout in `records`: its
 `workout` summary (the `Workout` of `workouts`), its `samples` (`WorkoutSample`,
 one per recorded second) and its `track` (`TrackPoint`); `track=False` asks
