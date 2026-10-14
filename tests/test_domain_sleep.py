@@ -577,3 +577,18 @@ def test_stalled_raw_read_says_so():
     assert len(result.notes) == 2
     assert "2025-10-14" in result.notes[0]
     assert result.notes[-1] == stalled_note("sleep stage rows")
+
+
+def test_both_reads_stalled_keep_each_note_after_its_own_notes():
+    daily = load("sleep_daily_sample.json")
+    daily["result"]["data_list"][0]["value"] = "{not json"
+    raw = raw_without(lambda v: v["bedtime"] == NIGHT_BED)
+
+    _, result = fetch(daily, raw, stalled=True)
+
+    assert result.notes == [
+        "Skipped a daily sleep row whose value is missing or not valid JSON.",
+        stalled_note("daily sleep rows"),
+        "Stage timeline not found for a sleep session on 2025-10-14.",
+        stalled_note("sleep stage rows"),
+    ]

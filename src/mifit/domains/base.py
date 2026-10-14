@@ -55,8 +55,9 @@ class ValueProblem(Enum):
 
     UNREADABLE = "unreadable"
     """The row has no ``value`` (or is not an object itself), or its ``value`` is not
-    a JSON string that decodes: not a string, malformed, or holding an integer too
-    long for Python to parse (``json.loads`` raises ``ValueError`` on one)."""
+    a JSON string that decodes: not a string, malformed, holding an integer too long
+    for Python to parse (``json.loads`` raises ``ValueError`` on one), or nested too
+    deeply to decode (``json.loads`` raises ``RecursionError``)."""
     NOT_AN_OBJECT = "not an object"
     """The ``value`` decodes, but to something other than a JSON object."""
 
@@ -79,7 +80,7 @@ def decode_value(row: object) -> DecodedValue:
     """
     try:
         value = json.loads(row["value"])
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, RecursionError):
         return DecodedValue(None, ValueProblem.UNREADABLE)
     if not isinstance(value, dict):
         return DecodedValue(None, ValueProblem.NOT_AN_OBJECT)

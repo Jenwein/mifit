@@ -35,7 +35,10 @@ class RawWindow(NamedTuple):
     """The entries whose outer ``time`` is in the window, in the service's order
     and untouched (their ``value`` is still the wire's JSON string)."""
     unusable: int
-    """How many entries are not objects or have no usable outer ``time``."""
+    """How many entries are not objects or have no usable outer ``time``. Such an
+    entry cannot be placed in or out of the window, so one served in the margin
+    counts too: in a chunked read (``mifit.chunks``), whose neighbouring requests
+    overlap by the margin, two chunks can count the same entry."""
     stalled: bool
     """Whether the paged read stalled on an unusable cursor
     (``PagedResult.stalled``), so rows in the window may be missing."""
@@ -53,7 +56,8 @@ def fetch_raw_window(
     and untouched (their ``value`` is still the wire's JSON string); ``unusable``
     counts the entries that are not objects or have no usable outer ``time``, and
     ``stalled`` says whether the read stalled, so the caller can note both. The
-    margin's rows, and any after the end, are dropped without being counted.
+    rows dated in the margin, and any after the end, are dropped without being
+    counted.
     """
     paged = t.get_paged_result(
         RAW_ENDPOINT,

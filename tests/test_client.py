@@ -306,7 +306,7 @@ def test_raw_passes_entries_through_unwrapped(build):
 
     entries = client.raw("heart_rate", 1759248000, 1759334399)
 
-    # get_paged already unwraps ``result``: the facade must hand back its list as is.
+    # get_paged_result already unwraps ``result``: the facade must hand back its items as is.
     assert entries == payload["result"]["data_list"]
     assert isinstance(entries, list)
     assert fake.calls == [

@@ -28,6 +28,13 @@ matched raw sessions, so merged it holds those two sections once per chunk, in
 chunk order: the same values in another order. With more than one chunk the
 notes carry their chunk's label, so they differ from a single read's too.
 
+The raw reads of ``heart_rate``, ``spo2`` and ``weight`` start one day early (the
+margin of ``raw_window``), so neighbouring chunks' requests overlap by a day. A row
+the service sends there without a usable time cannot be placed in either chunk, so
+each read that gets it notes it: a chunked read can note such a row twice where a
+single read notes it once. ``records`` and ``raw`` are not affected, because those
+rows go into neither.
+
 The chunks are read one at a time through the client's own transport, which
 already pauses before every request (``Transport``: ``delay_s`` plus jitter), so
 no extra delay is added between chunks.
@@ -180,7 +187,8 @@ def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
     read gives all the daily values first. With more than one part every note is
     prefixed with its chunk's label (``"<label>: <note>"``), so a repeated note
     says which chunk it came from; a single part's notes are kept as they are.
-    No parts give an empty result.
+    (A row without a usable time in the day two raw reads share can be noted by
+    both chunks; see the module docstring.) No parts give an empty result.
     """
     merged = DomainResult()
     labeled = len(parts) > 1

@@ -19,6 +19,10 @@ HUGE_INT = "1" * 5000
 """An integer literal longer than Python's 4300-digit ``int`` parsing limit, so
 ``json.loads`` raises ``ValueError`` on it."""
 
+TOO_DEEP = 1_000_000
+"""A nesting depth far beyond what ``json.loads`` accepts on any supported Python,
+so it raises ``RecursionError`` (not a ``ValueError``)."""
+
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
@@ -254,6 +258,15 @@ def test_decode_value_reports_a_missing_or_undecodable_value(value):
     row = {"time": 1} if value is ABSENT else {"time": 1, "value": value}
 
     assert decode_value(row) == (None, ValueProblem.UNREADABLE)
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"), [("[", "]"), ('{"a": ', "}")], ids=["arrays", "objects"]
+)
+def test_decode_value_of_a_too_deeply_nested_value_is_unreadable(opening, closing):
+    value = opening * TOO_DEEP + "1" + closing * TOO_DEEP
+
+    assert decode_value({"time": 1, "value": value}) == (None, ValueProblem.UNREADABLE)
 
 
 @pytest.mark.parametrize(

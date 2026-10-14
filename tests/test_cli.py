@@ -730,6 +730,43 @@ def test_finite_replaces_only_non_finite_floats_at_any_depth():
     assert value["nan"] != value["nan"]  # the input is left untouched
 
 
+def test_finite_keeps_the_order_of_keys_and_items():
+    value = {
+        "b": [3, float("nan"), {"z": 1, "a": 2}],
+        "a": (1.5, "x"),
+        "c": {"y": None, "x": float("inf")},
+    }
+
+    cleaned, count = cli._finite(value)
+
+    assert count == 2
+    # ``json.dumps`` writes keys in insertion order, so this pins the order too.
+    assert json.dumps(cleaned) == (
+        '{"b": [3, null, {"z": 1, "a": 2}], "a": [1.5, "x"], "c": {"y": null, "x": null}}'
+    )
+
+
+def test_finite_handles_nesting_deeper_than_the_recursion_limit():
+    depth = 5000  # json.loads accepts this deep on Python 3.14
+    value = float("nan")
+    for level in range(depth):
+        value = [value] if level % 2 else {"k": value}
+
+    cleaned, count = cli._finite(value)
+
+    assert count == 1
+    # Walked down in a loop: ``==`` on 5000 levels would recurse itself.
+    node = cleaned
+    for level in reversed(range(depth)):
+        if level % 2:
+            assert isinstance(node, list) and len(node) == 1
+            node = node[0]
+        else:
+            assert isinstance(node, dict) and list(node) == ["k"]
+            node = node["k"]
+    assert node is None
+
+
 # ---------------------------------------------------------------------------
 # chunked export
 # ---------------------------------------------------------------------------
@@ -745,6 +782,7 @@ HEADER = {
     "chunk": "month",
 }
 RESUME_HINT = "Completed chunks are saved in {}; rerun the same command with --resume to continue."
+NO_CHUNK_HINT = "No chunk is saved in {} yet; rerun the same command with --resume to continue."
 
 
 def echo(fail_at=None, error=None, domain="steps"):
@@ -851,6 +889,28 @@ def test_consumption_chunks_run_oldest_first(fake_mifit, monkeypatch, tmp_path):
         ("consumption", "2026-02-01", "2026-03-03", {}),
         ("consumption", "2026-03-04", "2026-03-15", {}),
     ]
+
+
+def test_heart_rate_long_range_is_read_in_week_chunks(fake_mifit, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "heart_rate", "--from", "2026-10-01", "--to", "2026-10-14", "--json", str(out)]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("heart_rate", "2026-10-08", "2026-10-14", {"full": False}),
+        ("heart_rate", "2026-10-01", "2026-10-07", {"full": False}),
+    ]
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(HEART_RATE_POINT)] * 2
+    assert data["notes"] == [
+        "2026-10-08..2026-10-14: Window query: result may be incomplete.",
+        "2026-10-01..2026-10-07: Window query: result may be incomplete.",
+    ]
+    assert "export: 2 chunks of up to 7 days, read one at a time." in capsys.readouterr().err
+    assert not partial_of(out).exists()
 
 
 def test_chunk_flag_overrides_domain_default(fake_mifit, monkeypatch, tmp_path):
@@ -1128,6 +1188,41 @@ def test_ctrl_c_mid_export_keeps_progress(fake_mifit, monkeypatch, tmp_path, cap
     assert not out.exists()
 
 
+@pytest.mark.parametrize(
+    ("error", "code"), [(ApiError("boom"), 1), (KeyboardInterrupt(), 130)], ids=["error", "ctrl-c"]
+)
+def test_resumed_partial_without_chunks_does_not_claim_any_are_saved(
+    fake_mifit, monkeypatch, tmp_path, error, code, capsys
+):
+    out = tmp_path / "out.json"
+    start_partial(partial_of(out), HEADER)  # this export's header, no chunk yet
+    monkeypatch.setattr(FakeMiFit, "steps", echo(fail_at="2026-03-04", error=error))
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == code
+    err = capsys.readouterr().err
+    assert "Completed chunks" not in err
+    assert NO_CHUNK_HINT.format(partial_of(out)) in err
+    assert stored_lines(out) == [HEADER]
+
+
+def test_resumed_partial_without_chunks_after_an_auth_error_says_to_log_in(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    start_partial(partial_of(out), HEADER)
+    error = AuthError("The Mi Fitness service rejected the session token.")
+    monkeypatch.setattr(FakeMiFit, "steps", echo(fail_at="2026-03-04", error=error))
+
+    assert export_steps(out, "--resume") == 1
+
+    assert (
+        f"No chunk is saved in {partial_of(out)} yet; after `mifit login`, "
+        "rerun the same command with --resume to continue."
+    ) in capsys.readouterr().err
+
+
 def test_network_error_mid_export_names_the_chunk(fake_mifit, monkeypatch, tmp_path, capsys):
     out = tmp_path / "out.json"
     error = requests.ConnectionError("https://host.example/path?token=SECRET-IN-URL")
@@ -1315,6 +1410,77 @@ def test_partial_that_cannot_be_created_stops_the_export(
     assert "Completed chunks" not in err  # none was kept
     assert len(fake_mifit.instances[0].calls) == 1
     assert not out.exists()
+
+
+def test_first_chunk_that_cannot_be_saved_leaves_no_partial(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    def append_fails(path, label, part):
+        assert path.exists()  # the header is written, the chunk is not
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(cli, "append_part", append_fails)
+
+    rc = export_steps(out)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert (
+        f"error: could not save chunk 1/3 2026-03-04..2026-03-15 to {partial_of(out)} "
+        "(No space left on device)."
+    ) in err
+    assert "--resume" not in err
+    assert not partial_of(out).exists()  # it held no chunk
+    monkeypatch.setattr(cli, "append_part", append_part)
+    assert export_steps(out) == 0  # so the next plain run is not refused
+
+
+def test_ctrl_c_before_the_first_chunk_is_saved_leaves_no_partial(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    def interrupted(path, label, part):
+        assert path.exists()  # Ctrl+C lands after the header, before the chunk
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "append_part", interrupted)
+
+    rc = export_steps(out)
+
+    assert rc == 130
+    err = capsys.readouterr().err
+    assert "Interrupted." in err
+    assert "--resume" not in err
+    assert not partial_of(out).exists()
+    monkeypatch.setattr(cli, "append_part", append_part)
+    assert export_steps(out) == 0
+
+
+def test_partial_left_by_a_failed_first_save_is_deleted_best_effort(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    def append_fails(path, label, part):
+        raise OSError(28, "No space left on device")
+
+    def unlink(self, missing_ok=False):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(cli, "append_part", append_fails)
+    monkeypatch.setattr(Path, "unlink", unlink)
+
+    rc = export_steps(out)
+
+    assert rc == 1  # the save error is reported; the failed delete does not crash
+    assert "error: could not save chunk 1/3" in capsys.readouterr().err
+    assert stored_lines(out) == [HEADER]
 
 
 def test_unwritable_output_keeps_the_partial_for_resume(

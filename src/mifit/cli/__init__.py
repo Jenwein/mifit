@@ -26,6 +26,7 @@ fetching and a URL can carry a token.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import io
 import json
@@ -229,25 +230,34 @@ def _finite(value: Any) -> tuple[Any, int]:
     """A copy of ``value`` with every non-finite float (NaN, +Infinity, -Infinity)
     replaced by ``None``, at any depth of dicts, lists and tuples (the latter
     become lists), and how many were replaced. ``bool`` and ``int`` are untouched.
+
+    ``value`` is JSON-shaped data, a tree (no container holds itself). It is walked
+    with an explicit stack, not by recursion, so any depth ``json.loads`` accepts
+    works; dict keys and list items keep their order.
     """
-    if isinstance(value, float):
-        return (None, 1) if not math.isfinite(value) else (value, 0)
-    if isinstance(value, dict):
-        replaced = 0
-        out = {}
-        for key, item in value.items():
-            out[key], count = _finite(item)
-            replaced += count
-        return out, replaced
-    if isinstance(value, (list, tuple)):
-        replaced = 0
-        items = []
-        for item in value:
-            clean, count = _finite(item)
-            items.append(clean)
-            replaced += count
-        return items, replaced
-    return value, 0
+    replaced = 0
+    root: list[Any] = [None]
+    # Each entry: a value to copy, and the container and key (or index) it goes to.
+    stack: list[tuple[Any, Any, Any]] = [(value, root, 0)]
+    while stack:
+        item, target, key = stack.pop()
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                item = None
+                replaced += 1
+            target[key] = item
+        elif isinstance(item, dict):
+            # Every key is set now, in order; its value is filled in later.
+            copy = dict.fromkeys(item)
+            target[key] = copy
+            stack.extend((child, copy, child_key) for child_key, child in item.items())
+        elif isinstance(item, (list, tuple)):
+            copy = [None] * len(item)
+            target[key] = copy
+            stack.extend((child, copy, index) for index, child in enumerate(item))
+        else:
+            target[key] = item
+    return root[0], replaced
 
 
 def _json_ready(result: DomainResult) -> DomainResult:
@@ -327,13 +337,16 @@ def _plan(args: argparse.Namespace) -> tuple[list[Chunk], str, bool]:
     return plan_chunks(args.domain, first, last, size), size, False
 
 
-def _resume_hint(partial: Path, auth: bool) -> str:
-    """How to go on with an export whose finished chunks are kept in ``partial``."""
+def _resume_hint(partial: Path, *, auth: bool, saved: bool) -> str:
+    """How to go on with an export kept in ``partial``; ``saved`` says whether that
+    file holds a finished chunk (a resumed file can hold only the header)."""
     login = "after `mifit login`, " if auth else ""
-    return (
-        f"Completed chunks are saved in {partial}; {login}rerun the same command "
-        "with --resume to continue."
+    kept = (
+        f"Completed chunks are saved in {partial}"
+        if saved
+        else f"No chunk is saved in {partial} yet"
     )
+    return f"{kept}; {login}rerun the same command with --resume to continue."
 
 
 def _holds_no_chunk(partial: Path) -> bool:
@@ -389,16 +402,29 @@ def _save_part(
     partial: Path, header: dict, label: str, part: DomainResult, *, create: bool
 ) -> None:
     """Append the finished chunk ``label`` to ``partial``, creating the file with
-    ``header`` first when ``create``. Raises ``_SaveError`` if it cannot be written."""
+    ``header`` first when ``create``. Raises ``_SaveError`` if it cannot be written.
+
+    With ``create``, a file this call made is deleted again (best effort) when the
+    chunk does not get into it: a failed write, or Ctrl+C before the chunk is written.
+    It would hold no chunk, and left behind it would make the next plain run refuse
+    to start. The file did not exist before (``_load_progress`` checked), so nothing
+    earlier is lost.
+    """
+    saved = False
     try:
         if create:
             start_partial(partial, header)
         append_part(partial, label, part)
+        saved = True
         return
     except OSError as exc:
         reason = exc.strerror or type(exc).__name__
     except ValueError as exc:  # a value strict JSON cannot hold; nothing was written
         reason = type(exc).__name__
+    finally:
+        if create and not saved:
+            with contextlib.suppress(OSError):
+                partial.unlink(missing_ok=True)
     raise _SaveError(reason)
 
 
@@ -426,6 +452,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
     if parts is None:
         return _EXIT_ERROR
     stored = partial is not None and partial.exists()  # resumed: the file holds this export
+    # With a partial file, ``parts`` holds exactly the chunks stored in it: a chunk is
+    # added only once it is saved.
     if chunked:
         days = f"{CHUNK_DAYS[size]} day{'' if CHUNK_DAYS[size] == 1 else 's'}"
         _eprint(f"export: {len(plan)} chunks of up to {days}, read one at a time.")
@@ -454,16 +482,16 @@ def _cmd_export(args: argparse.Namespace) -> int:
     except (MiFitError, requests.RequestException) as exc:
         _report(exc, client, f" (chunk {step})" if chunked and step else "")
         if stored:
-            _eprint(_resume_hint(partial, auth=isinstance(exc, AuthError)))
+            _eprint(_resume_hint(partial, auth=isinstance(exc, AuthError), saved=bool(parts)))
         return _EXIT_ERROR
     except _SaveError as exc:
         _eprint(f"error: could not save chunk {step} to {partial} ({exc}).")
         if stored:
-            _eprint(_resume_hint(partial, auth=False))
+            _eprint(_resume_hint(partial, auth=False, saved=bool(parts)))
         return _EXIT_ERROR
     except KeyboardInterrupt:
         if stored:
-            _eprint(_resume_hint(partial, auth=False))
+            _eprint(_resume_hint(partial, auth=False, saved=bool(parts)))
         raise  # main says "Interrupted." and exits 130
 
     result = merge_chunks([(chunk, parts[chunk.label]) for chunk in plan])
@@ -472,7 +500,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         if code == _EXIT_OK:
             _remove_partial(partial)
         else:  # the output could not be written; every chunk is still in the file
-            _eprint(_resume_hint(partial, auth=False))
+            _eprint(_resume_hint(partial, auth=False, saved=bool(parts)))
     return code
 
 

@@ -166,10 +166,11 @@ def load_partial(
     ``PartialError`` says that it is damaged or, for another export's header, which
     export it belongs to. A later line for a label replaces an earlier one.
 
-    A torn last line (a crash in the middle of a write: it does not parse or lacks a
-    field) is dropped, and that chunk is simply read again. Any other bad line, or a
-    label not in ``labels``, is a ``PartialError``: the file is damaged, or was
-    made for another chunk plan.
+    A bad last line is taken as torn (a crash in the middle of a write) and dropped,
+    and that chunk is simply read again: one that does not parse, lacks a field, has
+    a field of the wrong type or has extra keys. Any other bad line, or a label not
+    in ``labels``, is a ``PartialError``: the file is damaged, or was made for
+    another chunk plan.
 
     Afterwards the file is safe to append to, so this may write: a dropped tail is cut
     off (truncated), and a last sound line that lost only its newline gets it back
