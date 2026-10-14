@@ -25,7 +25,7 @@
 | # | 横向工作 | 何时做 |
 |---|---|---|
 | T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史） |
-| T2 | 会话寿命与自动续期 | 现在开始观察；实现放在 M4 之前 |
+| T2 | 会话寿命与自动续期 | ✅ 实现完成（2026-10-14），待真机核对（需重新 `mifit login` 一次以保存 passToken） |
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | M4 之后，M6 之前 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
@@ -43,7 +43,7 @@
   - `heart_rate_daily`：日汇总的平均 / 最高 / 最低 / 静息心率（`avg_bpm` / `max_bpm` / `min_bpm` / `resting_bpm`）；待真机核对。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 354 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 445 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 
@@ -54,7 +54,7 @@
 | ~~steps 的日界语义只在东八区成立~~ → **已修（M2a）**：窗口改为按日汇总键左开右闭构造，与时区无关（notes/06）。 | — | ✅ M2a |
 | consumption 当初的教训：自己推"服务端怎么切日"会推错；照抄 app 发什么才稳。 | 方法论 | M2a 起所有日汇总域 |
 | ~~原始心率按时间窗查询会漏点（根因未知）；`--full` 有 10 页上限，触顶时没有提示。~~ → **已修（M3）**：根因是服务端丢掉键在 / 早于 `start_time` 的那个约 2 h 桶；修法是起点提前一天再按窗口过滤（notes/08）；`--full` 触顶时现在有提示。 | — | ✅ M3 |
-| 会话多久过期、能否用 passToken 自助续期，都未验证。目前一遇 401 就提示重新扫码。 | 无人值守 / 定时使用 | T2 |
+| ~~会话多久过期、能否用 passToken 自助续期，都未验证。目前一遇 401 就提示重新扫码。~~ → **已实现（T2，待真机核对）**：passToken→serviceLogin→STS 续期、401 时自动续期一次、生命周期日志（notes/09）。 | — | T2 |
 | ~~移植自 kevinkwee/Mi-Fitness-Sync（MIT）的签名/传输逻辑没有保留署名；仓库无 LICENSE、无 README~~ → **已修（T1）**：LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README。 | — | ✅ T1 |
 | ~~夏令时用例在本机因缺 tzdata 被跳过。~~ → **已修（T4）**：`pip install -e ".[test]"` 装上 tzdata，Windows 本机也跑夏令时用例；CI 在 Linux 上跑全部测试，测试里禁止联网。 | — | ✅ T4 |
 | ~~sleep 审查遗留 Minor ①–⑧~~ → **已修（sleep 加固，2026-10-14）**：①畸形数据跳过并记 note（不可哈希的 state 记为 unknown）；②相同起止的重复原始会话优先取有分期的；③`raw` 只含日汇总和实际匹配上的原始会话（已删除、加宽窗口带出的不再混入；全部原始会话用 `MiFit.raw("sleep", …)`）；④分期列表按会话复制；⑤没有会话时不发原始请求；⑥补 UTC−5 原始窗口测试；⑦重写该测试使断言可失败；⑧原始请求的 ApiError 保留日汇总并记 note，AuthError 照常抛出。另：`score` 移出 B 层，只留在 `raw`（`sleep_score`）：app 只显示等级，数值未核对（设计 §2 反目标）。 | — | ✅ sleep 加固 |
@@ -143,6 +143,7 @@
 - 现在就开始观察：记录每次登录时间和首次 401 的时间，先得到真实的有效期。
 - 调研：能否用 `passToken` 重新走 STS 换新的 serviceToken，而不必重新扫码（notes/04 指出续期依赖账号 SDK，不能只靠 serviceToken + ssecurity）。
 - 实现目标：过期时自动续期一次；续不了再提示扫码。401 也可能是签名错误，不能无限重试（设计 §3：最多 3 次）。
+- **结果（2026-10-14）✅（待真机核对）**：会话保存 passToken / deviceId / 续期时间，`renew_session` 走 passToken→serviceLogin→STS，传输层遇 401 自动续期一次并重试（每请求最多 1 次、每个 Transport 最多 3 次），`~/.mifit/session-log.jsonl` 记录生命周期（只有事件名、UTC 时间和时长）。目前观察到的有效期至少 7 小时，自然过期时间将从会话日志读出；续期本身和新 deviceId 下的扫码登录尚未真机核对，当前已存会话没有 passToken，需重新 `mifit login` 一次。
 
 ### T3 长区间 / 全量导出
 - 默认分块（按周或按月）+ 串行 + 带抖动的延时（设计 §3 风控默认值），全量导出需要显式开启。
