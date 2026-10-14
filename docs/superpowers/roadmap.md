@@ -84,7 +84,7 @@
 - 已知坑：睡眠时间走 app 的 `sleepSegmentToLocalTime`，和步数的日界规则不同；先反编译确认再写。一晚睡眠跨两个日期，"这晚算哪天"必须和 app 一致。
 - 完成标准：2–3 晚的总时长、各分期时长、分数、入睡/醒来时刻与 app 睡眠页一致（取整误差内）；分期区间与 app 的分期图形态一致。
 - 需要你：核对时在 app 里读出这几晚的上述数字（我会提前列好清单）。
-- **结果（2026-10-14）✅**：`MiFit.sleep()` / `mifit export sleep`，`SleepRecord`（按天）→ `SleepSession`（每段）→ `SleepStage`（分期）。总睡眠（含小睡）、夜间起止、深睡/浅睡/清醒、睡眠平均心率与 app 一致；分数 app 只显示等级，无法核对；小睡在 B 层表现为无分期的会话。见 [verification/2026-10-14-sleep-live.md](verification/2026-10-14-sleep-live.md)。审查遗留的 Minor 见第 2 节遗留问题表。
+- **结果（2026-10-14）✅**：`MiFit.sleep()` / `mifit export sleep`，`SleepRecord`（按天）→ `SleepSession`（每段）→ `SleepStage`（分期）。总睡眠（含小睡）、夜间起止、深睡/浅睡/清醒、睡眠平均心率与 app 一致；分数 app 只显示等级，无法核对；小睡在 B 层表现为无分期的会话。见 [verification/2026-10-14-sleep-live.md](verification/2026-10-14-sleep-live.md)。审查遗留的 Minor 见第 2 节遗留问题表。（`score` 后移出 B 层，见第 2 节）
 
 ### M3 — 心率日汇总 + 原始心率完整性（限时）
 

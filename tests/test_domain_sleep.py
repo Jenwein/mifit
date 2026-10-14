@@ -165,7 +165,7 @@ def test_maps_day_totals():
         40,
     )
     assert record.rem_min is None  # absent on the wire
-    assert result.raw[1]["sleep_score"] == 72  # reachable in raw only; raw[1] is day A
+    assert result.raw[DAILY_A]["sleep_score"] == 72  # reachable in raw only
     assert (record.avg_hr_bpm, record.min_hr_bpm, record.max_hr_bpm) == (61, 52, 80)
     assert (record.avg_spo2_pct, record.min_spo2_pct, record.max_spo2_pct) == (95, 91, 99)
 
@@ -449,6 +449,21 @@ def test_unhashable_state_maps_to_unknown():
     _, result = fetch(raw=edit_value(load("sleep_raw_sample.json"), RAW_NIGHT, change))
 
     assert [s.stage for s in night_of(result).stages] == ["unknown", "unknown", "awake", "light"]
+    assert result.notes == []
+
+
+@pytest.mark.parametrize(
+    ("code", "stage"),
+    [(2.0, "deep"), (2.5, "unknown"), (True, "unknown"), (INF, "unknown"), (NAN, "unknown")],
+    ids=["integral-float", "fractional-float", "bool", "inf", "nan"],
+)
+def test_float_stage_codes_map_only_when_integral(code, stage):
+    def change(value):
+        value["items"][1]["state"] = code
+
+    _, result = fetch(raw=edit_value(load("sleep_raw_sample.json"), RAW_NIGHT, change))
+
+    assert [s.stage for s in night_of(result).stages] == ["light", stage, "awake", "light"]
     assert result.notes == []
 
 

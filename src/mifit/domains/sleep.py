@@ -209,6 +209,8 @@ def _to_stages(items: object) -> tuple[list[SleepStage], int]:
 
 def _stage_name(state: object) -> str:
     """The stage for a wire code; anything unknown or unreadable is ``"unknown"``."""
+    if isinstance(state, float) and state.is_integer():  # False for NaN and ±inf
+        state = int(state)
     if isinstance(state, int) and not isinstance(state, bool):
         return _STAGES.get(state, "unknown")
     return "unknown"
