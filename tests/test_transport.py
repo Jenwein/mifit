@@ -14,6 +14,7 @@ from mifit.auth.session import Session
 from mifit.crypto import encrypt_query_params, rc4_crypt, signed_nonce
 from mifit.errors import ApiError, AuthError, MiFitError, RenewalError
 from mifit.transport import Transport
+from support import exception_chain
 
 SYNTH_SSECURITY = base64.b64encode(b"synthetic-secret").decode("ascii")
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0000"
@@ -281,6 +282,31 @@ def test_undecryptable_body_raises_ApiError_without_leaking_body():
     with pytest.raises(ApiError) as excinfo:
         make_transport(http).get_json(ENDPOINT, DATA_OBJ)
     assert "bm90LXZhbGlk" not in str(excinfo.value)
+    assert exception_chain(excinfo.value) == [excinfo.value]
+
+
+class InvalidJsonHttp(FakeHttp):
+    """Answers with a body that decrypts fine but is not valid JSON: the decode
+    error then carries the whole plaintext in ``JSONDecodeError.doc``."""
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(
+            {"url": url, "params": params, "headers": headers, "timeout": timeout}
+        )
+        key = base64.b64decode(signed_nonce(SYNTH_SSECURITY, params["_nonce"]))
+        raw = b'{"code": 0, "x": "SYNTH-BODY-FRAGMENT"'
+        return FakeResponse(
+            self.status, base64.b64encode(rc4_crypt(key, raw)).decode("ascii")
+        )
+
+
+def test_unparsable_body_error_has_no_chain():
+    with pytest.raises(ApiError) as excinfo:
+        make_transport(InvalidJsonHttp()).get_json(ENDPOINT, DATA_OBJ)
+
+    exc = excinfo.value
+    assert exception_chain(exc) == [exc]
+    assert "SYNTH-BODY-FRAGMENT" not in str(exc)
 
 
 def test_delay_is_applied_before_the_request(monkeypatch):

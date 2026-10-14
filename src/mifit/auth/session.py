@@ -119,11 +119,17 @@ def load_session(path: Path | None = None) -> Session | None:
     except FileNotFoundError:
         return None
 
+    corrupt = False
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # `from None`: JSONDecodeError carries the whole document in `.doc`.
-        raise ValueError(f"session file {source} is not valid JSON") from None
+        # Raised after the block, so the decode error is not left on
+        # ``__context__``: a ``JSONDecodeError`` keeps the whole document (the
+        # tokens) in ``.doc`` (``from None`` would only hide it from the printed
+        # traceback).
+        corrupt = True
+    if corrupt:
+        raise ValueError(f"session file {source} is not valid JSON")
     if not isinstance(data, dict):
         raise ValueError(f"session file {source} does not contain a JSON object")
 

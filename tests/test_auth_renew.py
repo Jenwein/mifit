@@ -15,6 +15,7 @@ import requests
 from mifit.auth.renew import RENEW_URL, renew_session
 from mifit.auth.session import Session
 from mifit.errors import AuthError, NotificationRequiredError, RenewalError
+from support import exception_chain
 
 SAFE_PREFIX = "&&&START&&&"
 
@@ -137,19 +138,6 @@ def old_session(**overrides):
     )
     fields.update(overrides)
     return Session(**fields)
-
-
-def exception_chain(exc):
-    """``exc`` and every exception reachable from it through ``__cause__``/``__context__``."""
-    seen = []
-    pending = [exc]
-    while pending:
-        link = pending.pop()
-        if link is None or any(link is s for s in seen):
-            continue
-        seen.append(link)
-        pending += [link.__cause__, link.__context__]
-    return seen
 
 
 def assert_stands_alone(exc):

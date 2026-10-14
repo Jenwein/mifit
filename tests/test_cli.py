@@ -31,6 +31,7 @@ from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
 from mifit.models.workouts import Workout
+from support import exception_chain
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -503,6 +504,17 @@ def test_export_without_session_prints_no_session_line(fake_mifit, capsys):
     assert "No valid Mi Fitness login session" in err
     assert "session:" not in err
     assert "Run `mifit login`" in err
+
+
+def test_open_client_value_error_leaves_no_chain(fake_mifit):
+    """The session loader's ``ValueError`` is replaced by an ``AuthError`` that
+    carries nothing from it (not ``__cause__``, not ``__context__``)."""
+    fake_mifit.error_on_init = ValueError("session file x is not valid JSON")
+
+    with pytest.raises(AuthError) as excinfo:
+        cli._open_client()
+
+    assert exception_chain(excinfo.value) == [excinfo.value]
 
 
 def test_export_api_error_is_reported_without_traceback(fake_mifit, monkeypatch, capsys):

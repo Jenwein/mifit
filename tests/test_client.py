@@ -47,6 +47,7 @@ from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
 from mifit.models.workouts import Workout
 from mifit.transport import PagedResult, Transport
+from support import exception_chain
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -438,8 +439,22 @@ def test_corrupt_stored_session_raises_AuthError(monkeypatch):
 
     assert not isinstance(excinfo.value, ValueError)
     assert secret not in str(excinfo.value)
-    assert excinfo.value.__cause__ is None
-    assert excinfo.value.__suppress_context__ is True
+    assert exception_chain(excinfo.value) == [excinfo.value]
+
+
+def test_corrupt_session_file_leaves_no_chain():
+    """The real loader on a real (truncated) session file: the ``JSONDecodeError``
+    keeps the whole document, token included, in ``.doc``, and nothing a caller can
+    reach from the ``AuthError`` may hold it."""
+    path = paths.default_session_path()  # under the isolated home (conftest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"service_token": "SYNTH-TOKEN-CORRUPT",', encoding="utf-8")
+
+    with pytest.raises(AuthError) as excinfo:
+        MiFit()
+
+    assert exception_chain(excinfo.value) == [excinfo.value]
+    assert "SYNTH-TOKEN-CORRUPT" not in str(excinfo.value) + repr(excinfo.value.args)
 
 
 def test_invalid_stored_session_raises_AuthError(monkeypatch):
@@ -663,19 +678,6 @@ def test_session_that_cannot_renew_logs_renew_unavailable(monkeypatch):
     assert recorder.event_names == ["unauthorized", "renew_unavailable"]
     assert recorder.saved == []
     assert client.session is stored
-
-
-def exception_chain(exc):
-    """``exc`` and every exception reachable from it through ``__cause__``/``__context__``."""
-    seen = []
-    pending = [exc]
-    while pending:
-        link = pending.pop()
-        if link is None or any(link is s for s in seen):
-            continue
-        seen.append(link)
-        pending += [link.__cause__, link.__context__]
-    return seen
 
 
 def assert_chain_hides_the_sts_url(exc, *secrets):

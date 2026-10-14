@@ -152,8 +152,11 @@ def _open_client() -> Any:
         return MiFit()
     except ValueError as exc:
         # ``load_session`` raises this for a session file it cannot parse; logging
-        # in again replaces it, so treat it like a missing session.
-        raise AuthError(str(exc)) from None
+        # in again replaces it, so treat it like a missing session. Raised after
+        # the block, so the original is not left on ``__context__`` (``from None``
+        # would only hide it from the printed traceback).
+        message = str(exc)
+    raise AuthError(message)
 
 
 def _fetch(client: Any, domain: str, start: str, end: str, full: bool) -> DomainResult:

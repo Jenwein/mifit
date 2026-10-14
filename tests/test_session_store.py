@@ -12,6 +12,7 @@ import pytest
 
 from mifit.auth.session import Session, load_session, save_session
 from mifit.paths import default_session_path
+from support import exception_chain
 
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0123456789"
 SYNTH_SSECURITY = "SYNTH-SSECURITY-ABCDEFGHIJ"
@@ -121,6 +122,21 @@ def test_load_corrupt_file_raises_value_error(tmp_path):
 
     with pytest.raises(ValueError):
         load_session(path)
+
+
+def test_corrupt_file_error_has_no_chain(tmp_path):
+    """``JSONDecodeError`` keeps the whole document in ``.doc``: nothing reachable
+    from the error a caller catches may hold the stored token."""
+    path = tmp_path / "session.json"
+    path.write_text('{"service_token": "SYNTH-TOKEN-CORRUPT",', encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_session(path)
+
+    exc = excinfo.value
+    assert exception_chain(exc) == [exc]
+    assert "SYNTH-TOKEN-CORRUPT" not in str(exc)
+    assert "SYNTH-TOKEN-CORRUPT" not in repr(exc.args)
 
 
 def test_load_file_missing_fields_raises_value_error(tmp_path):

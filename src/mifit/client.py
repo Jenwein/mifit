@@ -129,15 +129,20 @@ class MiFit:
     ) -> None:
         store_backed = session is None
         if session is None:
+            unreadable = False
             try:
                 session = load_session()
             except ValueError:
-                # `from None`: the loader's message may quote file contents, and
-                # the file holds credentials.
+                # Raised after the block, so the loader's error is not left on
+                # ``__context__``: its message may quote the session file, which
+                # holds credentials (``from None`` would only hide it from the
+                # printed traceback).
+                unreadable = True
+            if unreadable:
                 raise AuthError(
                     "The stored Mi Fitness session is unreadable. Log in again "
                     "(MiFit.login_qr) to replace it."
-                ) from None
+                )
         if session is None or not session.is_valid():
             # No detail about the session: it holds credentials.
             raise AuthError(

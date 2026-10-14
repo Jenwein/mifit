@@ -185,15 +185,21 @@ class Transport:
                 f"Request failed with HTTP {status}.", payload={"http_status": status}
             )
 
+        undecodable = False
         try:
             payload = decrypt_response_payload(
                 response.text, nonce, self._session.ssecurity
             )
         except ValueError:
-            # `from None`: the decode errors can carry fragments of the body.
+            # Raised after the block, so the decode error is not left on
+            # ``__context__``: a ``JSONDecodeError`` keeps the whole decrypted
+            # document in ``.doc`` (``from None`` would only hide it from the
+            # printed traceback).
+            undecodable = True
+        if undecodable:
             raise ApiError(
                 "Response body could not be decrypted or parsed as a JSON object."
-            ) from None
+            )
 
         code = payload.get("code")
         if code != 0:
