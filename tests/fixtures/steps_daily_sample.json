@@ -1,0 +1,19 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "tag": "daily_report",
+        "key": "steps",
+        "time": 1759276800,
+        "value": "{\"time\":1759276800,\"steps\":8000,\"distance\":5200,\"calories\":210}",
+        "sid": "synthetic-sid",
+        "source_sid_list": ["synthetic-source-1", "synthetic-source-2"],
+        "update_time": 1759300000,
+        "watermark": 1
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}
