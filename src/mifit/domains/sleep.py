@@ -9,9 +9,17 @@ decoded value dicts go to ``DomainResult.raw`` untouched.
 
 The daily report carries no stage timeline; the raw ``sleep`` records
 (``get_fitness_data_by_time``) do, as ``items`` of ``{start_time, end_time, state}``.
-A raw session is attached to the daily session with the same bed and wake-up times;
-its decoded values follow the daily ones in ``raw``. The raw read is widened by a day
-on each side and filtered by that match, so its window bounds never decide a day.
+A raw session is attached to the daily session with the same bed and wake-up times.
+Raw rows the service marks ``deleted`` are ignored. Of several raw rows with the same
+times the first in service order is used, unless it has no stages and a later one has.
+Each matched daily session gets its own copy of the stages. The raw read is widened by
+a day on each side and filtered by that match, so its window bounds never decide a
+day.
+
+``DomainResult.raw`` holds the decoded daily values in service order, then the decoded
+value of each raw session that matched a daily session, once each, in the order they
+were served. Raw rows that matched nothing, duplicates and deleted rows are left out;
+``MiFit.raw("sleep", start, end)`` returns every raw session as served.
 
 Fields whose meaning has not been verified against the app (``sleep_stage``,
 ``long_sleep_evaluation``, ``day_sleep_evaluation``, ``awake_count``) stay in
@@ -20,6 +28,7 @@ Fields whose meaning has not been verified against the app (``sleep_stage``,
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 from datetime import date, timedelta, tzinfo
@@ -120,26 +129,30 @@ def _attach_stages(
             value = json.loads(row["value"])
         except (KeyError, TypeError, ValueError):
             continue
-        if not isinstance(value, dict):
-            continue
-        result.raw.append(value)
-        if row.get("deleted"):
+        if not isinstance(value, dict) or row.get("deleted"):
             continue
         try:
             key = (int(value["bedtime"]), int(value["wake_up_time"]))
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
         stages, skipped = _to_stages(value.get("items"))
-        timelines[key] = _RawSession(value, stages, skipped)
+        kept = timelines.get(key)
+        # The first row wins, unless it has no stages and this one has. Re-assigning
+        # an existing key keeps its place, so ``timelines`` stays in first-seen order.
+        if kept is None or (stages and not kept.stages):
+            timelines[key] = _RawSession(value, stages, skipped)
 
+    matched: set[tuple[int, int]] = set()
     for record in result.records:
         unmatched = False
         for session in record.sessions:
-            raw = timelines.get((session.start_epoch_s, session.end_epoch_s))
+            key = (session.start_epoch_s, session.end_epoch_s)
+            raw = timelines.get(key)
             if raw is None:
                 unmatched = True
                 continue
-            session.stages = raw.stages
+            matched.add(key)
+            session.stages = [dataclasses.replace(stage) for stage in raw.stages]
             if raw.skipped:
                 result.notes.append(
                     f"Skipped {raw.skipped} unreadable stage item(s) of a sleep session "
@@ -149,6 +162,8 @@ def _attach_stages(
             result.notes.append(
                 f"Stage timeline not found for a sleep session on {record.date}."
             )
+
+    result.raw.extend(raw.value for key, raw in timelines.items() if key in matched)
 
 
 def _to_stages(items: object) -> tuple[list[SleepStage], int]:

@@ -41,6 +41,13 @@ NAP_A_WAKE = NAP_A_BED + 1800
 T0, T1, T2, T3, T4 = NIGHT_BED, NIGHT_BED + 3600, NIGHT_BED + 9600, NIGHT_BED + 12000, NIGHT_WAKE
 # The raw session from the day before the window.
 EXTRA_BED = DAY_A - 86400 + 2 * 3600
+# The night's stage timeline in the raw fixture.
+NIGHT_STAGES = [
+    SleepStage(T0, T1, "light"),
+    SleepStage(T1, T2, "deep"),
+    SleepStage(T2, T3, "awake"),
+    SleepStage(T3, T4, "light"),
+]
 # Row indices in the fixtures: day A in the daily payload; the night and the
 # before-the-window session in the raw payload.
 DAILY_A = 1
@@ -85,6 +92,19 @@ def edit_value(payload: dict, index: int, change: Callable[[dict], None]) -> dic
     value = json.loads(row["value"])
     change(value)
     row["value"] = json.dumps(value)
+    return payload
+
+
+def with_raw_copy(
+    payload: dict, source: int, at: int, change: Callable[[dict], None]
+) -> dict:
+    """Insert at ``at`` a copy of raw row ``source`` whose decoded value ``change`` edited."""
+    rows = payload["result"]["data_list"]
+    copy = dict(rows[source])
+    value = json.loads(copy["value"])
+    change(value)
+    copy["value"] = json.dumps(value)
+    rows.insert(at, copy)
     return payload
 
 
@@ -250,12 +270,7 @@ def test_requests_raw_sessions_for_the_widened_window():
 def test_attaches_stages_to_the_matching_session():
     _, result = fetch()
 
-    assert night_of(result).stages == [
-        SleepStage(T0, T1, "light"),
-        SleepStage(T1, T2, "deep"),
-        SleepStage(T2, T3, "awake"),
-        SleepStage(T3, T4, "light"),
-    ]
+    assert night_of(result).stages == NIGHT_STAGES
     assert result.notes == []
 
 
@@ -289,9 +304,18 @@ def test_unmatched_session_keeps_no_stages_and_notes_it():
 
 
 def test_extra_raw_sessions_are_ignored():
-    _, result = fetch()
+    raw = load("sleep_raw_sample.json")
+    extra = json.loads(raw["result"]["data_list"][RAW_EXTRA]["value"])
 
-    starts = [s.start_epoch_s for r in result.records for s in r.sessions]
+    _, result = fetch(raw=raw)
+
+    assert extra not in result.raw
+    starts = [
+        stage.start_epoch_s
+        for record in result.records
+        for session in record.sessions
+        for stage in session.stages
+    ]
     assert EXTRA_BED not in starts
     assert result.notes == []
 
@@ -306,15 +330,69 @@ def test_deleted_raw_rows_are_not_used():
     assert len(result.notes) == 1
 
 
-def test_raw_lists_daily_then_session_values():
+def test_deleted_raw_rows_stay_out_of_raw():
+    raw = load("sleep_raw_sample.json")
+    night_row = raw["result"]["data_list"][RAW_NIGHT]
+    night_row["deleted"] = True
+
+    _, result = fetch(raw=raw)
+
+    assert json.loads(night_row["value"]) not in result.raw
+
+
+def test_raw_holds_daily_values_then_the_matched_sessions():
     daily = load("sleep_daily_sample.json")
     raw = load("sleep_raw_sample.json")
 
     _, result = fetch(daily, raw)
 
-    assert result.raw == [json.loads(r["value"]) for r in daily["result"]["data_list"]] + [
-        json.loads(r["value"]) for r in raw["result"]["data_list"]
-    ]
+    daily_values = [json.loads(r["value"]) for r in daily["result"]["data_list"][:2]]
+    matched = [json.loads(r["value"]) for r in raw["result"]["data_list"][:3]]
+    assert result.raw == daily_values + matched
+
+
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_duplicate_raw_session_without_stages_does_not_hide_the_staged_one(position):
+    at = RAW_NIGHT if position == "before" else RAW_NIGHT + 1
+    raw = with_raw_copy(load("sleep_raw_sample.json"), RAW_NIGHT, at, lambda v: v.pop("items"))
+
+    _, result = fetch(raw=raw)
+
+    assert night_of(result).stages == NIGHT_STAGES
+    assert result.notes == []
+
+
+def test_duplicate_staged_raw_sessions_keep_the_first():
+    def change(value):
+        value["items"] = [{"start_time": T0, "end_time": T4, "state": 3}]
+
+    raw = with_raw_copy(load("sleep_raw_sample.json"), RAW_NIGHT, RAW_NIGHT + 1, change)
+    duplicate = json.loads(raw["result"]["data_list"][RAW_NIGHT + 1]["value"])
+
+    _, result = fetch(raw=raw)
+
+    assert night_of(result).stages == NIGHT_STAGES
+    assert duplicate not in result.raw
+
+
+def test_sessions_with_identical_times_do_not_share_stages():
+    raw = load("sleep_raw_sample.json")
+    night = json.loads(raw["result"]["data_list"][RAW_NIGHT]["value"])
+    daily = edit_value(
+        load("sleep_daily_sample.json"),
+        DAILY_A,
+        lambda v: v["segment_details"].append(dict(v["segment_details"][0])),
+    )
+
+    _, result = fetch(daily, raw)
+
+    a, _, b = record_for(result, "2025-10-14").sessions
+    assert a.stages == b.stages == NIGHT_STAGES
+    assert a.stages is not b.stages
+    assert a.stages[0] is not b.stages[0]
+    b.stages.clear()
+    assert len(a.stages) == 4
+    assert result.raw.count(night) == 1
 
 
 def test_non_finite_session_time_skips_the_session_with_a_note():
