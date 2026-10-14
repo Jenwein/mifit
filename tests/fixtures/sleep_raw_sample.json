@@ -1,0 +1,45 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "sid": "synthetic-sid",
+        "key": "sleep",
+        "time": 1760539200,
+        "value": "{\"bedtime\": 1760536800, \"wake_up_time\": 1760539200, \"timezone\": 32, \"duration\": 40, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 0, \"sleep_awake_duration\": 0, \"awake_count\": 0, \"device_bedtime\": 1760536800, \"device_wake_up_time\": 1760539200, \"protoTime\": 1760539200, \"version\": 4, \"is_uncomplete\": true}",
+        "zone_offset": 28800,
+        "zone_name": "Asia/Shanghai",
+        "update_time": 1760539800
+      },
+      {
+        "sid": "synthetic-sid",
+        "key": "sleep",
+        "time": 1760448600,
+        "value": "{\"bedtime\": 1760446800, \"wake_up_time\": 1760448600, \"timezone\": 32, \"duration\": 30, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 0, \"sleep_awake_duration\": 0, \"awake_count\": 0, \"device_bedtime\": 1760446800, \"device_wake_up_time\": 1760448600, \"protoTime\": 1760448600, \"version\": 4, \"is_uncomplete\": true}",
+        "zone_offset": 28800,
+        "zone_name": "Asia/Shanghai",
+        "update_time": 1760449200
+      },
+      {
+        "sid": "synthetic-sid",
+        "key": "sleep",
+        "time": 1760427000,
+        "value": "{\"bedtime\": 1760401800, \"wake_up_time\": 1760427000, \"timezone\": 32, \"duration\": 380, \"sleep_deep_duration\": 100, \"sleep_light_duration\": 280, \"sleep_awake_duration\": 40, \"awake_count\": 0, \"device_bedtime\": 1760401800, \"device_wake_up_time\": 1760427000, \"protoTime\": 1760427000, \"version\": 4, \"is_uncomplete\": false, \"items\": [{\"start_time\": 1760401800, \"end_time\": 1760405400, \"state\": 3}, {\"start_time\": 1760405400, \"end_time\": 1760411400, \"state\": 2}, {\"start_time\": 1760411400, \"end_time\": 1760413800, \"state\": 5}, {\"start_time\": 1760413800, \"end_time\": 1760427000, \"state\": 3}]}",
+        "zone_offset": 28800,
+        "zone_name": "Asia/Shanghai",
+        "update_time": 1760427600
+      },
+      {
+        "sid": "synthetic-sid",
+        "key": "sleep",
+        "time": 1760342400,
+        "value": "{\"bedtime\": 1760320800, \"wake_up_time\": 1760342400, \"timezone\": 32, \"duration\": 330, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 330, \"sleep_awake_duration\": 0, \"awake_count\": 0, \"device_bedtime\": 1760320800, \"device_wake_up_time\": 1760342400, \"protoTime\": 1760342400, \"version\": 4, \"is_uncomplete\": false, \"items\": [{\"start_time\": 1760320800, \"end_time\": 1760342400, \"state\": 3}]}",
+        "zone_offset": 28800,
+        "zone_name": "Asia/Shanghai",
+        "update_time": 1760343000
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}

@@ -6,6 +6,8 @@ a daily report row's ``time`` is the UTC midnight of the local date it stands fo
 and its ``value`` is a JSON string with the day's totals and ``segment_details`` (one
 per sleep session, the sessions that end on that day). Day A (2025-10-14) holds a
 night and a nap; day B (2025-10-15) only a nap, with HR/SpO2 reported as ``0``.
+The raw fixture holds the matching raw sessions (only the night has stage ``items``)
+plus one session from the day before the window.
 """
 
 import dataclasses
@@ -16,7 +18,7 @@ from pathlib import Path
 from mifit.domains.base import REGISTRY
 from mifit.domains.days import local_midnight
 from mifit.domains.sleep import fetch_sleep
-from mifit.models.sleep import SleepRecord, SleepSession
+from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.transport import Transport
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -32,6 +34,8 @@ NIGHT_BED = DAY_A + 1800
 NIGHT_WAKE = NIGHT_BED + 7 * 3600
 NAP_A_BED = DAY_A + 13 * 3600
 NAP_A_WAKE = NAP_A_BED + 1800
+# Stage boundaries of the night in the raw fixture.
+T0, T1, T2, T3, T4 = NIGHT_BED, NIGHT_BED + 3600, NIGHT_BED + 9600, NIGHT_BED + 12000, NIGHT_WAKE
 
 
 def load(name):
@@ -57,8 +61,22 @@ class FakeTransport(Transport):
 
 
 def fetch(daily=None, raw=None):
-    transport = FakeTransport(daily or load("sleep_daily_sample.json"), raw)
+    transport = FakeTransport(
+        daily or load("sleep_daily_sample.json"), raw or load("sleep_raw_sample.json")
+    )
     return transport, fetch_sleep(transport, START, END, tz=UTC)
+
+
+def raw_without(predicate):
+    """The raw fixture minus the rows whose decoded value matches ``predicate``."""
+    raw = load("sleep_raw_sample.json")
+    rows = raw["result"]["data_list"]
+    raw["result"]["data_list"] = [r for r in rows if not predicate(json.loads(r["value"]))]
+    return raw
+
+
+def night_of(result):
+    return record_for(result, "2025-10-14").sessions[0]
 
 
 def record_for(result, day):
@@ -109,7 +127,7 @@ def test_maps_sessions_in_service_order():
     _, result = fetch()
 
     night, nap = record_for(result, "2025-10-14").sessions
-    assert night == SleepSession(
+    assert dataclasses.replace(night, stages=[]) == SleepSession(
         start_epoch_s=NIGHT_BED,
         end_epoch_s=NIGHT_WAKE,
         utc_offset_s=28800,
@@ -158,3 +176,88 @@ def test_unverified_fields_stay_out_of_records():
 
     for unverified in ("stage", "evaluation", "awake_count", "uncomplete"):
         assert not [n for n in names if unverified in n and n != "stages"]
+
+
+def test_requests_raw_sessions_for_the_widened_window():
+    transport, _ = fetch()
+
+    assert transport.calls[1] == {
+        "endpoint_path": RAW_ENDPOINT,
+        "data_obj": {
+            "key": "sleep",
+            # A day either side of 2025-10-14 00:00 .. 2025-10-16 00:00 (UTC).
+            "start_time": DAY_A - 86400,
+            "end_time": DAY_B + 2 * 86400,
+            "reverse": True,
+        },
+    }
+
+
+def test_attaches_stages_to_the_matching_session():
+    _, result = fetch()
+
+    assert night_of(result).stages == [
+        SleepStage(T0, T1, "light"),
+        SleepStage(T1, T2, "deep"),
+        SleepStage(T2, T3, "awake"),
+        SleepStage(T3, T4, "light"),
+    ]
+    assert result.notes == []
+
+
+def test_nap_without_items_has_no_stages_and_no_note():
+    _, result = fetch()
+
+    nap = record_for(result, "2025-10-14").sessions[1]
+    assert nap.stages == []
+    assert result.notes == []
+
+
+def test_unknown_state_maps_to_unknown():
+    raw = load("sleep_raw_sample.json")
+    night_row = raw["result"]["data_list"][2]
+    value = json.loads(night_row["value"])
+    for item, state in zip(value["items"], (0, 6, 9)):
+        item["state"] = state
+    night_row["value"] = json.dumps(value)
+
+    _, result = fetch(raw=raw)
+
+    assert [s.stage for s in night_of(result).stages] == ["unknown", "unknown", "unknown", "light"]
+
+
+def test_unmatched_session_keeps_no_stages_and_notes_it():
+    _, result = fetch(raw=raw_without(lambda v: v["bedtime"] == NIGHT_BED))
+
+    assert night_of(result).stages == []
+    assert len(result.notes) == 1
+    assert "2025-10-14" in result.notes[0]
+
+
+def test_extra_raw_sessions_are_ignored():
+    _, result = fetch()
+
+    starts = [s.start_epoch_s for r in result.records for s in r.sessions]
+    assert DAY_A - 86400 + 2 * 3600 not in starts
+    assert result.notes == []
+
+
+def test_deleted_raw_rows_are_not_used():
+    raw = load("sleep_raw_sample.json")
+    raw["result"]["data_list"][2]["deleted"] = True
+
+    _, result = fetch(raw=raw)
+
+    assert night_of(result).stages == []
+    assert len(result.notes) == 1
+
+
+def test_raw_lists_daily_then_session_values():
+    daily = load("sleep_daily_sample.json")
+    raw = load("sleep_raw_sample.json")
+
+    _, result = fetch(daily, raw)
+
+    assert result.raw == [json.loads(r["value"]) for r in daily["result"]["data_list"]] + [
+        json.loads(r["value"]) for r in raw["result"]["data_list"]
+    ]
