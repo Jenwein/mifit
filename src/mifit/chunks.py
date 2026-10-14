@@ -20,8 +20,13 @@ block is read in exactly one call, the same call a single read makes.
 
 Chunks are planned newest-first, as the paging domains' ``reverse`` reads return
 their rows, except for the domains in ``OLDEST_FIRST`` (``consumption``, whose
-single read walks the days oldest-first). The merged parts of a chunked read
-therefore list their records in the same order as one read of the whole range.
+single read walks the days oldest-first). Merged in that order
+(``merge_chunks``), a chunked read's ``records`` equal one read of the whole
+range, order included, and so does its ``raw`` for every domain but ``sleep``.
+A single sleep read's ``raw`` has two sections, the daily values and then the
+matched raw sessions, so merged it holds those two sections once per chunk, in
+chunk order: the same values in another order. With more than one chunk the
+notes carry their chunk's label, so they differ from a single read's too.
 
 The chunks are read one at a time through the client's own transport, which
 already pauses before every request (``Transport``: ``delay_s`` plus jitter), so
@@ -168,10 +173,14 @@ def _read_plan(
 def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
     """One result from the parts of a chunked read, in the order of ``parts``.
 
-    ``records`` and ``raw`` are concatenated. With more than one part every note
-    is prefixed with its chunk's label (``"<label>: <note>"``), so a repeated
-    note says which chunk it came from; a single part's notes are kept as they
-    are. No parts give an empty result.
+    ``records`` and ``raw`` are concatenated. For the parts of ``read_chunks``,
+    in the order it yields them, ``records`` equal a single read of the whole
+    range. ``raw`` does too, except for ``sleep``: its raw comes as one block of
+    daily values and matched sessions per chunk, in chunk order, where a single
+    read gives all the daily values first. With more than one part every note is
+    prefixed with its chunk's label (``"<label>: <note>"``), so a repeated note
+    says which chunk it came from; a single part's notes are kept as they are.
+    No parts give an empty result.
     """
     merged = DomainResult()
     labeled = len(parts) > 1

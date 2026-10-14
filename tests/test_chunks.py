@@ -1,8 +1,9 @@
 """Chunk policy, planning, serial chunked reads and merge (``mifit.chunks``).
 
 The chunked-read tests run ``MiFit`` over ``WindowFake``, a model of the service's
-window rule, so a merged chunked read can be compared with a single read of the
-same range. Every row here is synthetic.
+window rule, so a merged chunked read of every registered domain can be compared
+with a single read of the same range: equal records, and equal raw (as a multiset
+for sleep, whose raw comes in per-chunk sections). Every row here is synthetic.
 """
 
 import functools
@@ -29,6 +30,7 @@ from mifit.chunks import (
 from mifit.client import MiFit
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.domains.days import local_midnight
+from mifit.domains.raw_window import RAW_ENDPOINT
 from support import EncryptingHttp, WindowFake, synthetic_session
 
 ROWS_FIRST = date(2025, 12, 31)
@@ -52,76 +54,152 @@ def utc_midnight(day):
     return int(datetime.combine(day, time(), timezone.utc).timestamp())
 
 
-def steps_rows():
-    """One daily report per date, keyed at that date's UTC midnight."""
+def daily_reports(figures):
+    """One daily report per date, keyed at that date's UTC midnight; ``figures(n)``
+    is the n-th day's value."""
     return [
-        {
-            "time": utc_midnight(day),
-            "value": json.dumps(
-                {"steps": 1000 + n, "distance": 700 + n, "calories": 30 + n}
-            ),
-        }
+        {"time": utc_midnight(day), "value": json.dumps(figures(n))}
         for n, day in enumerate(row_days())
     ]
 
 
-def heart_rate_daily_rows():
-    """One daily report per date, keyed at that date's UTC midnight."""
-    return [
-        {
-            "time": utc_midnight(day),
-            "value": json.dumps(
-                {
-                    "avg_hr": 60 + n % 20,
-                    "max_hr": 120 + n % 30,
-                    "min_hr": 45 + n % 10,
-                    "avg_rhr": 50 + n % 10,
-                }
-            ),
-        }
-        for n, day in enumerate(row_days())
-    ]
-
-
-def heart_rate_rows():
+def raw_points(figures):
     """Four samples a day, the first at the local midnight, so every block boundary
-    has a sample exactly on it."""
+    has a sample exactly on it; ``figures(n, moment)`` is the n-th sample's value."""
     rows = []
     for day in row_days():
         for k in range(4):
             moment = local_midnight(day) + k * 21600
-            value = {"time": moment, "bpm": 55 + len(rows) % 60, "type": 1}
+            value = figures(len(rows), moment)
             rows.append({"time": moment, "value": json.dumps(value)})
     return rows
 
 
+def steps_rows():
+    return daily_reports(
+        lambda n: {"steps": 1000 + n, "distance": 700 + n, "calories": 30 + n}
+    )
+
+
 def workout_rows():
-    """A workout at local noon every third day."""
+    """A workout at local noon every third day, and one at the local midnight of
+    each first day of the month blocks of START..END and of the day after END."""
+    edges = [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 4), date(2026, 3, 16)]
+    starts = [local_midnight(day) for day in edges] + [
+        int(datetime.combine(day, time(12)).timestamp())
+        for n, day in enumerate(row_days())
+        if n % 3 == 0
+    ]
     rows = []
-    for n, day in enumerate(row_days()):
-        if n % 3:
-            continue
-        noon = int(datetime.combine(day, time(12)).timestamp())
+    for n, start in enumerate(sorted(starts)):
         value = {
-            "start_time": noon,
-            "end_time": noon + 1800,
+            "start_time": start,
+            "end_time": start + 1800,
             "duration": 1800,
             "sport_type": 1,
             "calories": 100 + n,
         }
-        rows.append({"time": noon, "value": json.dumps(value)})
+        rows.append({"time": start, "value": json.dumps(value)})
     return rows
+
+
+def sleep_fake():
+    """Daily sleep reports, each with the night that ended that morning, and on the
+    raw endpoint each night's session with its stages, keyed at its bedtime."""
+    daily, raw = [], []
+    for n, day in enumerate(row_days()):
+        bedtime = local_midnight(day) - 7200 + n * 60
+        wake_up = local_midnight(day) + 21600
+        asleep = (wake_up - bedtime) // 60
+        stages = {
+            "sleep_deep_duration": 90,
+            "sleep_light_duration": asleep - 90,
+            "sleep_rem_duration": 0,
+            "sleep_awake_duration": 0,
+        }
+        session = {"bedtime": bedtime, "wake_up_time": wake_up, "duration": asleep}
+        report = {"total_duration": asleep, **stages}
+        report["segment_details"] = [{**session, **stages}]
+        daily.append({"time": utc_midnight(day), "value": json.dumps(report)})
+        items = [
+            {"start_time": bedtime, "end_time": bedtime + 5400, "state": 2},
+            {"start_time": bedtime + 5400, "end_time": wake_up, "state": 3},
+        ]
+        value = {"bedtime": bedtime, "wake_up_time": wake_up, "items": items}
+        raw.append({"time": bedtime, "value": json.dumps(value)})
+    return WindowFake(daily, by_endpoint={RAW_ENDPOINT: raw})
+
+
+def consumption_rows():
+    """One day's answer per date, under the day's local midnight (``get_json``)."""
+    return [
+        {
+            "time": local_midnight(day),
+            "result": {"basal": 1500.0 + n, "exercise": 300.0 + n, "intake": 0},
+        }
+        for n, day in enumerate(row_days())
+    ]
+
+
+def heart_rate_daily_figures(n):
+    return {
+        "avg_hr": 60 + n % 20,
+        "max_hr": 120 + n % 30,
+        "min_hr": 45 + n % 10,
+        "avg_rhr": 50 + n % 10,
+    }
+
+
+def spo2_daily_figures(n):
+    return {"avg_spo2": 95 + n % 4, "max_spo2": 99, "min_spo2": 90 + n % 5}
+
+
+def heart_rate_sample(n, moment):
+    return {"time": moment, "bpm": 55 + n % 60, "type": 1}
+
+
+def spo2_sample(n, moment):
+    return {"time": moment, "spo2": 90 + n % 10}
+
+
+def weight_sample(n, moment):
+    return {"time": moment, "weight": 70 + n % 10 / 10, "bmi": 22.5}
+
+
+COMPARISONS = [
+    ("steps", lambda: WindowFake(steps_rows()), {"data_list"}),
+    (
+        "heart_rate_daily",
+        lambda: WindowFake(daily_reports(heart_rate_daily_figures)),
+        {"data_list"},
+    ),
+    (
+        "spo2_daily",
+        lambda: WindowFake(daily_reports(spo2_daily_figures)),
+        {"data_list"},
+    ),
+    ("heart_rate", lambda: WindowFake(raw_points(heart_rate_sample)), {"data_list"}),
+    ("spo2", lambda: WindowFake(raw_points(spo2_sample)), {"data_list"}),
+    ("weight", lambda: WindowFake(raw_points(weight_sample)), {"data_list"}),
+    ("workouts", lambda: WindowFake(workout_rows()), {"sport_records"}),
+    ("sleep", sleep_fake, {"data_list"}),
+    ("consumption", lambda: WindowFake(consumption_rows()), set()),
+]
+"""``(domain, make_fake, list_keys)`` for every registered domain, each over rows
+that run past the read range on both sides."""
+
+
+def raw_as_multiset(raw):
+    return sorted(raw, key=lambda value: json.dumps(value, sort_keys=True))
 
 
 @pytest.fixture
 def windowed(monkeypatch):
-    """Return ``build(rows) -> (MiFit, WindowFake)``: a client whose transport is
-    one ``WindowFake`` serving ``rows``."""
+    """Return ``build(fake) -> MiFit``: a client whose transport is ``fake``."""
 
-    def _build(rows):
-        fake = WindowFake(rows)
+    def _build(fake):
         monkeypatch.setattr(client_module, "Transport", lambda *args, **kwargs: fake)
-        return MiFit(synthetic_session()), fake
+        return MiFit(synthetic_session())
 
     return _build
 
@@ -228,29 +306,41 @@ def test_merge_of_one_part_keeps_notes_as_they_are():
     assert merge_chunks([]) == DomainResult()
 
 
+def test_the_comparisons_cover_every_registered_domain():
+    assert {domain for domain, _, _ in COMPARISONS} == set(REGISTRY)
+
+
 @pytest.mark.parametrize(
-    ("domain", "rows", "list_key"),
-    [
-        ("steps", steps_rows, "data_list"),
-        ("heart_rate_daily", heart_rate_daily_rows, "data_list"),
-        ("heart_rate", heart_rate_rows, "data_list"),
-        ("workouts", workout_rows, "sport_records"),
-    ],
+    ("domain", "make_fake", "list_keys"),
+    COMPARISONS,
+    ids=[domain for domain, _, _ in COMPARISONS],
 )
-def test_read_chunks_matches_single_read(windowed, domain, rows, list_key):
-    client, fake = windowed(rows())
+def test_read_chunks_matches_single_read(windowed, domain, make_fake, list_keys):
+    fake = make_fake()
+    client = windowed(fake)
     plan = plan_chunks(domain, date.fromisoformat(START), date.fromisoformat(END))
 
     merged = merge_chunks(list(client.read_chunks(domain, START, END)))
-    chunked_calls = len(fake.calls)
+    chunked_calls, chunked_days = len(fake.calls), list(fake.json_calls)
     single = getattr(client, domain)(START, END)
+    single_calls = len(fake.calls) - chunked_calls
+    single_days = fake.json_calls[len(chunked_days) :]
 
     assert len(plan) > 1
-    assert chunked_calls == len(plan)
-    assert {call["list_key"] for call in fake.calls} == {list_key}
+    # Each chunk sends a single read's requests, and every one-day request
+    # (consumption) is sent once, in the single read's order.
+    assert chunked_calls == len(plan) * single_calls
+    assert chunked_days == single_days
+    assert {call["list_key"] for call in fake.calls} == list_keys
     assert single.records  # the comparison is not between two empty reads
     assert merged.records == single.records
-    assert merged.raw == single.raw
+    if domain == "sleep":
+        # Sleep's raw is two sections, the daily values and then the matched raw
+        # sessions; merged, those sections come once per chunk (merge_chunks).
+        assert merged.raw != single.raw
+        assert raw_as_multiset(merged.raw) == raw_as_multiset(single.raw)
+    else:
+        assert merged.raw == single.raw
     assert merged.notes == single.notes == []
 
 
@@ -269,7 +359,7 @@ def test_a_chunk_edge_on_a_fall_back_midnight_loses_no_row(windowed, monkeypatch
         moment = first_row + n * 1800
         value = {"time": moment, "bpm": 60 + n % 40, "type": 1}
         rows.append({"time": moment, "value": json.dumps(value)})
-    client, _ = windowed(rows)
+    client = windowed(WindowFake(rows))
 
     parts = list(client.read_chunks("heart_rate", "2026-03-29", "2026-04-11"))
     merged = merge_chunks(parts)
@@ -288,7 +378,8 @@ def test_a_chunk_edge_on_a_fall_back_midnight_loses_no_row(windowed, monkeypatch
 
 
 def test_read_chunks_skips_done_labels(windowed):
-    client, fake = windowed(steps_rows())
+    fake = WindowFake(steps_rows())
+    client = windowed(fake)
     done = {"2026-03-04..2026-03-15"}
 
     parts = list(client.read_chunks("steps", START, END, skip=done))
@@ -302,7 +393,8 @@ def test_read_chunks_skips_done_labels(windowed):
 
 
 def test_read_chunks_is_lazy(windowed):
-    client, fake = windowed(steps_rows())
+    fake = WindowFake(steps_rows())
+    client = windowed(fake)
 
     parts = client.read_chunks("steps", START, END)
     assert fake.calls == []
@@ -314,7 +406,8 @@ def test_read_chunks_is_lazy(windowed):
 
 
 def test_read_chunks_rejects_unknown_domain_int_dates_and_reversed_range(windowed):
-    client, fake = windowed(steps_rows())
+    fake = WindowFake(steps_rows())
+    client = windowed(fake)
 
     # Arguments are checked when the read is set up, before any iteration.
     with pytest.raises(ValueError, match="steps") as excinfo:

@@ -381,9 +381,12 @@ class MiFit:
         (``chunk.label``, ``"YYYY-MM-DD..YYYY-MM-DD"``) of chunks already done, to
         resume an interrupted read. An error from a chunk propagates; the parts
         already yielded stay valid. ``mifit.chunks.merge_chunks`` turns the parts
-        into one result, equal to a single read of the range. Unknown domains,
-        dates that are not ``"YYYY-MM-DD"`` strings and a reversed range are
-        refused before anything is read (see ``mifit.chunks.read_chunks``).
+        into one result: its ``records`` equal a single read of the range, and so
+        does its ``raw`` except for ``sleep`` (one block of daily values and
+        matched sessions per chunk); with more than one chunk, each note starts
+        with its chunk's label. Unknown domains, dates that are not
+        ``"YYYY-MM-DD"`` strings and a reversed range are refused before anything
+        is read (see ``mifit.chunks.read_chunks``).
         """
         return chunks.read_chunks(self, domain, start, end, size=size, skip=skip)
 

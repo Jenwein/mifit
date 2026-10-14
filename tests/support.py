@@ -116,14 +116,27 @@ class WindowFake(Transport):
 
     A paged read serves the rows with ``start_time < row["time"] <= end_time``
     (no lower bound when the request has no ``start_time``), newest first, in one
-    go: ``truncated`` and ``stalled`` are false. The rows are served whatever the
-    endpoint or ``list_key``. Each paged read is recorded in ``calls`` as
-    ``PagedFake`` records it. Needs no session and no HTTP client.
+    go: ``truncated`` and ``stalled`` are false. ``by_endpoint`` maps an endpoint
+    path to its own rows; any other endpoint gets ``rows``, whatever its
+    ``list_key``.
+
+    ``get_json`` models the one-day read (``diet/user_consumption``): it answers
+    ``{"code": 0, "result": row["result"]}`` for the row whose ``time`` is the
+    request's ``time``, and an empty ``result`` when there is none.
+
+    Each paged read is recorded in ``calls`` and each ``get_json`` in
+    ``json_calls``, as ``PagedFake`` records them. Needs no session and no HTTP
+    client.
     """
 
-    def __init__(self, rows):
+    def __init__(self, rows, *, by_endpoint=None):
         self._rows = list(rows)
+        self._by_endpoint = by_endpoint or {}
         self.calls = []
+        self.json_calls = []
+
+    def _rows_for(self, endpoint_path):
+        return self._by_endpoint.get(endpoint_path, self._rows)
 
     def get_paged_result(
         self,
@@ -146,11 +159,21 @@ class WindowFake(Transport):
         end = data_obj["end_time"]
         served = [
             row
-            for row in self._rows
+            for row in self._rows_for(endpoint_path)
             if (start is None or start < row["time"]) and row["time"] <= end
         ]
         served.sort(key=lambda row: row["time"], reverse=True)
         return PagedResult(served, False, False)
+
+    def get_json(self, endpoint_path, data_obj=None, **kwargs):
+        self.json_calls.append(
+            {"endpoint_path": endpoint_path, "data_obj": copy.deepcopy(data_obj)}
+        )
+        wanted = (data_obj or {}).get("time")
+        for row in self._rows_for(endpoint_path):
+            if row["time"] == wanted:
+                return {"code": 0, "result": row["result"]}
+        return {"code": 0, "result": {}}
 
 
 def _encrypt_body(payload, nonce, ssecurity):
