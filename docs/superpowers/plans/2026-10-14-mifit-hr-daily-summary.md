@@ -34,7 +34,7 @@
 
 **Raw `heart_rate`: the completeness lead**
 - Value `{"time", "bpm", "type"}`. The outer `time` equals the value `time` on every row, `type` is `0`, the cadence is mostly 10 minutes, and no two rows share a time. One read with no `start_time` returned a single page of 200+ rows, so the page size is the server's choice.
-- **Window starting exactly on a whole UTC hour H** (here the local 08:00): the first row returned was at H+2h. Every row in [H, H+2h) was missing, although all of them are in the no-start read.
+- **Window starting exactly on a whole UTC hour H** (here an even UTC hour): the first row returned was at H+2h. Every row in [H, H+2h) was missing, although all of them are in the no-start read.
   - Same window with `start_time = H − 1 s`: every row was present.
   - With `start_time = H − 1 day`: the rows inside [H, end] were exactly the no-start read's.
   - End side: a row exactly at `end_time` is returned, and no row after it.

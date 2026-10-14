@@ -51,7 +51,7 @@ base `https://hlth.io.mi.com/`，地区 cn 不加前缀；GET 的业务参数都
 **重要坑**：签名/鉴权错误会返回 **HTTP 401 但业务 code=0** → 判断成功要看 HTTP 状态，不能只看 code。
 
 ## 4. 必须带进我们设计的真实限制（对方已踩坑，别重犯）
-- **原始心率完整性问题（明确未通过）**：按时间窗查 `get_fitness_data_by_time` 会漏点（同日分两段 17+70=87 < 整日 98；可复现），服务端原因未知（2026-10-14 已定位并修复，见 notes/08）。候选更可靠做法：仿 app `pullFullPullFitnessData`——**省略 start_time、保留 end_time/reverse/next_key 翻页**（但全历史 has_more=false 未达成，仅候选）。→ 我们 SDK 读原始心率要显式处理/报告完整性，别假设窗口查询=完整。
+- **原始心率完整性问题（明确未通过）**：按时间窗查 `get_fitness_data_by_time` 会漏点（同日分两段 17+70=87 < 整日 98；可复现），服务端原因未知。候选更可靠做法：仿 app `pullFullPullFitnessData`——**省略 start_time、保留 end_time/reverse/next_key 翻页**（但全历史 has_more=false 未达成，仅候选）。→ 我们 SDK 读原始心率要显式处理/报告完整性，别假设窗口查询=完整。（以上为当时的状态，已被 notes/08 取代：2026-10-14 已定位并修复。）
 - **时间语义按字段分别处理**：日汇总 `time` 是 UTC 零点 vs 本地零点差 28800s（步数）；嵌套 latest HR 的 time 经 `ReportConvertor` 平移；睡眠走另一条 `sleepSegmentToLocalTime`。**不能全局统一 ±8h**。`timezone` 是 15 分钟单位，不是秒。
 - **聚合算法未知**：血氧日均 95 ≠ 点简单平均 96；心率/步数来源融合也未知。别为凑数硬套系数。
 - **会话续期未验证**：401 可能是签名错也可能是过期，不能一遇 401 就让用户反复扫码。
