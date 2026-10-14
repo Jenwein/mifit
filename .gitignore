@@ -1,0 +1,35 @@
+# Large / binary research artifacts — never commit
+target/
+evidence/
+reference/
+
+# Third-party / downloaded code is vendored deliberately, not bulk-committed
+# (when we vendor into src/, we add it explicitly with its LICENSE)
+
+# Credentials & personal data — never commit
+.mifit/
+*.session.json
+secrets/
+private/
+
+# SDD scratch workspace
+.superpowers/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
