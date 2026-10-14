@@ -606,6 +606,106 @@ def test_export_unwritable_json_path_is_reported(fake_mifit, tmp_path, capsys):
     assert str(missing_dir) in capsys.readouterr().err
 
 
+def _reject(constant):
+    pytest.fail(f"non-standard JSON constant in the output: {constant}")
+
+
+NON_FINITE_NOTE = (
+    "Replaced 3 non-finite number(s) (NaN or Infinity) with null: "
+    "strict JSON has no such values."
+)
+
+
+def _patch_non_finite_steps(monkeypatch):
+    def steps(self, start, end):
+        self.calls.append(("steps", start, end, {}))
+        return DomainResult(
+            records=[STEP],
+            raw=[{"a": float("nan"), "b": [float("inf"), float("-inf"), 1.5]}],
+            notes=[],
+        )
+
+    monkeypatch.setattr(FakeMiFit, "steps", steps)
+
+
+def test_export_replaces_non_finite_numbers_with_null(fake_mifit, monkeypatch, tmp_path, capsys):
+    _patch_non_finite_steps(monkeypatch)
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+    data = json.loads(text, parse_constant=_reject)  # strict: no NaN / Infinity literals
+    assert data["raw"] == [{"a": None, "b": [None, None, 1.5]}]
+    assert data["notes"][-1] == NON_FINITE_NOTE
+    assert f"note: {NON_FINITE_NOTE}" in capsys.readouterr().err
+
+
+def test_export_non_finite_record_field_becomes_null(fake_mifit, monkeypatch, tmp_path):
+    nan_record = dataclasses.replace(CONSUMPTION, resting_kcal=float("nan"))
+
+    def consumption(self, start, end):
+        return DomainResult(records=[nan_record], raw=[], notes=[])
+
+    monkeypatch.setattr(FakeMiFit, "consumption", consumption)
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "consumption", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"), parse_constant=_reject)
+    assert data["records"][0]["resting_kcal"] is None
+    assert data["records"][0]["active_kcal"] == 365.0
+    assert data["notes"] == [
+        "Replaced 1 non-finite number(s) (NaN or Infinity) with null: "
+        "strict JSON has no such values."
+    ]
+
+
+def test_export_stdout_is_strict_json(fake_mifit, monkeypatch, capsys):
+    _patch_non_finite_steps(monkeypatch)
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out, parse_constant=_reject)
+    assert data["raw"] == [{"a": None, "b": [None, None, 1.5]}]
+    assert data["notes"][-1] == NON_FINITE_NOTE
+
+
+def test_export_finite_output_has_no_replacement_note(fake_mifit, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["notes"] == []
+    assert "Replaced" not in capsys.readouterr().err
+
+
+def test_finite_replaces_only_non_finite_floats_at_any_depth():
+    value = {
+        "nan": float("nan"),
+        "rows": [(float("inf"), {"deep": [float("-inf")]}), 2.5, 3, True, None, "x"],
+    }
+
+    cleaned, count = cli._finite(value)
+
+    assert count == 3
+    assert cleaned == {"nan": None, "rows": [[None, {"deep": [None]}], 2.5, 3, True, None, "x"]}
+    assert isinstance(cleaned["rows"][0], list)  # tuples become lists
+    assert cleaned["rows"][4] is None and cleaned["rows"][3] is True
+    assert cli._finite([1, 2.0, {"k": "v"}]) == ([1, 2.0, {"k": "v"}], 0)
+    assert value["nan"] != value["nan"]  # the input is left untouched
+
+
 # ---------------------------------------------------------------------------
 # profile
 # ---------------------------------------------------------------------------
@@ -634,6 +734,31 @@ def test_profile_prints_json_to_stdout_and_notes_to_stderr(fake_mifit, capsys):
     assert data["records"] == [asdict(PROFILE)]
     assert data["notes"] == ["n1"]
     assert "note: n1" in captured.err
+
+
+def test_profile_output_is_strict_json(fake_mifit, monkeypatch, tmp_path, capsys):
+    def profile(self):
+        return DomainResult(
+            records=[dataclasses.replace(PROFILE, height_cm=float("nan"))],
+            raw=[{"height": float("inf")}],
+            notes=[],
+        )
+
+    monkeypatch.setattr(FakeMiFit, "profile", profile)
+    out = tmp_path / "profile.json"
+
+    assert cli.main(["profile", "--json", str(out)]) == 0
+    data = json.loads(out.read_text(encoding="utf-8"), parse_constant=_reject)
+    assert data["records"][0]["height_cm"] is None
+    assert data["raw"] == [{"height": None}]
+    assert data["notes"] == [
+        "Replaced 2 non-finite number(s) (NaN or Infinity) with null: "
+        "strict JSON has no such values."
+    ]
+    capsys.readouterr()
+
+    assert cli.main(["profile"]) == 0
+    json.loads(capsys.readouterr().out, parse_constant=_reject)
 
 
 def test_profile_without_session_tells_to_log_in(fake_mifit, capsys):

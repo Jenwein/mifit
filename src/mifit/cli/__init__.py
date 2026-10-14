@@ -19,6 +19,7 @@ import argparse
 import dataclasses
 import io
 import json
+import math
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -198,14 +199,62 @@ def _read(fetch: Callable[[Any], DomainResult]) -> DomainResult | None:
         return None
 
 
+def _finite(value: Any) -> tuple[Any, int]:
+    """A copy of ``value`` with every non-finite float (NaN, +Infinity, -Infinity)
+    replaced by ``None``, at any depth of dicts, lists and tuples (the latter
+    become lists), and how many were replaced. ``bool`` and ``int`` are untouched.
+    """
+    if isinstance(value, float):
+        return (None, 1) if not math.isfinite(value) else (value, 0)
+    if isinstance(value, dict):
+        replaced = 0
+        out = {}
+        for key, item in value.items():
+            out[key], count = _finite(item)
+            replaced += count
+        return out, replaced
+    if isinstance(value, (list, tuple)):
+        replaced = 0
+        items = []
+        for item in value:
+            clean, count = _finite(item)
+            items.append(clean)
+            replaced += count
+        return items, replaced
+    return value, 0
+
+
+def _json_ready(result: DomainResult) -> DomainResult:
+    """``result`` as strict-JSON data: records as plain dicts and no NaN/Infinity.
+
+    JSON has no such numbers (``json.dumps`` would write the non-standard ``NaN``
+    and ``Infinity`` literals), so each one becomes ``null``; the notes say how
+    many, so the change is never silent.
+    """
+    records, in_records = _finite([_plain(record) for record in result.records])
+    raw, in_raw = _finite(result.raw)
+    notes = list(result.notes)
+    replaced = in_records + in_raw
+    if replaced:
+        notes.append(
+            f"Replaced {replaced} non-finite number(s) (NaN or Infinity) with null: "
+            "strict JSON has no such values."
+        )
+    return DomainResult(records=records, raw=raw, notes=notes)
+
+
 def _write_result(result: DomainResult, json_path: str | None) -> int:
-    """Show the notes on stderr and write ``{records, raw, notes}`` as JSON to
-    ``json_path``, or to stdout when it is ``None``; return the exit code."""
+    """Show the notes on stderr and write ``{records, raw, notes}`` as strict JSON
+    to ``json_path``, or to stdout when it is ``None``; return the exit code."""
+    result = _json_ready(result)
     for note in result.notes:
         _eprint(f"note: {note}")
 
-    records = [_plain(record) for record in result.records]
-    text = json.dumps({"records": records, "raw": result.raw, "notes": result.notes}, indent=2)
+    text = json.dumps(
+        {"records": result.records, "raw": result.raw, "notes": result.notes},
+        indent=2,
+        allow_nan=False,
+    )
     if json_path is None:
         # Keep stdout to the JSON alone so it can be piped.
         print(text)
@@ -216,7 +265,7 @@ def _write_result(result: DomainResult, json_path: str | None) -> int:
     except OSError as exc:
         _eprint(f"error: could not write {json_path} ({exc.strerror or type(exc).__name__}).")
         return _EXIT_ERROR
-    print(f"Wrote {len(records)} record(s) to {json_path}.")
+    print(f"Wrote {len(result.records)} record(s) to {json_path}.")
     return _EXIT_OK
 
 
