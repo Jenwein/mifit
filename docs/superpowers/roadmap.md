@@ -16,7 +16,7 @@
 | M2 | "日"的语义统一 + 睡眠 | 中 | ✅ 完成（M2a + M2b，真机核对 PASS） |
 | **M3** | **心率日汇总（静息心率等）+ 原始心率完整性限时调查** | 中 | ✅ 实现完成（2026-10-14），待真机核对（心率日汇总） |
 | M4 | 运动记录汇总（运动列表） | 中 | ✅ 实现完成（2026-10-14），待真机核对 |
-| M5 | 血氧 + 体重/身体成分 + 用户档案 | 中 | 待做 |
+| M5 | 血氧 + 体重/身体成分 + 用户档案 | 中 | ✅ 实现完成（2026-10-14），待真机核对 |
 | M6 | 运动明细 + GPS 轨迹（FDS） | 大，需单独设计文档 | 待做 |
 | M7 | 长尾数据域：枚举 key、建数据域目录 | 中，持续 | 待做 |
 
@@ -43,8 +43,12 @@
   - `heart_rate_daily`：日汇总的平均 / 最高 / 最低 / 静息心率（`avg_bpm` / `max_bpm` / `min_bpm` / `resting_bpm`）；待真机核对。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
   - `workouts`：每次运动一条（`Workout`：开始 / 结束时刻、时区偏移、运动类型的中立名、时长、距离、活动卡路里、平均 / 最高心率、步数；0 或缺失记为 `None`）；待真机核对（notes/10）。
+  - `spo2_daily`：日汇总的平均 / 最高 / 最低血氧（`Spo2DailySummary`：`avg_spo2_pct` / `max_spo2_pct` / `min_spo2_pct`，日均直接取服务端的值，不重算；0 或缺失为 `None`）；待真机核对（notes/11）。
+  - `spo2`：原始全天血氧点（`Spo2Point`）；与原始心率一样起点提前一天再过滤（共享的 `raw_window`）；待真机核对。
+  - `weight`：体重记录（`WeightRecord`：时刻、kg、BMI），身体成分只留在 `raw`；待真机核对。
+  - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标），`raw` 是完整档案（含个人标识）；待真机核对。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 490 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 579 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 
@@ -114,6 +118,7 @@
 - 完成标准：血氧日汇总与 app 一致；体重记录条数和数值与 app 历史一致。身体成分能核对到哪一步取决于你是否有体脂秤数据。
 - 需要你：告诉我你有没有体脂秤或手动记录过体重；没有的话，体重只做到"能读、结构正确"。
 - 可调：血氧和心率日汇总走同一路径，想提前的话可以并进 M3。
+- **结果（2026-10-14）✅（待真机核对）**：key 与入口已找到（notes/11）：血氧日汇总 `key=spo2`（`tag=daily_report`），原始 `spo2` / `single_spo2` / `low_spo2`，体重 key 为 `weight`（APK `FitnessPersistKey.Weight`），都走现有接口；用户档案是单独的接口 `healthapp/user/get_miot_user_profile`（不带 `data` 参数，签名路径去掉 `healthapp/` 前缀），`Transport.get_json` 为此加了 `base_path` 关键字并接受 `data_obj=None`。原始 `spo2` 有与原始心率相同的首桶丢失，经共享的 `domains/raw_window.py`（起点提前一天再过滤）修正，`heart_rate` 行为不变，`weight` 也经它读取。B 层：`MiFit.spo2_daily()` → `Spo2DailySummary`（服务端的日均 / 最高 / 最低，不重算、不拟合；`lack_spo2_count`、`latest_spo2` 只留在 `raw`），`MiFit.spo2()` → `Spo2Point`，`MiFit.weight()` → `WeightRecord`（时刻、kg、BMI）；身体成分只进 A 层，本账号上全为 0；`MiFit.profile()` / `mifit profile` 的 B 层只有身高、体重、每日步数目标和卡路里目标（`UserProfile`），睡眠 / 站立目标、目标列表和个人标识只留在 `raw`。`single_spo2` / `low_spo2` 用 `MiFit.raw` 读取。app 对照推迟到收尾的真机核对会话。
 
 ### M6 — 运动明细 + GPS（FDS）
 
@@ -172,7 +177,7 @@
 |---|---|
 | 每个里程碑的真机核对 | 按我列的清单在 app 里读数（每次约 5–10 分钟） |
 | 会话过期时 | 重新 `mifit login` 扫码 |
-| M5 | 告知体重/体脂秤数据情况 |
+| M5 | ~~告知体重/体脂秤数据情况~~ → ✅ 已答（2026-10-14）：账号上只有一条手动体重，身体成分全 0 → 只做到能读、结构正确 |
 | M6 开工前 | 评审 FDS 设计文档；告知你常做的运动类型 |
 
 ---
