@@ -16,6 +16,9 @@ from mifit.paths import default_session_path
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0123456789"
 SYNTH_SSECURITY = "SYNTH-SSECURITY-ABCDEFGHIJ"
 SYNTH_COOKIE_VALUE = "SYNTH-COOKIE-VALUE-QRSTUV"
+SYNTH_PASS_TOKEN = "SYNTH-PASS-TOKEN"
+SYNTH_DEVICE_ID = "SYNTHDEVICE00001"
+SYNTH_RENEWED_AT = "2026-10-15T00:00:00Z"
 
 
 def make_session(**overrides) -> Session:
@@ -41,6 +44,51 @@ def test_save_then_load_roundtrip(tmp_path):
 
     assert returned == path
     assert loaded == session
+
+
+def test_roundtrip_keeps_renewal_fields(tmp_path):
+    session = make_session(
+        pass_token=SYNTH_PASS_TOKEN,
+        device_id=SYNTH_DEVICE_ID,
+        renewed_at=SYNTH_RENEWED_AT,
+    )
+    path = tmp_path / "session.json"
+
+    save_session(session, path)
+    loaded = load_session(path)
+
+    assert loaded == session
+    assert loaded.pass_token == SYNTH_PASS_TOKEN
+    assert loaded.device_id == SYNTH_DEVICE_ID
+    assert loaded.renewed_at == SYNTH_RENEWED_AT
+
+
+def test_load_session_saved_before_renewal_fields_existed(tmp_path):
+    path = tmp_path / "session.json"
+    path.write_text(
+        json.dumps(
+            {
+                "user_id": "1000000001",
+                "c_user_id": "2000000002",
+                "service_token": SYNTH_SERVICE_TOKEN,
+                "ssecurity": SYNTH_SSECURITY,
+                "region": "de",
+                "created_at": "2026-01-01T00:00:00Z",
+                "extra_cookies": {"userId": "1000000001"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path)
+
+    assert loaded is not None
+    assert loaded.user_id == "1000000001"
+    assert loaded.extra_cookies == {"userId": "1000000001"}
+    assert loaded.pass_token == ""
+    assert loaded.device_id == ""
+    assert loaded.renewed_at is None
+    assert not loaded.can_renew()
 
 
 def test_save_creates_missing_parent_dirs(tmp_path):
@@ -125,6 +173,19 @@ def test_str_and_format_redact_secrets():
         assert SYNTH_SSECURITY not in text
 
 
+def test_repr_redacts_pass_token_and_device_id():
+    session = make_session(
+        pass_token=SYNTH_PASS_TOKEN,
+        device_id=SYNTH_DEVICE_ID,
+        renewed_at=SYNTH_RENEWED_AT,
+    )
+
+    for text in (repr(session), str(session), f"{session}", "%s" % session):
+        assert SYNTH_PASS_TOKEN not in text
+        assert SYNTH_DEVICE_ID not in text
+        assert SYNTH_RENEWED_AT in text
+
+
 def test_repr_does_not_leak_extra_cookie_values():
     session = make_session()
 
@@ -144,6 +205,30 @@ def test_is_valid_requires_service_token_and_user_id():
     assert make_session().is_valid()
     assert not make_session(service_token="").is_valid()
     assert not make_session(user_id="").is_valid()
+
+
+@pytest.mark.parametrize(
+    "pass_token, user_id, expected",
+    [
+        (SYNTH_PASS_TOKEN, "1000000001", True),
+        ("", "1000000001", False),
+        (SYNTH_PASS_TOKEN, "", False),
+        ("", "", False),
+    ],
+)
+def test_can_renew_needs_pass_token_and_user_id(pass_token, user_id, expected):
+    session = make_session(pass_token=pass_token, user_id=user_id)
+
+    assert session.can_renew() is expected
+
+
+def test_renewal_fields_default_to_a_session_that_cannot_renew():
+    session = make_session()
+
+    assert session.pass_token == ""
+    assert session.device_id == ""
+    assert session.renewed_at is None
+    assert not session.can_renew()
 
 
 def test_default_session_path_is_under_gitignored_dot_mifit_dir():

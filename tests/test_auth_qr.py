@@ -7,6 +7,7 @@ the network. Every credential, token, URL and id below is synthetic.
 import base64
 import hashlib
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,7 @@ from mifit.auth.qr import (
     QrChallenge,
     exchange_sts,
     login_qr,
+    new_device_id,
     poll_qr_login,
     request_qr_login,
 )
@@ -33,6 +35,7 @@ SYNTH_SSECURITY = base64.b64encode(b"synthetic-ssecurity").decode("ascii")
 SYNTH_NONCE = 1234567890123456789  # larger than 2**53: must stay an exact integer
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0000"
 SYNTH_OTHER_TOKEN = "SYNTH-GENERIC-TOKEN-1111"
+SYNTH_DEVICE_ID = "SYNTHDEVICE00001"
 
 LOGIN_URL = "https://account.xiaomi.com/longPolling/loginUrl"
 EXPECTED_QR_REQUEST_URL = f"{LOGIN_URL}?sid=miothealth&_json=true"
@@ -97,7 +100,15 @@ class FakeHttp:
         self.calls = []
         self._events = events
 
-    def get(self, url, params=None, headers=None, timeout=None, allow_redirects=True):
+    def get(
+        self,
+        url,
+        params=None,
+        headers=None,
+        timeout=None,
+        allow_redirects=True,
+        cookies=None,
+    ):
         self.calls.append(
             SimpleNamespace(
                 url=url,
@@ -105,6 +116,7 @@ class FakeHttp:
                 headers=headers,
                 timeout=timeout,
                 allow_redirects=allow_redirects,
+                cookies=cookies,
             )
         )
         if self._events is not None:
@@ -176,6 +188,37 @@ def test_request_qr_uses_the_given_sid():
     request_qr_login(http, sid="passport")
 
     assert http.calls[0].url == f"{LOGIN_URL}?sid=passport&_json=true"
+
+
+def test_request_qr_without_device_id_sends_no_cookies():
+    http = FakeHttp(qr_ok())
+
+    request_qr_login(http)
+
+    assert http.calls[0].cookies is None
+
+
+def test_request_qr_without_device_id_does_not_pass_a_cookies_kwarg():
+    # Not even ``cookies=None``: an ``http`` whose ``get`` lacks the parameter still works.
+    seen = {}
+
+    class NoCookiesHttp:
+        def get(self, url, **kwargs):
+            seen.update(kwargs)
+            return qr_ok()
+
+    request_qr_login(NoCookiesHttp())
+
+    assert "cookies" not in seen
+
+
+def test_request_qr_with_device_id_sends_it_as_the_device_id_cookie():
+    http = FakeHttp(qr_ok())
+
+    request_qr_login(http, device_id=SYNTH_DEVICE_ID)
+
+    assert http.calls[0].url == EXPECTED_QR_REQUEST_URL
+    assert http.calls[0].cookies == {"deviceId": SYNTH_DEVICE_ID}
 
 
 def test_request_qr_accepts_a_body_without_the_safe_prefix():
@@ -252,6 +295,16 @@ def test_poll_uses_a_long_read_timeout():
     poll_qr_login(make_challenge(), http)
 
     assert http.calls[0].timeout is not None and http.calls[0].timeout >= 60
+
+
+def test_poll_with_device_id_sends_it_as_the_device_id_cookie():
+    http = FakeHttp(poll_ok(), poll_ok())
+
+    poll_qr_login(make_challenge(), http, device_id=SYNTH_DEVICE_ID)
+    poll_qr_login(make_challenge(), http)
+
+    assert http.calls[0].cookies == {"deviceId": SYNTH_DEVICE_ID}
+    assert http.calls[1].cookies is None
 
 
 def test_poll_accepts_a_body_without_the_safe_prefix():
@@ -499,6 +552,26 @@ def test_sts_builds_a_session_from_the_login_result():
     }
 
 
+def test_sts_session_keeps_the_pass_token_and_device_id():
+    http = FakeHttp(sts_ok())
+
+    session = exchange_sts(make_result(), SYNTH_SID, http, device_id=SYNTH_DEVICE_ID)
+
+    assert session.pass_token == SYNTH_PASS_TOKEN
+    assert session.device_id == SYNTH_DEVICE_ID
+    assert session.renewed_at is None
+    assert session.can_renew()
+    # The STS request itself is unchanged: it sends no cookies.
+    assert http.calls[0].cookies is None
+
+
+def test_sts_without_a_device_id_leaves_it_empty():
+    session = exchange_sts(make_result(), SYNTH_SID, FakeHttp(sts_ok()))
+
+    assert session.pass_token == SYNTH_PASS_TOKEN
+    assert session.device_id == ""
+
+
 @pytest.mark.parametrize(
     "hint, expected",
     [
@@ -562,6 +635,33 @@ def test_login_builds_valid_session():
     assert http.calls[2].params["clientSign"] == expected_client_sign(
         SYNTH_NONCE, SYNTH_SSECURITY
     )
+
+
+def test_login_qr_sends_one_device_id_on_both_account_requests():
+    http = FakeHttp(qr_ok(), poll_ok(), sts_ok())
+
+    session = login_qr(http)
+
+    assert re.fullmatch("[0-9A-F]{16}", session.device_id)
+    assert http.calls[0].cookies == {"deviceId": session.device_id}
+    assert http.calls[1].cookies == {"deviceId": session.device_id}
+    assert http.calls[2].cookies is None
+    assert session.pass_token == SYNTH_PASS_TOKEN
+
+
+def test_login_qr_makes_a_fresh_device_id_per_login():
+    first = login_qr(FakeHttp(qr_ok(), poll_ok(), sts_ok()))
+    second = login_qr(FakeHttp(qr_ok(), poll_ok(), sts_ok()))
+
+    assert first.device_id != second.device_id
+
+
+def test_new_device_id_is_random_16_hex():
+    first, second = new_device_id(), new_device_id()
+
+    assert first != second
+    assert re.fullmatch("[0-9A-F]{16}", first)
+    assert re.fullmatch("[0-9A-F]{16}", second)
 
 
 def test_login_qr_shows_the_qr_before_it_starts_polling():

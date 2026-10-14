@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 
 from mifit.paths import default_session_path
@@ -21,6 +21,16 @@ _REDACTED = "<redacted>"
 
 @dataclass(repr=False)
 class Session:
+    """The credentials of one Mi account login.
+
+    ``created_at`` is the **login** time (UTC ISO-8601 ``Z``); an automatic
+    renewal keeps it. ``renewed_at`` is the time of the last automatic renewal
+    (``None`` = never renewed). ``pass_token`` and ``device_id`` are what a
+    renewal needs: the account's passToken and the random device id that was
+    sent to the account service at login. Sessions saved before they existed
+    have both empty and cannot be renewed.
+    """
+
     user_id: str
     c_user_id: str
     service_token: str
@@ -28,22 +38,33 @@ class Session:
     region: str
     created_at: str
     extra_cookies: dict[str, str] = field(default_factory=dict)
+    pass_token: str = ""
+    device_id: str = ""
+    renewed_at: str | None = None
 
     def is_valid(self) -> bool:
         """True iff the session carries both a service token and a user id."""
         return bool(self.service_token) and bool(self.user_id)
 
+    def can_renew(self) -> bool:
+        """True iff the session carries what an automatic renewal needs."""
+        return bool(self.pass_token) and bool(self.user_id)
+
     def __repr__(self) -> str:
-        # service_token / ssecurity are secrets; extra_cookies may hold more
-        # credentials, so only its cookie names are shown.
+        # service_token / ssecurity / pass_token are secrets and device_id is
+        # redacted too; extra_cookies may hold more credentials, so only its
+        # cookie names are shown.
         return (
             f"{type(self).__name__}("
             f"user_id={self.user_id!r}, "
             f"c_user_id={self.c_user_id!r}, "
             f"service_token={_REDACTED}, "
             f"ssecurity={_REDACTED}, "
+            f"pass_token={_REDACTED}, "
+            f"device_id={_REDACTED}, "
             f"region={self.region!r}, "
             f"created_at={self.created_at!r}, "
+            f"renewed_at={self.renewed_at!r}, "
             f"extra_cookies=<{len(self.extra_cookies)} cookies: "
             f"{sorted(self.extra_cookies)!r} values redacted>)"
         )
@@ -106,7 +127,13 @@ def load_session(path: Path | None = None) -> Session | None:
     if not isinstance(data, dict):
         raise ValueError(f"session file {source} does not contain a JSON object")
 
-    required = [f.name for f in fields(Session) if f.name != "extra_cookies"]
+    # Only the six fields every session file has ever carried are required; the
+    # rest (extra_cookies and the renewal fields) default for older files.
+    required = [
+        f.name
+        for f in fields(Session)
+        if f.default is MISSING and f.default_factory is MISSING
+    ]
     missing = [name for name in required if name not in data]
     if missing:
         raise ValueError(
@@ -116,4 +143,7 @@ def load_session(path: Path | None = None) -> Session | None:
     return Session(
         **{name: data[name] for name in required},
         extra_cookies=dict(data.get("extra_cookies") or {}),
+        pass_token=data.get("pass_token") or "",
+        device_id=data.get("device_id") or "",
+        renewed_at=data.get("renewed_at") or None,
     )

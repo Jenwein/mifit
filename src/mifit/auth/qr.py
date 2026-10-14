@@ -36,6 +36,7 @@ import base64
 import hashlib
 import json
 import re
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.cookies import CookieError, SimpleCookie
@@ -52,6 +53,7 @@ __all__ = [
     "QrChallenge",
     "exchange_sts",
     "login_qr",
+    "new_device_id",
     "poll_qr_login",
     "request_qr_login",
 ]
@@ -137,13 +139,21 @@ def _get(
     timeout: float,
     params: dict[str, str] | None = None,
     allow_redirects: bool | None = None,
+    cookies: dict[str, str] | None = None,
 ) -> Any:
     kwargs: dict[str, Any] = {"timeout": timeout}
     if params is not None:
         kwargs["params"] = params
     if allow_redirects is not None:
         kwargs["allow_redirects"] = allow_redirects
+    if cookies is not None:
+        kwargs["cookies"] = cookies
     return http.get(url, **kwargs)
+
+
+def _device_cookies(device_id: str | None) -> dict[str, str] | None:
+    """The ``deviceId`` cookie the account service gets, or ``None`` for no cookies."""
+    return {"deviceId": device_id} if device_id else None
 
 
 def _text(value: Any) -> str:
@@ -292,17 +302,28 @@ def _utc_now_iso() -> str:
 # ---------------------------------------------------------------------------
 
 
-def request_qr_login(http: Any = None, sid: str = SID) -> QrChallenge:
+def new_device_id() -> str:
+    """A random device id: 16 uppercase hex characters, as the reference client makes."""
+    return secrets.token_hex(8).upper()
+
+
+def request_qr_login(
+    http: Any = None, sid: str = SID, *, device_id: str | None = None
+) -> QrChallenge:
     """Ask the account service for a QR login session for ``sid``.
 
     GETs ``https://account.xiaomi.com/longPolling/loginUrl?sid=<sid>&_json=true``
-    and returns the ``loginUrl``, ``qr`` and ``lp`` fields. Raises ``ApiError`` on
-    an HTTP error, a non-zero ``code``, an unparsable body or a missing field.
+    and returns the ``loginUrl``, ``qr`` and ``lp`` fields. With a ``device_id`` the
+    request carries it as the ``deviceId`` cookie. Raises ``ApiError`` on an HTTP
+    error, a non-zero ``code``, an unparsable body or a missing field.
     """
     http = _http_or_default(http)
     url = f"{QR_LOGIN_URL_ENDPOINT}?{urlencode([('sid', sid), ('_json', 'true')])}"
     what = "QR login request"
-    payload = _load_json(_get(http, url, timeout=_REQUEST_TIMEOUT_S), what)
+    response = _get(
+        http, url, timeout=_REQUEST_TIMEOUT_S, cookies=_device_cookies(device_id)
+    )
+    payload = _load_json(response, what)
     _raise_for_code(payload, what)
 
     login_url = _text(payload.get("loginUrl"))
@@ -323,17 +344,21 @@ def poll_qr_login(
     http: Any = None,
     *,
     timeout_s: float = _LONG_POLL_TIMEOUT_S,
+    device_id: str | None = None,
 ) -> LoginResult:
     """Wait for the user to approve ``challenge`` and parse the login result.
 
-    GETs ``challenge.lp_url`` (a long poll, so ``timeout_s`` is generous). Raises
+    GETs ``challenge.lp_url`` (a long poll, so ``timeout_s`` is generous), with the
+    ``deviceId`` cookie when a ``device_id`` is given. Raises
     ``NotificationRequiredError`` when the server demands a security confirmation
     (``securityStatus != 0``) and ``ApiError`` for anything else that is not a
     complete, successful login.
     """
     http = _http_or_default(http)
     what = "QR login long poll"
-    response = _get(http, challenge.lp_url, timeout=timeout_s)
+    response = _get(
+        http, challenge.lp_url, timeout=timeout_s, cookies=_device_cookies(device_id)
+    )
     payload = _load_json(response, what)
     _raise_for_code(payload, what)
 
@@ -390,16 +415,20 @@ def poll_qr_login(
     )
 
 
-def exchange_sts(result: LoginResult, sid: str, http: Any = None) -> Session:
+def exchange_sts(
+    result: LoginResult, sid: str, http: Any = None, *, device_id: str = ""
+) -> Session:
     """Trade a login result for a service token at the STS URL and build a ``Session``.
 
     GETs ``result.location`` with ``clientSign`` and ``_userIdNeedEncrypt=true``
     without following redirects (the APK reads the token from that first
-    response), then reads ``<sid>_serviceToken`` (falling back to ``serviceToken``)
-    from the response cookies. Other cookies from that response are kept in
-    ``extra_cookies``. The region comes from ``result.region_hint`` and defaults
-    to ``cn``. Raises ``ApiError`` on an incomplete result, a non-https STS URL, an
-    HTTP error or a response without a token.
+    response) and without cookies, then reads ``<sid>_serviceToken`` (falling back
+    to ``serviceToken``) from the response cookies. Other cookies from that
+    response are kept in ``extra_cookies``. The session keeps ``result.pass_token``
+    and ``device_id`` so it can be renewed later. The region comes from
+    ``result.region_hint`` and defaults to ``cn``. Raises ``ApiError`` on an
+    incomplete result, a non-https STS URL, an HTTP error or a response without a
+    token.
     """
     nonce = _nonce_text(result.nonce)
     missing = [
@@ -459,6 +488,8 @@ def exchange_sts(result: LoginResult, sid: str, http: Any = None) -> Session:
         region=_resolve_region(result.region_hint),
         created_at=_utc_now_iso(),
         extra_cookies=extra_cookies,
+        pass_token=result.pass_token,
+        device_id=device_id,
     )
 
 
@@ -474,12 +505,14 @@ def login_qr(
     polling starts, so a UI can show the code while the user approves; it is
     optional only for headless callers that obtain the code some other way. One
     ``http`` client is shared by all three requests so cookies persist between them.
-    Blocks until the user approves, the poll fails or ``NotificationRequiredError``
-    says an extra confirmation is needed.
+    One fresh device id per login goes to both account requests as the ``deviceId``
+    cookie and is kept in the session. Blocks until the user approves, the poll
+    fails or ``NotificationRequiredError`` says an extra confirmation is needed.
     """
     http = _http_or_default(http)
-    challenge = request_qr_login(http, sid)
+    device_id = new_device_id()
+    challenge = request_qr_login(http, sid, device_id=device_id)
     if on_qr is not None:
         on_qr(challenge.login_url, challenge.qr_payload)
-    result = poll_qr_login(challenge, http)
-    return exchange_sts(result, sid, http)
+    result = poll_qr_login(challenge, http, device_id=device_id)
+    return exchange_sts(result, sid, http, device_id=device_id)
