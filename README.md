@@ -15,16 +15,25 @@ Python objects, so you can build on it.
 
 ## What it reads today
 
-| Domain | What you get | `records` type |
-|---|---|---|
-| `steps` | steps and distance per day | `StepRecord` |
-| `heart_rate` | raw heart-rate samples | `HeartRatePoint` |
-| `consumption` | calories per day: resting, active, intake, total | `ConsumptionRecord` |
-| `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` |
+| Domain | What you get | `records` type | Checked against the app |
+|---|---|---|---|
+| `steps` | steps and distance per day | `StepRecord` | yes |
+| `heart_rate` | raw heart-rate samples | `HeartRatePoint` | yes |
+| `heart_rate_daily` | heart rate per day: average, maximum, minimum, resting | `HeartRateDailySummary` | pending |
+| `consumption` | calories per day: resting, active, intake, total | `ConsumptionRecord` | yes |
+| `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` | yes; the sleep score could not be checked and is in `raw` only |
+| `workouts` | one entry per workout: start and end, sport, duration, distance, active calories, average and maximum heart rate, steps | `Workout` | pending |
+| `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
+| `spo2` | raw SpO2 readings | `Spo2Point` | pending |
+| `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
+| `profile` (its own command: `mifit profile`) | height, weight, daily step and calorie goals | `UserProfile` | pending |
+| `raw` (Python only: `client.raw(key, ...)`) | the rows of any fitness-data key, as the service sends them | none: a list of the service's rows | not applicable: nothing is interpreted |
 
-Each domain has been checked against the app on one real account (China
-region, UTC+8). More is planned: workouts, standalone SpO2 (daily and spot
-readings; sleep already carries its own SpO2 figures), weight, ...
+"Checked against the app" means the values were compared with what the Mi
+Fitness app shows, on one real account (China region, UTC+8). "Pending" means
+implemented and tested offline, but not yet compared with the app. More is
+planned, such as workout details and GPS tracks. Meanwhile, `raw` returns the
+rows of any other key of the fitness-data endpoint, uninterpreted.
 
 ## Install
 
@@ -72,8 +81,9 @@ mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [
 - `--json PATH`: write to a file instead of standard output.
 - `--full`: `heart_rate` only; page backwards through the history instead of
   querying one time window (see [Known limitations](#known-limitations)).
-  This is a single read: it ignores `--from` and cannot be combined with
-  `--chunk`, `--long` or `--resume`.
+  This is a single read: it ignores `--from`, so it needs no `--long` however
+  long the range, and it cannot be combined with `--chunk`, `--long` or
+  `--resume`.
 - `--chunk day|week|month`: the chunk size (1, 7 or 31 days) for a range
   longer than one chunk; the default depends on the domain.
 - `--long`: allow a range over 92 days.
@@ -98,7 +108,8 @@ request at a time, with progress on standard error. A shorter range is a
 single read, as before. The chunks are merged into one output of the same
 shape; with more than one chunk, each note starts with the chunk it came
 from. Ranges over 92 days need `--long`: they take many requests and can run
-for many minutes.
+for many minutes. The one exception is `heart_rate --full`: it ignores
+`--from` and is a single read, never chunked, so it needs no `--long`.
 
 ```bash
 mifit export heart_rate --from 2026-01-01 --to 2026-06-30 --long --json heart_rate.json
