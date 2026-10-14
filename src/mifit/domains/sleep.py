@@ -36,6 +36,7 @@ from typing import NamedTuple
 
 from mifit.domains.base import DomainResult, register
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
+from mifit.errors import ApiError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.transport import Transport
 
@@ -68,7 +69,9 @@ def fetch_sleep(
     is the one holding ``start_epoch_s`` and the last the one holding
     ``end_epoch_s``, both inclusive. A session belongs to the day the service files
     it under (the day it ended). Rows and sessions that cannot be read are skipped
-    with a note, never fabricated.
+    with a note, never fabricated. The raw read for stage timelines is skipped when no
+    day has a session. If it fails with an ``ApiError`` the days stand without stages
+    and one note says so; any other failure, such as an ``AuthError``, propagates.
     """
     first, last = local_day_span(start_epoch_s, end_epoch_s, tz)
     start_time, end_time = report_window(first, last)
@@ -112,16 +115,26 @@ def fetch_sleep(
 def _attach_stages(
     t: Transport, first: date, last: date, tz: tzinfo | None, result: DomainResult
 ) -> None:
-    rows = t.get_paged(
-        _RAW_ENDPOINT,
-        {
-            "key": "sleep",
-            "start_time": local_midnight(first, tz) - _DAY_S,
-            "end_time": local_midnight(last + timedelta(days=1), tz) + _DAY_S,
-            "reverse": True,
-        },
-        list_key="data_list",
-    )
+    if not any(record.sessions for record in result.records):
+        return
+    try:
+        rows = t.get_paged(
+            _RAW_ENDPOINT,
+            {
+                "key": "sleep",
+                "start_time": local_midnight(first, tz) - _DAY_S,
+                "end_time": local_midnight(last + timedelta(days=1), tz) + _DAY_S,
+                "reverse": True,
+            },
+            list_key="data_list",
+        )
+    except ApiError as err:
+        suffix = "" if err.code is None else f" (code {err.code})"
+        result.notes.append(
+            f"Stage timelines were not read: the service returned an error{suffix}. "
+            "Sleep sessions have no stages."
+        )
+        return
 
     timelines: dict[tuple[int, int], _RawSession] = {}
     for row in rows:

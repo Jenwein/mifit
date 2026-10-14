@@ -13,7 +13,7 @@ plus one session from the day before the window.
 import dataclasses
 import json
 from collections.abc import Callable
-from datetime import date, timezone
+from datetime import date, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -21,6 +21,7 @@ import pytest
 from mifit.domains.base import REGISTRY
 from mifit.domains.days import local_midnight
 from mifit.domains.sleep import fetch_sleep
+from mifit.errors import ApiError, AuthError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.transport import Transport
 
@@ -64,8 +65,9 @@ def load(name):
 class FakeTransport(Transport):
     """Serves canned rows per endpoint from ``get_paged`` and records each call."""
 
-    def __init__(self, daily=None, raw=None):
+    def __init__(self, daily=None, raw=None, raw_error: Exception | None = None):
         # No Session/http needed: ``get_paged`` is fully replaced below.
+        self._raw_error = raw_error
         self._rows = {
             DAILY_ENDPOINT: list((daily or {"result": {}})["result"].get("data_list") or []),
             RAW_ENDPOINT: list((raw or {"result": {}})["result"].get("data_list") or []),
@@ -76,12 +78,16 @@ class FakeTransport(Transport):
         self, endpoint_path, data_obj, *, list_key="data_list", sign_path=None, max_pages=None
     ):
         self.calls.append({"endpoint_path": endpoint_path, "data_obj": dict(data_obj)})
+        if endpoint_path == RAW_ENDPOINT and self._raw_error is not None:
+            raise self._raw_error
         return list(self._rows.get(endpoint_path, []))
 
 
-def fetch(daily=None, raw=None):
+def fetch(daily=None, raw=None, raw_error=None):
     transport = FakeTransport(
-        daily or load("sleep_daily_sample.json"), raw or load("sleep_raw_sample.json")
+        daily or load("sleep_daily_sample.json"),
+        raw or load("sleep_raw_sample.json"),
+        raw_error,
     )
     return transport, fetch_sleep(transport, START, END, tz=UTC)
 
@@ -481,3 +487,61 @@ def test_unreadable_stage_items_are_skipped_with_a_note(bad_item):
     assert len(result.notes) == 1
     assert "2025-10-14" in result.notes[0]
     assert "1 unreadable stage item" in result.notes[0]
+
+
+def _without_sessions(daily):
+    for index in range(len(daily["result"]["data_list"])):
+        edit_value(daily, index, lambda v: v.update(segment_details=[]))
+    return daily
+
+
+@pytest.mark.parametrize(
+    "daily",
+    [
+        {"result": {"data_list": []}},
+        _without_sessions(load("sleep_daily_sample.json")),
+    ],
+    ids=["no-days", "days-without-sessions"],
+)
+def test_no_raw_request_without_sessions(daily):
+    transport, _ = fetch(daily)
+
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["endpoint_path"] == DAILY_ENDPOINT
+
+
+def test_failed_raw_request_keeps_the_days_and_notes_it():
+    daily = load("sleep_daily_sample.json")
+
+    _, result = fetch(daily, raw_error=ApiError("boom", code=500))
+
+    assert [r.date for r in result.records] == ["2025-10-15", "2025-10-14"]
+    assert len(record_for(result, "2025-10-14").sessions) == 2
+    assert all(s.stages == [] for r in result.records for s in r.sessions)
+    assert result.raw == [json.loads(row["value"]) for row in daily["result"]["data_list"]]
+    assert len(result.notes) == 1
+    assert "stage" in result.notes[0].lower()
+    assert "code 500" in result.notes[0]
+
+
+def test_auth_error_on_raw_request_propagates():
+    with pytest.raises(AuthError):
+        fetch(raw_error=AuthError("rejected"))
+
+
+def test_raw_window_follows_the_requested_zone():
+    est = timezone(timedelta(hours=-5))
+    start = DAY_A + 5 * 3600  # 2025-10-14 00:00 at -05:00
+    end = start + 2 * 86400 - 1
+    transport = FakeTransport(load("sleep_daily_sample.json"), load("sleep_raw_sample.json"))
+
+    fetch_sleep(transport, start, end, tz=est)
+
+    daily_call, raw_call = transport.calls
+    # Daily keys are UTC midnights whatever the zone.
+    assert (daily_call["data_obj"]["start_time"], daily_call["data_obj"]["end_time"]) == (
+        DAY_A - 86400,
+        DAY_B,
+    )
+    assert raw_call["data_obj"]["start_time"] == DAY_A + 5 * 3600 - 86400
+    assert raw_call["data_obj"]["end_time"] == DAY_A + 5 * 3600 + 3 * 86400
