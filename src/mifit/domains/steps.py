@@ -13,15 +13,28 @@ is built from the caller's local days accordingly (``days.report_window``).
 
 from __future__ import annotations
 
-import json
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, register, stalled_note
+from mifit.domains.base import (
+    DomainResult,
+    ValueProblem,
+    decode_value,
+    register,
+    stalled_note,
+)
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.steps import StepRecord
 from mifit.transport import Transport
 
 _ENDPOINT = "data/get_aggregated_fitness_data_by_time"
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a daily step row whose value is missing or not valid JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: (
+        "Skipped a daily step row whose value is not an object."
+    ),
+}
 
 
 @register("steps")
@@ -57,15 +70,9 @@ def fetch_steps(
 
     result = DomainResult()
     for entry in paged.items:
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append(
-                "Skipped a daily step row whose value is missing or not valid JSON."
-            )
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a daily step row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)

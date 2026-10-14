@@ -19,12 +19,25 @@ the account checked, so none could be verified (notes/11 §2) and they stay in
 
 from __future__ import annotations
 
-import json
-
-from mifit.domains.base import DomainResult, as_float, as_int, register, stalled_note
+from mifit.domains.base import (
+    DomainResult,
+    ValueProblem,
+    as_int,
+    as_positive_float,
+    decode_value,
+    register,
+    stalled_note,
+)
 from mifit.domains.raw_window import fetch_raw_window
 from mifit.models.weight import WeightRecord
 from mifit.transport import Transport
+
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a weight row whose value is missing or not valid JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: "Skipped a weight row whose value is not an object.",
+}
 
 
 @register("weight")
@@ -44,25 +57,17 @@ def fetch_weight(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainRe
     kept, unusable, stalled = fetch_raw_window(t, "weight", start_epoch_s, end_epoch_s)
     result = DomainResult()
     for entry in kept:
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append(
-                "Skipped a weight row whose value is missing or not valid JSON."
-            )
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a weight row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)
-        weight_kg = as_float(value.get("weight"))
-        if weight_kg is None or weight_kg <= 0:
+        weight_kg = as_positive_float(value.get("weight"))
+        if weight_kg is None:
             result.notes.append("Skipped a weight row without a usable weight.")
             continue
-        bmi = as_float(value.get("bmi"))
-        if bmi is not None and bmi <= 0:
-            bmi = None
+        bmi = as_positive_float(value.get("bmi"))
         # ``fetch_raw_window`` kept only rows whose outer ``time`` is usable.
         epoch_s = as_int(entry["time"])
         result.records.append(

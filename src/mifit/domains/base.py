@@ -1,6 +1,8 @@
 """Shared domain plumbing: the result container, a minimal name registry,
-``as_int`` / ``as_positive_int`` / ``as_float``, the domains' common readings of a
-reported number, and ``stalled_note``, the caveat for a paged read that stalled.
+``decode_value``, which decodes a row's JSON-string ``value``,
+``as_int`` / ``as_positive_int`` / ``as_float`` / ``as_positive_float``, the domains'
+common readings of a reported number, and ``stalled_note``, the caveat for a paged
+read that stalled.
 
 A domain is a function ``fn(transport, start_epoch_s, end_epoch_s) -> DomainResult``
 registered under a short name so callers can list and dispatch domains.
@@ -8,9 +10,12 @@ registered under a short name so callers can list and dispatch domains.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import NamedTuple
 
 
 @dataclass
@@ -43,6 +48,42 @@ def register(name: str) -> Callable[[DomainFn], DomainFn]:
         return fn
 
     return decorator
+
+
+class ValueProblem(Enum):
+    """Why ``decode_value`` gave no value for a row."""
+
+    UNREADABLE = "unreadable"
+    """The row has no ``value`` (or is not an object itself), or its ``value`` is not
+    a JSON string that decodes: not a string, malformed, or holding an integer too
+    long for Python to parse (``json.loads`` raises ``ValueError`` on one)."""
+    NOT_AN_OBJECT = "not an object"
+    """The ``value`` decodes, but to something other than a JSON object."""
+
+
+class DecodedValue(NamedTuple):
+    """What ``decode_value`` read: exactly one of the two fields is ``None``."""
+
+    value: dict | None
+    """The decoded object, untouched, or ``None`` when there is a ``problem``."""
+    problem: ValueProblem | None
+    """Why there is no ``value``, or ``None`` when there is one."""
+
+
+def decode_value(row: object) -> DecodedValue:
+    """Decode ``row["value"]``, the JSON *string* the service nests in a data row.
+
+    Returns ``DecodedValue(value, None)`` when it decodes to an object, else
+    ``DecodedValue(None, problem)``; see ``ValueProblem``. The caller words the note
+    for each problem, so every domain keeps its own text.
+    """
+    try:
+        value = json.loads(row["value"])
+    except (KeyError, TypeError, ValueError):
+        return DecodedValue(None, ValueProblem.UNREADABLE)
+    if not isinstance(value, dict):
+        return DecodedValue(None, ValueProblem.NOT_AN_OBJECT)
+    return DecodedValue(value, None)
 
 
 def stalled_note(what: str) -> str:
@@ -91,4 +132,13 @@ def as_positive_int(raw: object) -> int | None:
     The service reports ``0`` for a figure it did not measure, so ``0`` means "not
     reported", like an absent, negative or non-number value (``as_int`` rules)."""
     value = as_int(raw)
+    return value if value is not None and value > 0 else None
+
+
+def as_positive_float(raw: object) -> float | None:
+    """A reported figure as a float; ``None`` unless it is a positive number.
+
+    ``0`` means "not reported" or "not set", like an absent, negative or non-number
+    value (``as_float`` rules)."""
+    value = as_float(raw)
     return value if value is not None and value > 0 else None

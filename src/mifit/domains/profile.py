@@ -24,18 +24,13 @@ read through ``MiFit.profile()`` and ``mifit profile``.
 
 from __future__ import annotations
 
-from mifit.domains.base import DomainResult, as_float, as_positive_int
+from mifit.domains.base import DomainResult, as_positive_float, as_positive_int
 from mifit.models.profile import UserProfile
 from mifit.transport import Transport
 
 _ENDPOINT = "user/get_miot_user_profile"
 _SIGN_PATH = "/user/get_miot_user_profile"
 _BASE_PATH = "healthapp/"
-
-
-def _positive(value: float | None) -> float | None:
-    """``value`` when it is above zero, else ``None`` (``0`` means "not set")."""
-    return value if value is not None and value > 0 else None
 
 
 def fetch_profile(t: Transport) -> DomainResult:
@@ -52,8 +47,8 @@ def fetch_profile(t: Transport) -> DomainResult:
         return DomainResult(notes=["The profile answer carried no profile object."])
 
     profile = UserProfile(
-        height_cm=_positive(as_float(result.get("height"))),
-        weight_kg=_positive(as_float(result.get("weight"))),
+        height_cm=as_positive_float(result.get("height")),
+        weight_kg=as_positive_float(result.get("weight")),
         step_goal=as_positive_int(result.get("daily_step_goal")),
         calorie_goal_kcal=as_positive_int(result.get("daily_cal_goal")),
     )

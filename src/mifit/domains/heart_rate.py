@@ -23,9 +23,13 @@ app's own full pull does.
 
 from __future__ import annotations
 
-import json
-
-from mifit.domains.base import DomainResult, register, stalled_note
+from mifit.domains.base import (
+    DomainResult,
+    ValueProblem,
+    decode_value,
+    register,
+    stalled_note,
+)
 from mifit.domains.raw_window import RAW_ENDPOINT, fetch_raw_window
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.transport import Transport
@@ -33,6 +37,14 @@ from mifit.transport import Transport
 _ENDPOINT = RAW_ENDPOINT
 _WHAT = "heart-rate rows"
 """What a stalled read (window or full) may have missed, for ``stalled_note``."""
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a heart-rate row whose value is missing or not valid JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: (
+        "Skipped a heart-rate row whose value is not an object."
+    ),
+}
 
 
 @register("heart_rate")
@@ -100,15 +112,9 @@ def _build_result(entries: list[dict]) -> DomainResult:
     """Decode entries into raw values and records, skipping unusable rows with a note."""
     result = DomainResult()
     for entry in entries:
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append(
-                "Skipped a heart-rate row whose value is missing or not valid JSON."
-            )
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a heart-rate row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)

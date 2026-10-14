@@ -31,24 +31,41 @@ Fields whose meaning has not been verified against the app (``sleep_score``,
 from __future__ import annotations
 
 import dataclasses
-import json
 from datetime import date, timedelta, tzinfo
 from typing import NamedTuple
 
-from mifit.domains.base import DomainResult, as_int, register, stalled_note
+from mifit.domains.base import (
+    DomainResult,
+    ValueProblem,
+    as_int,
+    decode_value,
+    register,
+    stalled_note,
+)
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
+from mifit.domains.raw_window import RAW_ENDPOINT
 from mifit.errors import ApiError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.transport import Transport
 
 _DAILY_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
-_RAW_ENDPOINT = "data/get_fitness_data_by_time"
+_RAW_ENDPOINT = RAW_ENDPOINT
 _DAY_S = 86400
 _STAGES = {2: "deep", 3: "light", 4: "rem", 5: "awake"}
 """Stage codes: 2/3/5 checked against reported durations on a real night; 4 (REM)
 from the APK's constants only. Any other code is ``"unknown"``."""
 _TZ_UNIT_S = 900
 """``timezone`` counts quarter hours."""
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a daily sleep row whose value is missing or not valid JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: (
+        "Skipped a daily sleep row whose value is not an object."
+    ),
+}
+"""The notes for a daily row whose value cannot be read; the raw read skips such
+rows without a note."""
 
 
 class _RawSession(NamedTuple):
@@ -93,13 +110,9 @@ def fetch_sleep(
 
     result = DomainResult()
     for row in daily.items:
-        try:
-            value = json.loads(row["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append("Skipped a daily sleep row whose value is missing or not valid JSON.")
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a daily sleep row whose value is not an object.")
+        value, problem = decode_value(row)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)
@@ -143,11 +156,8 @@ def _attach_stages(
 
     timelines: dict[tuple[int, int], _RawSession] = {}
     for row in raw_read.items:
-        try:
-            value = json.loads(row["value"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not isinstance(value, dict) or row.get("deleted"):
+        value, problem = decode_value(row)
+        if problem is not None or row.get("deleted"):
             continue
         try:
             key = (int(value["bedtime"]), int(value["wake_up_time"]))

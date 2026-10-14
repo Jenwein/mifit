@@ -32,12 +32,12 @@ notes/10 for the shapes and the open points.
 
 from __future__ import annotations
 
-import json
-
 from mifit.domains.base import (
     DomainResult,
+    ValueProblem,
     as_int,
     as_positive_int,
+    decode_value,
     register,
     stalled_note,
 )
@@ -56,6 +56,12 @@ _SPORTS = {
     308: "strength_training",
 }
 """Source sport-type number -> neutral name (Health Connect exercise types)."""
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a workout row whose value is missing or not JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: "Skipped a workout row whose value is not an object.",
+}
 
 
 @register("workouts")
@@ -98,15 +104,9 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
         if entry.get("deleted"):
             continue
 
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append(
-                "Skipped a workout row whose value is missing or not JSON."
-            )
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a workout row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)

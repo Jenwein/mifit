@@ -17,18 +17,25 @@ keys and are not read here; ``MiFit.raw`` returns them as the service sends them
 
 from __future__ import annotations
 
-import json
-
 from mifit.domains.base import (
     DomainResult,
+    ValueProblem,
     as_int,
     as_positive_int,
+    decode_value,
     register,
     stalled_note,
 )
 from mifit.domains.raw_window import fetch_raw_window
 from mifit.models.spo2 import Spo2Point
 from mifit.transport import Transport
+
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped an SpO2 row whose value is missing or not valid JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: "Skipped an SpO2 row whose value is not an object.",
+}
 
 
 @register("spo2")
@@ -49,15 +56,9 @@ def fetch_spo2_window(
     kept, unusable, stalled = fetch_raw_window(t, "spo2", start_epoch_s, end_epoch_s)
     result = DomainResult()
     for entry in kept:
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append(
-                "Skipped an SpO2 row whose value is missing or not valid JSON."
-            )
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped an SpO2 row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)

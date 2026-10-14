@@ -19,13 +19,14 @@ clock, not a true instant.
 
 from __future__ import annotations
 
-import json
 from datetime import tzinfo
 
 from mifit.domains.base import (
     DomainResult,
+    ValueProblem,
     as_int,
     as_positive_int,
+    decode_value,
     register,
     stalled_note,
 )
@@ -34,6 +35,14 @@ from mifit.models.spo2 import Spo2DailySummary
 from mifit.transport import Transport
 
 _ENDPOINT = "data/get_aggregated_fitness_data_by_time"
+_VALUE_NOTES = {
+    ValueProblem.UNREADABLE: (
+        "Skipped a daily SpO2 row whose value is missing or not JSON."
+    ),
+    ValueProblem.NOT_AN_OBJECT: (
+        "Skipped a daily SpO2 row whose value is not an object."
+    ),
+}
 
 
 @register("spo2_daily")
@@ -71,13 +80,9 @@ def fetch_spo2_daily(
 
     result = DomainResult()
     for entry in paged.items:
-        try:
-            value = json.loads(entry["value"])
-        except (KeyError, TypeError, ValueError):
-            result.notes.append("Skipped a daily SpO2 row whose value is missing or not JSON.")
-            continue
-        if not isinstance(value, dict):
-            result.notes.append("Skipped a daily SpO2 row whose value is not an object.")
+        value, problem = decode_value(entry)
+        if problem is not None:
+            result.notes.append(_VALUE_NOTES[problem])
             continue
 
         result.raw.append(value)
