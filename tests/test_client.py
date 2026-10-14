@@ -26,7 +26,7 @@ from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.steps import StepRecord
-from mifit.transport import Transport
+from mifit.transport import PagedResult, Transport
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -78,6 +78,25 @@ class FakeTransport(Transport):
             }
         )
         return list(self._payload["result"].get(list_key) or [])
+
+    def get_paged_result(
+        self,
+        endpoint_path,
+        data_obj,
+        *,
+        list_key="data_list",
+        sign_path=None,
+        max_pages=None,
+    ):
+        """What the full heart-rate read calls: the same rows, never truncated."""
+        items = self.get_paged(
+            endpoint_path,
+            data_obj,
+            list_key=list_key,
+            sign_path=sign_path,
+            max_pages=max_pages,
+        )
+        return PagedResult(items, False)
 
     def get_json(self, endpoint_path, data_obj, *, sign_path=None):
         """Serves the canned payload as the single-object envelope ``get_json`` returns."""

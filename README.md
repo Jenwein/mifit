@@ -134,7 +134,8 @@ as `requests` exceptions, and a bad date argument raises `ValueError` or
 - **Raw heart rate may be incomplete.** A windowed heart-rate query can
   silently miss samples (cause unknown); every such result carries a note.
   `--full` (`full=True`) pages backwards from the end date instead; it ignores
-  the start date and stops after 10 pages without a warning.
+  the start date and stops after 10 pages, saying so in `notes` when older
+  data remains.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** How long a session lasts is not known yet and there is

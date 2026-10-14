@@ -13,7 +13,7 @@ from pathlib import Path
 from mifit.domains.base import REGISTRY
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.models.heart_rate import HeartRatePoint
-from mifit.transport import Transport
+from mifit.transport import PagedResult, Transport
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hr_raw_sample.json"
 
@@ -23,11 +23,16 @@ ENDPOINT = "data/get_fitness_data_by_time"
 
 
 class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call."""
+    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
 
-    def __init__(self, payload):
+    ``get_paged_result`` (what the full read uses) serves the same rows through
+    ``get_paged``, so it records the call identically, and reports ``truncated``.
+    """
+
+    def __init__(self, payload, truncated=False):
         # No Session/http needed: ``get_paged`` is fully replaced below.
         self._payload = payload
+        self._truncated = truncated
         self.calls = []
 
     def get_paged(
@@ -48,6 +53,24 @@ class FakeTransport(Transport):
             }
         )
         return list(self._payload["result"].get(list_key) or [])
+
+    def get_paged_result(
+        self,
+        endpoint_path,
+        data_obj,
+        *,
+        list_key="data_list",
+        sign_path=None,
+        max_pages=None,
+    ):
+        items = self.get_paged(
+            endpoint_path,
+            data_obj,
+            list_key=list_key,
+            sign_path=sign_path,
+            max_pages=max_pages,
+        )
+        return PagedResult(items, self._truncated)
 
 
 def load_fixture():
@@ -200,6 +223,34 @@ def test_full_read_does_not_carry_the_windowed_query_caveat():
     # The full read is the candidate fuller read, not the windowed query the
     # incompleteness caveat is about.
     assert not any("windowed" in note.lower() for note in result.notes)
+
+
+def test_capped_full_read_says_so():
+    transport = FakeTransport(load_fixture(), truncated=True)
+
+    result = fetch_heart_rate_full(transport, END)
+
+    assert len(result.notes) == 1
+    assert "10-page cap" in result.notes[0]
+    # The points that were read are still returned.
+    assert result.records == [HeartRatePoint(epoch_s=1759248600, bpm=72, kind=None)]
+
+
+def test_capped_full_read_names_the_cap_it_was_given():
+    transport = FakeTransport(load_fixture(), truncated=True)
+
+    result = fetch_heart_rate_full(transport, END, max_pages=3)
+
+    assert len(result.notes) == 1
+    assert "3-page cap" in result.notes[0]
+
+
+def test_uncapped_full_read_has_no_cap_note():
+    transport = FakeTransport(load_fixture(), truncated=False)
+
+    result = fetch_heart_rate_full(transport, END)
+
+    assert result.notes == []
 
 
 def test_window_domain_is_registered():

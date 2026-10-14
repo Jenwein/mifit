@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import random
 import time
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -30,6 +31,17 @@ from mifit.region import BASE_HOST, BASE_PATH, regionalize
 _DEFAULT_TIMEOUT_S = 30.0
 _JITTER_FRACTION = 0.5
 """Up to this fraction of ``delay_s`` is added at random to each pause."""
+
+
+@dataclass(frozen=True)
+class PagedResult:
+    """The items of a cursor-paginated pull and whether a page cap cut it short."""
+
+    items: list[dict]
+    truncated: bool
+    """``True`` when ``max_pages`` stopped the pull although the service had more
+    pages: the last page pointed at a fresh cursor, so another request would have
+    been sent. ``False`` for every other way a pull ends."""
 
 
 class Transport:
@@ -151,10 +163,41 @@ class Transport:
         ``next_key`` is missing/empty or equals the cursor that request was sent
         with, which would otherwise loop forever. The guard ends the pull quietly;
         the items of the page that tripped it are kept.
+
+        Use ``get_paged_result`` to also learn whether ``max_pages`` cut the pull
+        short.
+        """
+        return self.get_paged_result(
+            endpoint_path,
+            data_obj,
+            list_key=list_key,
+            sign_path=sign_path,
+            max_pages=max_pages,
+        ).items
+
+    def get_paged_result(
+        self,
+        endpoint_path: str,
+        data_obj: dict,
+        *,
+        list_key: str = "data_list",
+        sign_path: str | None = None,
+        max_pages: int | None = None,
+    ) -> PagedResult:
+        """``get_paged`` that also reports whether ``max_pages`` cut the pull short.
+
+        Same arguments and stopping rules as ``get_paged``. ``truncated`` is true
+        only when the loop ended because ``max_pages`` pages were fetched while the
+        last page still reported ``has_more`` with a non-empty ``next_key`` that
+        differs from the cursor it was requested with, that is, when one more
+        request would have been sent. It is false when the service ran out of
+        pages, when the repeated/missing-cursor guard ended the pull, when there
+        is no cap, and when ``max_pages`` is 0 or less.
         """
         items: list[dict] = []
         request = dict(data_obj)
         pages = 0
+        truncated = False
         while max_pages is None or pages < max_pages:
             payload = self.get_json(endpoint_path, request, sign_path=sign_path)
             pages += 1
@@ -171,7 +214,10 @@ class Transport:
             if not next_key or next_key == request.get("next_key"):
                 break
             request = {**data_obj, "next_key": next_key}
-        return items
+            # Reaching the cap here, with a fresh cursor in hand, ends the loop
+            # although the service has more.
+            truncated = max_pages is not None and pages >= max_pages
+        return PagedResult(items, truncated)
 
     def _headers(self) -> dict[str, str]:
         return {

@@ -63,8 +63,11 @@ def fetch_heart_rate_full(
     the service's cursor for at most ``max_pages`` pages. Not registered in the
     domain registry: its signature differs from the registry's
     ``(transport, start_epoch_s, end_epoch_s)`` contract.
+
+    When the page cap stops the read while the service still had older points,
+    the result carries a note saying so; a read that ends on its own does not.
     """
-    entries = t.get_paged(
+    paged = t.get_paged_result(
         _ENDPOINT,
         {
             "key": "heart_rate",
@@ -74,7 +77,14 @@ def fetch_heart_rate_full(
         list_key="data_list",
         max_pages=max_pages,
     )
-    return _build_result(entries)
+    result = _build_result(paged.items)
+    if paged.truncated:
+        result.notes.append(
+            f"Full heart-rate read stopped at its {max_pages}-page cap while the "
+            "service still had older points: points before the earliest one "
+            "returned are missing."
+        )
+    return result
 
 
 def _build_result(entries: list[dict]) -> DomainResult:

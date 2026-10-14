@@ -236,3 +236,102 @@ def test_nested_envelope_with_null_result_is_empty_not_a_crash():
 
     assert transport.get_paged(ENDPOINT, BASE_REQUEST) == []
     assert len(transport.calls) == 1
+
+
+def test_result_reports_truncation_at_the_page_cap():
+    # The cap stops the pull while page 2 still pointed at a fresh cursor, so
+    # another request would have been sent.
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=True, next_key="k2"),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert result.truncated is True
+    assert result.items == [{"n": 1}, {"n": 2}]
+    assert len(transport.calls) == 2
+
+
+def test_result_not_truncated_when_the_last_page_ends():
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=False),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert result.truncated is False
+    assert result.items == [{"n": 1}, {"n": 2}]
+
+
+def test_result_not_truncated_when_the_cursor_repeats():
+    # Page 2 echoes the cursor it was sent with: the repeated-cursor guard ends
+    # the pull, not the cap, so no further request was pending.
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=True, next_key="k1"),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert result.truncated is False
+    assert result.items == [{"n": 1}, {"n": 2}]
+
+
+def test_result_not_truncated_when_the_cursor_is_missing_at_the_cap():
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=True),  # has_more but no cursor to follow
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert result.truncated is False
+    assert len(transport.calls) == 2
+
+
+def test_result_not_truncated_without_a_cap():
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=False),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=None)
+
+    assert result.truncated is False
+    assert result.items == [{"n": 1}, {"n": 2}]
+
+
+def test_result_not_truncated_with_a_zero_cap():
+    transport = ScriptedTransport([])
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=0)
+
+    assert result.truncated is False
+    assert result.items == []
+    assert transport.calls == []
+
+
+def test_get_paged_returns_the_result_items():
+    transport = ScriptedTransport(
+        [
+            page([{"n": 1}], has_more=True, next_key="k1"),
+            page([{"n": 2}], has_more=True, next_key="k2"),
+        ]
+    )
+
+    items = transport.get_paged(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert items == [{"n": 1}, {"n": 2}]
+    assert isinstance(items, list)
