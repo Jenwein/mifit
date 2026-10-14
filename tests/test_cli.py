@@ -1222,9 +1222,93 @@ def test_resume_with_a_different_track_setting_is_refused(
 
     assert rc == 1
     err = capsys.readouterr().err
-    assert "track" in err
+    assert "track false" in err
     assert fake_mifit.instances == []
     assert partial_of(out).read_bytes() == before
+
+
+def test_default_export_records_track_true(fake_mifit, monkeypatch, tmp_path):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        FakeMiFit, "workout_detail", detail_echo(fail_at="2026-10-01", error=ApiError("boom"))
+    )
+
+    rc = export_workout_detail(out)
+
+    assert rc == 1
+    assert fake_mifit.instances[0].calls[0][3] == {"track": True}
+    first_line = partial_of(out).read_bytes().splitlines()[0]
+    assert first_line == (
+        b'{"mifit_partial":1,"domain":"workout_detail","from":"2026-10-01",'
+        b'"to":"2026-10-14","chunk":"week","track":true}'
+    )
+
+
+def test_resume_with_no_track_reads_the_rest_without_track(fake_mifit, monkeypatch, tmp_path):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        FakeMiFit, "workout_detail", detail_echo(fail_at="2026-10-01", error=ApiError("boom"))
+    )
+    assert export_workout_detail(out, "--no-track") == 1
+    fake_mifit.instances.clear()
+    monkeypatch.setattr(FakeMiFit, "workout_detail", detail_echo())
+
+    rc = export_workout_detail(out, "--resume", "--no-track")
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("workout_detail", "2026-10-01", "2026-10-07", {"track": False})
+    ]
+    assert not partial_of(out).exists()
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["records"] == [
+        {"chunk": "2026-10-08..2026-10-14"},
+        {"chunk": "2026-10-01..2026-10-07"},
+    ]
+
+
+def test_resume_of_a_track_export_with_no_track_is_refused(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        FakeMiFit, "workout_detail", detail_echo(fail_at="2026-10-01", error=ApiError("boom"))
+    )
+    assert export_workout_detail(out) == 1
+    before = partial_of(out).read_bytes()
+    fake_mifit.instances.clear()
+    capsys.readouterr()
+
+    rc = export_workout_detail(out, "--resume", "--no-track")
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "belongs to another export" in err
+    assert "track true" in err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == before
+
+
+def test_resume_of_a_header_without_track_says_another_version(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    header = (
+        b'{"mifit_partial":1,"domain":"workout_detail","from":"2026-10-01",'
+        b'"to":"2026-10-14","chunk":"week"}\n'
+    )
+    chunk = b'{"chunk":"2026-10-08..2026-10-14","records":[],"raw":[],"notes":[]}\n'
+    partial_of(out).write_bytes(header + chunk)
+    monkeypatch.setattr(FakeMiFit, "workout_detail", detail_echo())
+
+    rc = export_workout_detail(out, "--resume", "--no-track")
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert f"{partial_of(out)} was written by another version of mifit" in err
+    assert "another export" not in err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == header + chunk
 
 
 def test_resume_without_partial_starts_fresh(fake_mifit, monkeypatch, tmp_path, capsys):

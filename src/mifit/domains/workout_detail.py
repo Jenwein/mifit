@@ -50,8 +50,11 @@ chunked read (``mifit.chunks``) counts within each chunk, and its merged notes c
 the chunk's label, so there "Workout 2" is the second workout of that chunk. A note
 never holds a link, a key, a source id or a file name. The errors it quotes are fixed
 fragments (an HTTP status, an exception's type, a host name, what part of a file is
-damaged), except the link request's ``ApiError``, whose message is quoted unless it
-holds the source id or a file name; then only its type is.
+damaged). The link request's ``ApiError`` can carry the service's own text, so it is
+quoted only when it is a fixed text of ``Transport`` (an HTTP status, an answer that
+does not decrypt) or of ``mifit.fds.urls`` (an answer without a file map); otherwise
+the note gives its business code ("service code N") when there is one, else only its
+type, never the service's text.
 
 Nothing is cached and nothing is written to disk: each call downloads afresh.
 
@@ -113,14 +116,15 @@ These stay in ``raw`` only, because their meaning is unverified (design §2):
 from __future__ import annotations
 
 import math
+import re
 
 from mifit.domains.base import DomainResult, as_float, as_int, register
-from mifit.domains.workouts import SportRow, sport_rows, to_workout
+from mifit.domains.workouts import NO_START_NOTE, SportRow, sport_rows, to_workout
 from mifit.errors import ApiError
 from mifit.fds.binary import FdsFormatError, parse_header
 from mifit.fds.cipher import FdsDecryptError, decrypt_body
 from mifit.fds.download import FdsDownloader, FdsUnavailable
-from mifit.fds.ids import GPS, RECORD, FileRef, server_key, suffix
+from mifit.fds.ids import GPS, RECORD, FileRef, server_key
 from mifit.fds.layouts import LAYOUTS, decode
 from mifit.fds.urls import FdsEntry, request_urls
 from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
@@ -130,8 +134,17 @@ _MAX_WORKOUTS = 10
 """The most supported workouts one call reads the detail of (D13): each costs up to
 three requests."""
 
-_NO_START = "Skipped a workout without a usable start time."
-"""The note ``workouts`` gives for a summary without a usable start time."""
+_HTTP_FAILURE = re.compile(r"Request failed with HTTP [0-9]{3}\.")
+"""``Transport``'s text for an answer with a non-2xx status."""
+_FIXED_ERRORS = frozenset(
+    {
+        # ``Transport``: a body that does not decrypt to a JSON object.
+        "Response body could not be decrypted or parsed as a JSON object.",
+        # ``mifit.fds.urls.request_urls``: an answer whose ``result`` is not a map.
+        "The download-link answer carried no file map.",
+    }
+)
+"""The other fixed ``ApiError`` texts of the link request, which a note may quote."""
 
 _KIND = {RECORD: "record", GPS: "GPS"}
 """How a note names each file."""
@@ -182,7 +195,7 @@ def fetch_workout_detail(
             continue
         workout = to_workout(row.value)
         if workout is None:
-            result.notes.append(_NO_START)
+            result.notes.append(NO_START_NOTE)
             continue
         # The record first, then the files fill it in: records[i] and raw[i] are the
         # same workout whatever happens to its files.
@@ -258,7 +271,9 @@ def _read_files(
     try:
         entries = request_urls(t, refs[0].sid, refs)
     except ApiError as exc:
-        notes.append(f"Workout {n}: could not get the download links ({_error_text(exc, refs)}).")
+        notes.append(
+            f"Workout {n}: could not get the download links ({_error_text(exc, refs[0].sid)})."
+        )
         return
     for ref in refs:
         kind = _KIND[ref.file_type]
@@ -285,14 +300,21 @@ def _read_files(
             )
 
 
-def _error_text(exc: ApiError, refs: list[FileRef]) -> str:
-    """``exc``'s message for a note, or only its type when the message (which can be
-    the service's own text) holds the source id or a file name."""
+def _error_text(exc: ApiError, sid: str) -> str:
+    """What a note says of the link request's ``ApiError``: an allow-list, because its
+    message can be the service's own text.
+
+    The message is quoted only when it is one of the fixed texts in ``_FIXED_ERRORS``
+    or ``_HTTP_FAILURE``. Otherwise the note gives the business code, when ``code``
+    is an int whose digits do not hold the source id, else the exception's type.
+    """
     text = str(exc)
-    secrets = [refs[0].sid, *(suffix(ref) for ref in refs)]
-    if any(secret in text for secret in secrets):
-        return type(exc).__name__
-    return text
+    if text in _FIXED_ERRORS or _HTTP_FAILURE.fullmatch(text):
+        return text
+    code = exc.code
+    if isinstance(code, int) and not isinstance(code, bool) and sid not in str(code):
+        return f"service code {code}"
+    return type(exc).__name__
 
 
 def _plain_file(

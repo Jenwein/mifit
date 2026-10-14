@@ -156,7 +156,10 @@ def read_chunks(
 
     ``options`` are keyword arguments for the domain method, passed to every
     chunk's call, such as ``{"track": False}`` for ``workout_detail``; they are
-    copied here, so a later change to the mapping does not reach the read.
+    copied here, so a later change to the mapping does not reach the read. A truthy
+    ``full`` (``heart_rate``'s backward read) is a ``ValueError``: it pages back from
+    each chunk's end without a start, so the chunks would read the same samples
+    again, each with many requests.
 
     Returns a generator over ``(chunk, result)`` in ``plan_chunks`` order. Each
     chunk whose label is in ``skip`` is passed over; every other one is read with
@@ -173,9 +176,16 @@ def read_chunks(
     last = _day_arg(end, "end")
     if first > last:
         raise ValueError(f"start {start} is after end {end}")
+    options = dict(options or {})
+    if options.get("full"):
+        raise ValueError(
+            "a chunked read cannot take the 'full' option: a full read pages back from "
+            "the chunk's end without a start, so every chunk would read the same samples "
+            "again; make one call of the domain method instead"
+        )
     plan = plan_chunks(domain, first, last, size)
     read = getattr(client, domain)
-    return _read_plan(read, plan, skip, dict(options or {}))
+    return _read_plan(read, plan, skip, options)
 
 
 def _read_plan(

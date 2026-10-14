@@ -162,7 +162,8 @@ def decode(plain: bytes, header: FileHeader, layout: RecordLayout | GpsLayout) -
 
     Raises ``FdsFormatError`` when the file does not fit the layout: a storage mode
     other than 0, no or too few validity flags, a segment that claims more points than
-    the bytes left, more than ``MAX_POINTS`` points, or a read past the end.
+    the bytes left or claims points when no field exists, more than ``MAX_POINTS``
+    points, or a read past the end.
     """
     if header.mode != 0:
         raise FdsFormatError("the file uses a storage mode this decoder does not read")
@@ -215,6 +216,10 @@ def _segments(reader: Reader, version: int, validity: bytes, layout: RecordLayou
         total += count
         if total > MAX_POINTS:
             raise FdsFormatError(_TOO_MANY)
+        if count and not point_size:
+            # Points of no bytes: the flags or the count are wrong, and the count alone
+            # would build up to ``MAX_POINTS`` empty points.
+            raise FdsFormatError("a segment claims points but no field of a point exists")
         if count * point_size > reader.remaining:
             raise FdsFormatError("a segment claims more points than the file holds")
         segment["dataPoints"] = [_record_point(reader, present) for _ in range(count)]

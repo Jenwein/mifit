@@ -9,6 +9,7 @@ strength session (format 8) that has no detail. Every value is synthetic.
 
 import dataclasses
 import json
+from types import SimpleNamespace
 
 import pytest
 from fds_fixtures import (
@@ -36,16 +37,19 @@ from fds_fixtures import (
     sport_row,
     sport_value,
 )
-from support import PagedFake
+from support import EncryptingHttp, PagedFake, synthetic_session
 
 from mifit.domains import workout_detail as workout_detail_module
+from mifit.domains import workouts as workouts_module
 from mifit.domains.base import REGISTRY
 from mifit.domains.workout_detail import _MAX_WORKOUTS, fetch_workout_detail
 from mifit.domains.workouts import fetch_workouts, sport_rows, to_workout
 from mifit.errors import ApiError, AuthError
 from mifit.fds.download import FdsUnavailable
 from mifit.fds.ids import GPS, RECORD, FileRef, suffix
+from mifit.fds.urls import request_urls
 from mifit.models.workout_detail import TrackPoint, WorkoutDetail
+from mifit.transport import Transport
 
 T = 1700007200
 """The run's report time and start."""
@@ -335,6 +339,16 @@ def test_workout_without_start_gives_no_record():
     assert transport.link_calls == []
 
 
+def test_no_start_note_is_the_one_workouts_gives():
+    rows = [row_without_start()]
+    reference = fetch_workouts(PagedFake({"code": 0, "result": {"sport_records": rows}}), START, END)
+
+    result, _, _ = detail(rows=rows)
+
+    assert result.notes == reference.notes == [NO_START_NOTE]
+    assert workout_detail_module.NO_START_NOTE is workouts_module.NO_START_NOTE
+
+
 def test_track_false_requests_only_the_record_file():
     result, transport, service = detail(track=False)
 
@@ -388,11 +402,94 @@ def test_link_request_error_affects_only_that_workout():
     assert "HTTP 500" in result.notes[0]
 
 
-def test_link_error_naming_the_source_id_is_reduced_to_its_type():
-    # The message of an ApiError can be the service's own text; it must not carry
-    # the source id or a file name into a note.
-    message = f"device {SYNTH_SID} refused {suffix(REFS[0])}"
-    result, _, _ = detail(link_errors={0: ApiError(message)})
+class AnswerHttp:
+    """An ``http`` for a real ``Transport`` that answers every GET with ``status`` and
+    the body ``text``."""
+
+    def __init__(self, status, text):
+        self._status = status
+        self._text = text
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        return SimpleNamespace(status_code=self._status, text=self._text)
+
+
+def link_error(http):
+    """The ``ApiError`` a real ``Transport`` over ``http`` raises for the link request."""
+    transport = Transport(synthetic_session(), http=http, delay_s=0)
+    with pytest.raises(ApiError) as caught:
+        request_urls(transport, SYNTH_SID, REFS[:2])
+    return caught.value
+
+
+class NoFileMap:
+    """A transport whose link answer succeeds but carries no file map."""
+
+    def get_json(self, endpoint_path, data_obj=None, *, sign_path=None, base_path=None):
+        return {"code": 0, "message": "ok", "result": []}
+
+
+def no_file_map_error():
+    with pytest.raises(ApiError) as caught:
+        request_urls(NoFileMap(), SYNTH_SID, REFS[:2])
+    return caught.value
+
+
+@pytest.mark.parametrize(
+    ("make_error", "quoted"),
+    [
+        (lambda: link_error(AnswerHttp(500, "")), "Request failed with HTTP 500."),
+        (lambda: link_error(AnswerHttp(403, "")), "Request failed with HTTP 403."),
+        (
+            lambda: link_error(AnswerHttp(200, "not an encrypted body")),
+            "Response body could not be decrypted or parsed as a JSON object.",
+        ),
+        (no_file_map_error, "The download-link answer carried no file map."),
+    ],
+    ids=["http-500", "http-403", "undecryptable", "no-file-map"],
+)
+def test_link_error_quotes_only_the_fixed_texts(make_error, quoted):
+    result, _, _ = detail(link_errors={0: make_error()})
+
+    assert result.notes[0] == f"Workout 1: could not get the download links ({quoted})."
+
+
+SERVICE_TEXTS = {
+    "secrets": f"device {SYNTH_SID} refused {suffix(REFS[0])}",
+    "url marker": URL_MARK,
+    "partial suffix": suffix(REFS[0])[:12],
+    "control characters": "bad\x1b[31m\r\nrequest\x00",
+    "plain text": "Service is busy, try later.",
+    "lookalike": "Request failed with HTTP 500. See https://example.invalid/x",
+}
+
+
+@pytest.mark.parametrize("message", SERVICE_TEXTS.values(), ids=list(SERVICE_TEXTS))
+def test_service_text_of_a_link_error_is_never_quoted(message):
+    # The message of an ApiError can be the service's own text: a note gives its
+    # business code, or only the exception's type, never the text.
+    without_code, _, _ = detail(link_errors={0: ApiError(message)})
+    with_code, _, _ = detail(link_errors={0: ApiError(message, code=70016)})
+
+    assert without_code.notes[0] == "Workout 1: could not get the download links (ApiError)."
+    assert with_code.notes[0] == (
+        "Workout 1: could not get the download links (service code 70016)."
+    )
+
+
+def test_business_error_from_the_transport_gives_its_code():
+    http = EncryptingHttp([{"code": 5, "message": f"refused {SYNTH_SID} {URL_MARK}"}])
+
+    result, _, _ = detail(link_errors={0: link_error(http)})
+
+    assert result.notes[0] == "Workout 1: could not get the download links (service code 5)."
+
+
+@pytest.mark.parametrize(
+    "code", [True, "5", 5.0, int(SYNTH_SID), int(SYNTH_SID + "7")], ids=repr
+)
+def test_link_error_code_is_quoted_only_as_a_plain_int_without_the_source_id(code):
+    result, _, _ = detail(link_errors={0: ApiError("busy", code=code)})
 
     assert result.notes[0] == "Workout 1: could not get the download links (ApiError)."
 

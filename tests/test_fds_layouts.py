@@ -386,6 +386,21 @@ def test_total_points_are_capped():
     assert time.perf_counter() - started < 0.5
 
 
+def test_points_without_any_field_are_refused():
+    # No field exists (no nibble has bit 8), so a point takes no bytes: a segment
+    # that still claims points cannot be read, however few bytes the file has.
+    no_fields = bytes.fromhex("77777777777777")
+    plain = run_file(run_segment([], resume=TS, record_count=999_999), flags=no_fields)
+
+    started = time.perf_counter()
+    with pytest.raises(FdsFormatError, match="claims points but no field of a point exists"):
+        decode_file(plain)
+    assert time.perf_counter() - started < 0.5
+
+    empty = decode_file(run_file(run_segment([], resume=TS), flags=no_fields))
+    assert [s["dataPoints"] for s in empty.raw["segments"]] == [[]]
+
+
 def test_point_cap_counts_every_segment(monkeypatch):
     monkeypatch.setattr(layouts, "MAX_POINTS", 3)
     one, two = [run_point()], [run_point(), run_point()]

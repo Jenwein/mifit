@@ -69,6 +69,9 @@ _VALUE_NOTES = {
     ),
     ValueProblem.NOT_AN_OBJECT: "Skipped a workout row whose value is not an object.",
 }
+NO_START_NOTE = "Skipped a workout without a usable start time."
+"""The note for a workout whose summary has no usable start time; the workout-detail
+domain gives the same one."""
 
 
 @dataclass(frozen=True)
@@ -123,7 +126,7 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
         result.raw.append(row.value)
         workout = to_workout(row.value)
         if workout is None:
-            result.notes.append("Skipped a workout without a usable start time.")
+            result.notes.append(NO_START_NOTE)
             continue
         result.records.append(workout)
 

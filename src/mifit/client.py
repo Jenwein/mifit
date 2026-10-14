@@ -440,8 +440,9 @@ class MiFit:
         matched sessions per chunk), and for ``workout_detail`` only while each
         call stays within its 10-workout cap; with more than one chunk, each note
         starts with its chunk's label. Unknown domains, dates that are not
-        ``"YYYY-MM-DD"`` strings and a reversed range are refused before anything
-        is read (see ``mifit.chunks.read_chunks``).
+        ``"YYYY-MM-DD"`` strings, a reversed range and a truthy ``full`` option
+        (a backward read cannot be chunked) are refused before anything is read
+        (see ``mifit.chunks.read_chunks``).
         """
         return chunks.read_chunks(
             self, domain, start, end, size=size, skip=skip, options=options

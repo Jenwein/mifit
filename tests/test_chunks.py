@@ -495,6 +495,37 @@ def test_read_chunks_forwards_options_to_every_chunk():
     ]
 
 
+@pytest.mark.parametrize("full", [True, 1, "yes"])
+def test_read_chunks_refuses_a_full_read(full):
+    # ``full`` pages back from each chunk's end without a start: every chunk would
+    # read the same samples again, with many requests each.
+    class Stub:
+        def __init__(self):
+            self.calls = []
+
+        def heart_rate(self, start, end, **kwargs):
+            self.calls.append((start, end, kwargs))
+            return DomainResult()
+
+    stub = Stub()
+
+    with pytest.raises(ValueError, match="full"):
+        chunks_module.read_chunks(
+            stub, "heart_rate", "2026-10-01", "2026-10-14", options={"full": full}
+        )
+    assert stub.calls == []
+
+    list(
+        chunks_module.read_chunks(
+            stub, "heart_rate", "2026-10-01", "2026-10-14", options={"full": False}
+        )
+    )
+    assert stub.calls == [
+        ("2026-10-08", "2026-10-14", {"full": False}),
+        ("2026-10-01", "2026-10-07", {"full": False}),
+    ]
+
+
 def test_a_chunk_edge_on_a_fall_back_midnight_loses_no_row(windowed, monkeypatch):
     # In Santiago the clocks go back an hour at the midnight that ends 2026-04-04, so
     # 23:00 to 23:59:59 of that day happens twice; the week chunks meet right there.

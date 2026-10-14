@@ -98,6 +98,45 @@ def test_load_names_a_differing_track_setting(tmp_path):
     assert exception_chain(caught.value) == [caught.value]
 
 
+def test_load_calls_a_header_without_an_option_another_version(tmp_path):
+    # Every export argument matches, but the stored header predates the ``track``
+    # option: the same export, written by another version, not another export.
+    path = tmp_path / "out.json.partial"
+    labels = ["2026-10-08..2026-10-14", "2026-10-01..2026-10-07"]
+    start_partial(path, export_header("workout_detail", "2026-10-01", "2026-10-14", "week"))
+
+    for track in (False, True):
+        with pytest.raises(PartialError) as caught:
+            load_partial(
+                path,
+                export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=track),
+                labels,
+            )
+
+        message = str(caught.value)
+        assert message == (
+            f"{path} was written by another version of mifit; delete it to start over"
+        )
+
+
+def test_load_masks_unusual_stored_header_fields(tmp_path):
+    path = tmp_path / "out.json.partial"
+    labels = ["2026-10-08..2026-10-14", "2026-10-01..2026-10-07"]
+    stored = export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=True)
+    start_partial(path, {**stored, "\x1b[2J\nkey": "line\nbreak\x1b[0m", "ok_key": "\r"})
+
+    with pytest.raises(PartialError) as caught:
+        load_partial(
+            path,
+            export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=False),
+            labels,
+        )
+
+    message = str(caught.value)
+    assert "track true, ? ?, ok_key ?)" in message
+    assert "\x1b" not in message and "\n" not in message and "\r" not in message
+
+
 def test_start_then_load_returns_no_parts(store):
     assert load_partial(store, HEADER, LABELS) == {}
 

@@ -161,11 +161,17 @@ def _damaged(path: Path) -> PartialError:
 
 def _foreign_header(path: Path, stored: dict, header: dict) -> PartialError:
     """The error for a stored header that is not ``header``: another version's when
-    every export argument of ``header`` matches, else another export's, naming the
-    stored ``domain``, ``from``, ``to`` and ``chunk`` (``?`` when missing) and then
-    every other stored field but ``mifit_partial``, such as ``track``."""
-    keys = [key for key in header if key != "mifit_partial"]
-    if all(stored.get(key) == header[key] for key in keys):
+    every export argument of ``header`` matches (an option such as ``track`` that
+    the stored header lacks counts as matching: that version did not write it), else
+    another export's, naming the stored ``domain``, ``from``, ``to`` and ``chunk``
+    (``?`` when missing) and then every other stored field but ``mifit_partial``,
+    such as ``track``."""
+    same_export = all(
+        stored.get(key) == value or (key not in _CORE_KEYS and key not in stored)
+        for key, value in header.items()
+        if key != "mifit_partial"
+    )
+    if same_export:
         return PartialError(
             f"{path} was written by another version of mifit; delete it to start over"
         )
