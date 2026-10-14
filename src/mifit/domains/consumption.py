@@ -17,9 +17,10 @@ with the *next* local day. Sending the local midnight sidesteps the service's da
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, time, timedelta, tzinfo
+from datetime import date, timedelta, tzinfo
 
 from mifit.domains.base import DomainResult, register
+from mifit.domains.days import local_day_span, local_midnight
 from mifit.errors import ApiError
 from mifit.models.consumption import ConsumptionRecord
 from mifit.transport import Transport
@@ -46,8 +47,7 @@ def fetch_consumption(
     ``AuthError``, is not about one day and propagates.
     """
     result = DomainResult()
-    day = datetime.fromtimestamp(start_epoch_s, tz).date()
-    last_day = datetime.fromtimestamp(end_epoch_s, tz).date()
+    day, last_day = local_day_span(start_epoch_s, end_epoch_s, tz)
     while day <= last_day:
         _fetch_day(t, day, tz, result)
         day += timedelta(days=1)
@@ -55,9 +55,9 @@ def fetch_consumption(
 
 
 def _fetch_day(t: Transport, day: date, tz: tzinfo | None, result: DomainResult) -> None:
-    # Combining per day, not stepping by 86400 s, keeps every request on local
-    # midnight across DST changes.
-    midnight = int(datetime.combine(day, time(), tz).timestamp())
+    # Per date, not stepped by 86400 s, so every request stays on local midnight
+    # across DST changes.
+    midnight = local_midnight(day, tz)
     label = day.isoformat()
     try:
         payload = t.get_json(_ENDPOINT, {"time": midnight})

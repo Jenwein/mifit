@@ -13,8 +13,8 @@ from dataclasses import dataclass
 class StepRecord:
     """Steps for one day.
 
-    ``date`` is the ISO calendar date (``YYYY-MM-DD``) of ``epoch_s`` in UTC and
-    ``epoch_s`` is the record's own timestamp in Unix seconds. ``distance_m`` (metres)
+    ``date`` is the local calendar date (``YYYY-MM-DD``) the steps were taken on and
+    ``epoch_s`` is that day's local midnight in Unix seconds. ``distance_m`` (metres)
     and ``step_calories`` are ``None`` when the source did not report them, never zero.
 
     ``step_calories`` is the step report's own walking-calorie figure. It is NOT the

@@ -116,6 +116,9 @@ def test_steps_delegates_to_domain(build):
 
     result = client.steps(1760400000, 1760486399)
 
+    # The fixture row is keyed 2025-10-14; ``epoch_s`` is that date's local midnight,
+    # derived here so the test holds in any timezone.
+    local_midnight = int(datetime(2025, 10, 14).timestamp())
     assert isinstance(result, DomainResult)
     assert result.records == [
         StepRecord(
@@ -123,14 +126,12 @@ def test_steps_delegates_to_domain(build):
             steps=8000,
             distance_m=5200,
             step_calories=210,
-            epoch_s=1760400000,
+            epoch_s=local_midnight,
         )
     ]
     # Same answer as calling the domain directly with the same transport.
     assert result == fetch_steps(fake, 1760400000, 1760486399)
     assert fake.calls[0]["endpoint_path"] == STEPS_ENDPOINT
-    assert fake.calls[0]["data_obj"]["start_time"] == 1760400000
-    assert fake.calls[0]["data_obj"]["end_time"] == 1760486399
 
 
 CONSUMPTION_PAYLOAD = {
@@ -191,37 +192,49 @@ def test_consumption_converts_date_strings_to_day_bounds(build, monkeypatch):
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
-def test_date_string_converts_to_epoch_day_bounds(build):
-    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+@pytest.fixture
+def steps_spy(monkeypatch):
+    """Replace the steps domain with a recorder of the bounds the facade passes."""
+    seen = []
+
+    def spy(transport, start_epoch_s, end_epoch_s):
+        seen.append((start_epoch_s, end_epoch_s))
+        return DomainResult()
+
+    monkeypatch.setattr(client_module, "fetch_steps", spy)
+    return seen
+
+
+def test_date_string_converts_to_epoch_day_bounds(build, steps_spy):
+    client, _, _ = build(load_fixture("steps_daily_sample.json"))
 
     client.steps("2026-10-01", "2026-10-01")
 
-    sent = fake.calls[0]["data_obj"]
+    ((start_s, end_s),) = steps_spy
     # Reading the epoch seconds back as local time recovers the local day bounds,
     # whatever timezone the machine running the test is in.
-    assert datetime.fromtimestamp(sent["start_time"]) == datetime(2026, 10, 1, 0, 0, 0)
-    assert datetime.fromtimestamp(sent["end_time"]) == datetime(2026, 10, 1, 23, 59, 59)
-    assert isinstance(sent["start_time"], int)
-    assert isinstance(sent["end_time"], int)
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 1, 23, 59, 59)
+    assert isinstance(start_s, int)
+    assert isinstance(end_s, int)
 
 
-def test_date_range_uses_start_of_first_day_and_end_of_last_day(build):
-    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+def test_date_range_uses_start_of_first_day_and_end_of_last_day(build, steps_spy):
+    client, _, _ = build(load_fixture("steps_daily_sample.json"))
 
     client.steps("2026-10-01", "2026-10-03")
 
-    sent = fake.calls[0]["data_obj"]
-    assert datetime.fromtimestamp(sent["start_time"]) == datetime(2026, 10, 1, 0, 0, 0)
-    assert datetime.fromtimestamp(sent["end_time"]) == datetime(2026, 10, 3, 23, 59, 59)
+    ((start_s, end_s),) = steps_spy
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
-def test_int_epoch_seconds_pass_through_unchanged(build):
-    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+def test_int_epoch_seconds_pass_through_unchanged(build, steps_spy):
+    client, _, _ = build(load_fixture("steps_daily_sample.json"))
 
     client.steps(1759276800, 1759363199)
 
-    sent = fake.calls[0]["data_obj"]
-    assert (sent["start_time"], sent["end_time"]) == (1759276800, 1759363199)
+    assert steps_spy == [(1759276800, 1759363199)]
 
 
 @pytest.mark.parametrize(
