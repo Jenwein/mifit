@@ -110,6 +110,49 @@ class PagedFake(Transport):
         return self._payload_for(endpoint_path)
 
 
+class WindowFake(Transport):
+    """A ``Transport`` that models the service's window rule (notes/06, notes/10)
+    over ``rows`` instead of paging the service.
+
+    A paged read serves the rows with ``start_time < row["time"] <= end_time``
+    (no lower bound when the request has no ``start_time``), newest first, in one
+    go: ``truncated`` and ``stalled`` are false. The rows are served whatever the
+    endpoint or ``list_key``. Each paged read is recorded in ``calls`` as
+    ``PagedFake`` records it. Needs no session and no HTTP client.
+    """
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+        self.calls = []
+
+    def get_paged_result(
+        self,
+        endpoint_path,
+        data_obj,
+        *,
+        list_key="data_list",
+        sign_path=None,
+        max_pages=None,
+    ):
+        self.calls.append(
+            {
+                "endpoint_path": endpoint_path,
+                "data_obj": copy.deepcopy(data_obj),
+                "list_key": list_key,
+                "max_pages": max_pages,
+            }
+        )
+        start = data_obj.get("start_time")
+        end = data_obj["end_time"]
+        served = [
+            row
+            for row in self._rows
+            if (start is None or start < row["time"]) and row["time"] <= end
+        ]
+        served.sort(key=lambda row: row["time"], reverse=True)
+        return PagedResult(served, False, False)
+
+
 def _encrypt_body(payload, nonce, ssecurity):
     """A response body as the service builds it: b64(RC4(json)) under ``nonce``."""
     key = base64.b64decode(signed_nonce(ssecurity, nonce))

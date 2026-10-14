@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Container, Iterator
 from datetime import date, datetime, time
 from typing import Any
 
@@ -18,6 +18,7 @@ from typing import Any
 # them here and stay offline and off the real session files.
 # Importing the domain modules is what registers them in ``REGISTRY``; keep these
 # imports even if a name below stops being used.
+from mifit import chunks
 from mifit.auth.lifetime import record_event
 from mifit.auth.qr import login_qr as _login_qr
 from mifit.auth.renew import renew_session
@@ -355,6 +356,37 @@ class MiFit:
         if paged.stalled:
             warnings.warn(stalled_note(f"'{key}' rows"), RuntimeWarning, stacklevel=2)
         return paged.items
+
+    def read_chunks(
+        self,
+        domain: str,
+        start: str,
+        end: str,
+        *,
+        size: chunks.ChunkSize | None = None,
+        skip: Container[str] = frozenset(),
+    ) -> Iterator[tuple[chunks.Chunk, DomainResult]]:
+        """Read ``domain`` from ``start`` to ``end`` in chunks, one at a time.
+
+        ``start`` and ``end`` are ``"YYYY-MM-DD"`` local days, both inclusive, and
+        the chunks are blocks of whole local days counted from ``start``: a week
+        for raw heart rate and SpO2, a month (31 days) for the other domains,
+        unless ``size`` (``"day"``, ``"week"`` or ``"month"``) says otherwise.
+        Each chunk is one ordinary call of the domain method, sent through this
+        client's transport, so every request keeps the same pacing and the whole
+        read shares one renewal budget. Nothing runs in parallel.
+
+        Returns a lazy generator of ``(chunk, result)``, newest chunk first
+        (oldest first for ``consumption``, as its single read goes); a chunk is
+        read only when the next part is asked for. ``skip`` takes the labels
+        (``chunk.label``, ``"YYYY-MM-DD..YYYY-MM-DD"``) of chunks already done, to
+        resume an interrupted read. An error from a chunk propagates; the parts
+        already yielded stay valid. ``mifit.chunks.merge_chunks`` turns the parts
+        into one result, equal to a single read of the range. Unknown domains,
+        dates that are not ``"YYYY-MM-DD"`` strings and a reversed range are
+        refused before anything is read (see ``mifit.chunks.read_chunks``).
+        """
+        return chunks.read_chunks(self, domain, start, end, size=size, skip=skip)
 
     def login_qr(self, on_qr: Callable[[str, str], None] | None = None) -> None:
         """Log in again by QR code, save the new session and switch to it.
