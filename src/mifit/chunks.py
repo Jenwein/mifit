@@ -12,6 +12,9 @@ A chunk is a block of whole local days. Each domain has a size (``DOMAIN_CHUNK``
 * ``consumption`` uses ``month``: it sends one request per day either way, so a
   chunk is 31 one-day requests, which is also the step a resumed read restarts from.
 * ``workouts`` and ``weight`` use ``month``: their rows are sparse.
+* ``workout_detail`` uses ``week``: each workout costs up to three requests and a call
+  reads at most 10. A call over a range with more workouts reads the newest 10 and
+  notes the rest, so a chunked read of such a range reads more of them than one call.
 * A domain missing from the table uses ``week``, the conservative size.
 
 Blocks are fixed lengths counted from the first day (``day`` 1, ``week`` 7,
@@ -61,6 +64,7 @@ DOMAIN_CHUNK: dict[str, ChunkSize] = {
     "consumption": "month",
     "sleep": "month",
     "workouts": "month",
+    "workout_detail": "week",
     "spo2_daily": "month",
     "spo2": "week",
     "weight": "month",

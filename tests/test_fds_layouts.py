@@ -134,6 +134,31 @@ def test_unknown_validity_gives_no_flags():
     assert "validityFlags" not in header.as_raw()
 
 
+@pytest.mark.parametrize("tail", [RUN_FLAGS_ALL + b"\x00" * 30, b""], ids=["full", "header-only"])
+def test_storage_mode_other_than_zero_gives_no_flags(tail):
+    # What follows the header of a compressed or encrypted file is unknown, so no
+    # flags are read from it, and a file that ends right after the header is not
+    # "too short" for flags it does not have.
+    header = parse_header(header_bytes(TS, TZ, 8, 22, mode=1) + tail, RECORD)
+
+    assert header == FileHeader(TS, TZ, 8, 22, 1, None)
+    assert header.as_raw() == {
+        "timestamp": TS,
+        "timezone": TZ,
+        "version": 8,
+        "protoType": 22,
+        "encryptionCompressionMode": 1,
+    }
+
+
+def test_decode_refuses_a_storage_mode_other_than_zero():
+    plain = run_file(run_segment([run_point()], resume=TS))
+    header = FileHeader(TS, TZ, 8, 22, 2, RUN_FLAGS_ALL)
+
+    with pytest.raises(FdsFormatError, match="storage mode"):
+        decode(plain, header, LAYOUTS[(22, RECORD, 8)])
+
+
 # --- Tables -------------------------------------------------------------------------
 
 

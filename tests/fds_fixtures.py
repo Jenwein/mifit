@@ -13,15 +13,20 @@ instead of round-tripping silently.
 The fakes at the end play the service's side of a download: ``FakeFdsService``
 answers the link request and serves the object store, ``FdsTransport`` routes the
 link request to it, and ``StoreHttp`` stands in for the downloader's ``http``.
+``sport_value`` / ``sport_row`` build the workout list rows the domain starts from,
+and ``file_key`` names a row's files the way the service keys them.
 """
 
 import base64
 import copy
+import json
 import struct
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from support import PagedFake
+
+from mifit.fds.ids import FileRef, server_key
 
 SYNTH_SID = "1000000006"
 SYNTH_KEY = bytes(range(16))
@@ -261,7 +266,55 @@ EXPIRES = 1711111111
 URL_MARK = "SYNTH-SIGNATURE"
 
 ABSENT = object()
-"""In an ``entry_overrides`` dict, removes that field from the answered entry."""
+"""In an ``entry_overrides`` dict, removes that field from the answered entry; in
+``sport_value``'s figures, leaves that key out of the summary."""
+
+
+# --- Workout list rows (spec §4.2, notes/10) -----------------------------------------
+
+
+def sport_value(*, proto, sport, time, start_time, timezone=32, **figures) -> dict:
+    """A decoded workout summary (the list row's ``value``) with M4's keys.
+
+    ``proto`` is ``proto_type``, ``sport`` is ``sport_type``, ``time`` is the report
+    time that names the files. ``figures`` override the small synthetic defaults or
+    add keys; a figure set to ``ABSENT`` (``time`` too) is left out.
+    """
+    value = {
+        "sport_type": sport,
+        "proto_type": proto,
+        "time": time,
+        "timezone": timezone,
+        "start_time": start_time,
+        "end_time": start_time + 600,
+        "duration": 600,
+        "distance": 1500,
+        "calories": 90,
+        "avg_hrm": 130,
+        "max_hrm": 160,
+        "steps": 1800,
+        "version": 6,
+        **figures,
+    }
+    return {key: v for key, v in value.items() if v is not ABSENT}
+
+
+def sport_row(value, *, sid=SYNTH_SID) -> dict:
+    """The outer list row around ``value``: its ``time`` is the start time."""
+    return {
+        "sid": sid,
+        "key": "sport_record",
+        "category": "sport",
+        "time": value["start_time"],
+        "value": json.dumps(value),
+        "zone_offset": value["timezone"] * 900,
+    }
+
+
+def file_key(value, file_type, sid=SYNTH_SID) -> str:
+    """The server key of the ``file_type`` file of the workout summarized by ``value``."""
+    ref = FileRef(sid, value["time"], value["timezone"], value["proto_type"], file_type)
+    return server_key(ref)
 
 
 def store_url(n: int) -> str:
@@ -342,11 +395,12 @@ class FdsTransport(PagedFake):
     ``service``.
 
     Each ``get_json`` is recorded in ``link_calls``; ``link_errors`` maps a 0-based
-    call index to the exception that call raises instead of answering.
+    call index to the exception that call raises instead of answering. ``paged``
+    goes to ``PagedFake`` (``truncated``, ``stalled``).
     """
 
-    def __init__(self, rows, service, *, link_errors=None):
-        super().__init__({"code": 0, "result": {"sport_records": list(rows)}})
+    def __init__(self, rows, service, *, link_errors=None, **paged):
+        super().__init__({"code": 0, "result": {"sport_records": list(rows)}}, **paged)
         self.service = service
         self._link_errors = dict(link_errors or {})
         self.link_calls = []

@@ -266,10 +266,11 @@ def test_every_registered_domain_has_a_chunk_size():
     assert set(REGISTRY) <= set(DOMAIN_CHUNK)
 
 
-def test_raw_point_domains_use_week():
+def test_chunk_size_per_domain():
     assert CHUNK_DAYS == {"day": 1, "week": 7, "month": 31}
+    week = {"heart_rate", "workout_detail"} | ({"spo2"} if "spo2" in REGISTRY else set())
     for domain, size in DOMAIN_CHUNK.items():
-        assert size == ("week" if domain in {"heart_rate", "spo2"} else "month"), domain
+        assert size == ("week" if domain in week else "month"), domain
         assert chunk_size_for(domain) == size
     # A domain missing from the table gets the conservative size.
     assert chunk_size_for("not_a_domain") == "week"
@@ -307,7 +308,9 @@ def test_merge_of_one_part_keeps_notes_as_they_are():
 
 
 def test_the_comparisons_cover_every_registered_domain():
-    assert {domain for domain, _, _ in COMPARISONS} == set(REGISTRY)
+    # ``workout_detail`` is the exception: one call reads at most 10 workouts and
+    # numbers its notes per call, so its chunked read is not one read cut in pieces.
+    assert {domain for domain, _, _ in COMPARISONS} == set(REGISTRY) - {"workout_detail"}
 
 
 @pytest.mark.parametrize(

@@ -160,10 +160,12 @@ def selected_fields(fields: Sequence[Field4D], version: int) -> list[Field4D]:
 def decode(plain: bytes, header: FileHeader, layout: RecordLayout | GpsLayout) -> DecodedFile:
     """The A layer of ``plain``, whose ``header`` was read by ``binary.parse_header``.
 
-    Raises ``FdsFormatError`` when the file does not fit the layout: no or too few
-    validity flags, a segment that claims more points than the bytes left, more than
-    ``MAX_POINTS`` points, or a read past the end.
+    Raises ``FdsFormatError`` when the file does not fit the layout: a storage mode
+    other than 0, no or too few validity flags, a segment that claims more points than
+    the bytes left, more than ``MAX_POINTS`` points, or a read past the end.
     """
+    if header.mode != 0:
+        raise FdsFormatError("the file uses a storage mode this decoder does not read")
     if header.validity is None:
         raise FdsFormatError("the header has no validity flags")
     reader = Reader(plain, HEADER_LEN + len(header.validity))

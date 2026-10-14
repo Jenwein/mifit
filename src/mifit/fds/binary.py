@@ -14,7 +14,9 @@ offset type      meaning
 
 Validity flags follow it. Their length depends on the sport format, the file type
 and the version (the APK's ``FitnessDataValidity``). A combination the table does not
-know has no flags here, and the file cannot be decoded.
+know has no flags here, and the file cannot be decoded. Nor does a file whose storage
+mode is not 0 (compressed or encrypted): what follows its header is unknown, so no
+flags are read from it.
 
 The bytes are untrusted: every read checks the remaining length first and raises
 ``FdsFormatError``, whose message is a fixed fragment that never holds file bytes.
@@ -51,7 +53,7 @@ class FileHeader:
     version: int
     proto_type: int
     mode: int  # encryption/compression mode
-    validity: bytes | None  # None when the table has no length for this file
+    validity: bytes | None  # None when the table has no length for this file, or mode != 0
 
     def as_raw(self) -> dict:
         """The A-layer header: the schema names, ``validityFlags`` as hex (left out
@@ -78,11 +80,16 @@ def validity_len(proto: int, file_type: int, version: int) -> int | None:
 
 
 def parse_header(plain: bytes, file_type: int) -> FileHeader:
-    """The header and validity flags at the start of ``plain``."""
+    """The header and validity flags at the start of ``plain``.
+
+    The flags are ``None`` when the table has no length for the file, or when its
+    storage mode is not 0: then nothing after the header is read, so a file that ends
+    right after it is not refused.
+    """
     if len(plain) < HEADER_LEN:
         raise FdsFormatError("the file ends inside its header")
     timestamp, timezone, version, proto, mode = _HEADER.unpack_from(plain)
-    length = validity_len(proto, file_type, version)
+    length = validity_len(proto, file_type, version) if mode == 0 else None
     validity = None
     if length is not None:
         if len(plain) - HEADER_LEN < length:
