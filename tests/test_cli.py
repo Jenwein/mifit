@@ -1792,6 +1792,7 @@ def test_pyproject_declares_package_dependencies_and_entry_point():
         dep.split(">")[0].split("=")[0].split("<")[0].split("[")[0].strip().lower()
         for dep in project["dependencies"]
     }
-    assert names == {"requests", "qrcode"}
+    assert names == {"requests", "qrcode", "cryptography"}
+    assert "cryptography>=42" in project["dependencies"]
     assert project["scripts"] == {"mifit": "mifit.cli:main"}
     assert meta["tool"]["setuptools"]["packages"]["find"]["where"] == ["src"]

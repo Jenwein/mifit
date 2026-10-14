@@ -12,6 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
     "requests>=2.31",
     "qrcode>=7.4",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
