@@ -1,0 +1,33 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "sleep",
+        "time": 1760486400,
+        "value": "{\"total_duration\": 40, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 0, \"sleep_awake_duration\": 0, \"sleep_score\": 45, \"avg_hr\": 0, \"avg_spo2\": 0, \"sleep_stage\": 5, \"long_sleep_evaluation\": 0, \"day_sleep_evaluation\": 3, \"segment_details\": [{\"bedtime\": 1760536800, \"wake_up_time\": 1760539200, \"timezone\": 32, \"duration\": 40, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 0, \"sleep_awake_duration\": 0, \"awake_count\": 0}]}",
+        "update_time": 1760536400,
+        "watermark": 1,
+        "source_sid_list": [
+          "synthetic-device"
+        ]
+      },
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "sleep",
+        "time": 1760400000,
+        "value": "{\"total_duration\": 410, \"sleep_deep_duration\": 100, \"sleep_light_duration\": 280, \"sleep_awake_duration\": 40, \"sleep_score\": 72, \"avg_hr\": 61, \"min_hr\": 52, \"max_hr\": 80, \"avg_spo2\": 95, \"min_spo2\": 91, \"max_spo2\": 99, \"sleep_stage\": 2, \"long_sleep_evaluation\": 11, \"day_sleep_evaluation\": 0, \"segment_details\": [{\"bedtime\": 1760401800, \"wake_up_time\": 1760427000, \"timezone\": 32, \"duration\": 380, \"sleep_deep_duration\": 100, \"sleep_light_duration\": 280, \"sleep_awake_duration\": 40, \"awake_count\": 2}, {\"bedtime\": 1760446800, \"wake_up_time\": 1760448600, \"timezone\": 32, \"duration\": 30, \"sleep_deep_duration\": 0, \"sleep_light_duration\": 0, \"sleep_awake_duration\": 0, \"awake_count\": 0}]}",
+        "update_time": 1760450000,
+        "watermark": 1,
+        "source_sid_list": [
+          "synthetic-device"
+        ]
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}

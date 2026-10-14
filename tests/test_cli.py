@@ -163,12 +163,12 @@ def test_export_consumption_dispatches_to_the_client(fake_mifit, tmp_path):
 
 
 def test_export_unknown_domain_errors(fake_mifit, capsys):
-    rc = cli.main(["export", "sleep", "--from", "2026-10-01", "--to", "2026-10-02"])
+    rc = cli.main(["export", "no_such_domain", "--from", "2026-10-01", "--to", "2026-10-02"])
 
     assert rc != 0
     captured = capsys.readouterr()
     message = captured.out + captured.err
-    assert "sleep" in message
+    assert "no_such_domain" in message
     for domain in REGISTRY:
         assert domain in message
     assert "steps" in message and "heart_rate" in message
