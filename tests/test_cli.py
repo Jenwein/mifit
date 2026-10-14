@@ -1641,8 +1641,9 @@ def test_partial_that_cannot_be_read_is_a_clean_error(fake_mifit, monkeypatch, t
     [
         (OSError(28, "No space left on device"), "No space left on device"),
         (ValueError("Out of range float values are not JSON compliant"), "ValueError"),
+        (RecursionError("maximum recursion depth exceeded"), "RecursionError"),
     ],
-    ids=["os-error", "value-error"],
+    ids=["os-error", "value-error", "recursion-error"],
 )
 def test_chunk_that_cannot_be_saved_stops_the_export(
     fake_mifit, monkeypatch, tmp_path, error, detail, capsys

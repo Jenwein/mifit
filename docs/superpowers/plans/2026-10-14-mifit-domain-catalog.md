@@ -408,7 +408,7 @@ Synthetic examples for tests: daily stress value `{"avg_stress": 35, "max_stress
    - Daily `calories`: it equals `consumption.active_kcal` on one day, so it adds nothing B lacks.
    - Raw `stress` points: the generic read covers them.
    - `vitality`, `training_load`, `vo2_max`, `running_ability_index`, `grade_prediction`: no recent data, so nothing can be checked.
-   - In the catalog, daily `valid_stand`, `intensity` and `calories` (§2) and raw `stress` (§3) are `候选` rows. The five keys without recent data are `—` rows, listed in §5 under 只有较早数据的 key. (Corrected in the final polish, 2026-10-15: this line first said every item above became a `候选` row.)
+   - In the catalog, daily `valid_stand`, `intensity` and `calories` (§2) and raw `stress` (§3) are `候选` rows. The five keys with little or no recent data are `—` rows, listed in §5 under 只有较早数据的 key. (Corrected in the final polish, 2026-10-15: this line first said every item above became a `候选` row.)
 9. **The catalog is `notes/domain-catalog.md`** (the roadmap's name, unnumbered because it is a living document), Chinese, with fixed table columns so `tests/test_domain_catalog.py` can enforce that every registered domain is catalogued and that no Unix timestamp leaks in.
 10. **`get_latest_fitness_data` is documented, not wrapped.** It was the cheapest enumeration tool (10 keys per call), but no user-facing need is known yet. The same goes for the three tags' tag-only reads.
 11. **Daily-type raw keys** (outer `time` = UTC midnight of the local date) are filtered on that `time` as served. The docstring and catalog say so, and nothing reinterprets them.

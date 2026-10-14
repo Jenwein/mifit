@@ -278,9 +278,9 @@ client, the renewal uses a fresh `requests.Session` of its own.
   reads, `raw_window` and `mifit raw` ask the service for a day before the
   start and keep only the requested window. `raw(key, ...)` returns the
   service's answer as it came, for any key, without this correction: use
-  `raw_window` for a complete window. `--full` (`full=True`) pages backwards
-  from the end date instead; it ignores the start date and stops after 10
-  pages, saying so in `notes` when older data remains.
+  `raw_window` for a complete window. `--full` (`full=True`, `heart_rate` only)
+  pages backwards from the end date instead; it ignores the start date and
+  stops after 10 pages, saying so in `notes` when older data remains.
 - **NaN and Infinity become `null`.** JSON has no such numbers, so where the
   service sends one, the CLI writes `null` and a note says how many it
   replaced.

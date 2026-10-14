@@ -261,12 +261,12 @@ def test_every_b_layer_name_in_the_catalog_is_a_domain():
   - The §6 M7 row: "中高强度分钟数 |" → "中高强度分钟数、活动卡路里 |".
   - Nothing else in the roadmap changes.
 - [ ] **Step 4: Item 10 (catalog §3).**
-  - "`weight` 只有一条几年前的记录" → "`weight` 的记录为 1–10 条、最近 7 天没有".
+  - The old count-and-age wording of the `weight` record → "`weight` 的记录为 1–10 条、最近 7 天没有".
   - "本账号身体成分全为 0（notes/11 §2）" → "本账号身体成分字段全为 0：是（notes/11 §2）".
-- [ ] **Step 5: Item 11.** In Decision 8 of the M7 plan, replace "   - All of these become `候选` rows in the catalog." with "   - In the catalog, daily `valid_stand`, `intensity` and `calories` (§2) and raw `stress` (§3) are `候选` rows. The five keys without recent data are `—` rows, listed in §5 under 只有较早数据的 key. (Corrected in the final polish, 2026-10-15: this line first said every item above became a `候选` row.)"
+- [ ] **Step 5: Item 11.** In Decision 8 of the M7 plan, replace "   - All of these become `候选` rows in the catalog." with "   - In the catalog, daily `valid_stand`, `intensity` and `calories` (§2) and raw `stress` (§3) are `候选` rows. The five keys with little or no recent data are `—` rows, listed in §5 under 只有较早数据的 key. (Corrected in the final polish, 2026-10-15: this line first said every item above became a `候选` row.)"
 - [ ] **Step 6: Verify.**
   - `python -m pytest -q`: everything passes, 2 skipped. The catalog guards check the new catalog text too.
-  - `grep -rnI "never judged\|没能连上网\|All of these become" src tests notes README.md docs/superpowers/roadmap.md docs/superpowers/plans/2026-10-14-mifit-domain-catalog.md` prints nothing, and neither does `grep -n "几年前" notes/domain-catalog.md`.
+  - `grep -rnI "never judged\|没能连上网\|All of these become" src tests notes README.md docs/superpowers/roadmap.md docs/superpowers/plans/2026-10-14-mifit-domain-catalog.md` prints nothing, and a grep of `notes/` for the old count-and-age wording of the weight record prints nothing either.
   - `git ls-files --eol` shows `i/lf w/lf` for every touched file.
 - [ ] **Step 7: Commit**: `git add src/mifit/auth/lifetime.py src/mifit/client.py notes/09-session-lifetime-renewal.md notes/domain-catalog.md tests/test_transport.py README.md docs/superpowers/roadmap.md docs/superpowers/plans/2026-10-14-mifit-domain-catalog.md && git commit -m "docs: final polish wording (renewal events, README raw reads, roadmap, catalog, M7 plan)"`
 
@@ -294,7 +294,7 @@ def test_every_b_layer_name_in_the_catalog_is_a_domain():
 12. **Roadmap:** the "0 或缺失" claim about `Workout` appears twice, in the §1 `workouts` bullet and in §3 M4 结果. Both get the same fix; no other roadmap line is touched.
 13. **README (c)** names the four keys that were checked and every SDK read that corrects for them. `MiFit.raw`'s docstring gets the same key list, so the code and the README agree.
 14. **The M7 plan's Decision 8 is corrected in place,** with a dated marker rather than a separate erratum, so the decision list stays the single record.
-15. **Out of scope:** the other `json.loads` call sites (`auth/qr.py`, `auth/session.py`, `fds/cipher.py`) read small, local or fixed-format inputs and are not on the backlog. Neither is the parked `_save_part` Ctrl+C window. `notes/11` §2 describes the weight record with the same kind of wording item 10 fixes in the catalog ("几年前", a window length in years). It is left as it is, because the backlog names only the catalog; it is flagged to the controller.
+15. **Out of scope:** the other `json.loads` call sites (`auth/qr.py`, `auth/session.py`, `fds/cipher.py`) read small, local or fixed-format inputs and are not on the backlog. Neither is the parked `_save_part` Ctrl+C window. `notes/11` §2 described the weight record with the same kind of count-and-age wording item 10 fixes in the catalog. The backlog names only the catalog, but the controller ruled in the final review (2026-10-15) that `notes/11` §2 be reworded to buckets as well, so it was.
 16. **Execution:** Native, the user's standing preference. The four tasks are small and independent, and a shipped mistake costs one revertable commit.
 
 ## Self-Review

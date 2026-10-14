@@ -185,12 +185,13 @@ class MiFit:
         """The transport's ``renew`` hook: trade ``old``'s passToken for a new session.
 
         Records ``unauthorized`` and then one of ``renewed``, ``renew_failed`` (the
-        account service refused), ``renew_unavailable`` (the session has nothing to
-        renew with, so no request was sent) or ``renew_network_error``; a
-        store-backed client also saves the new session (a save that fails only
-        warns, so the read goes on). Exceptions from the renewal are re-raised,
-        except that a network failure is replaced by a fresh exception of the same
-        type with a fixed message (see ``_scrubbed_network_error``).
+        account service refused, or the exchange failed), ``renew_unavailable``
+        (the session has nothing to renew with, so no request was sent) or
+        ``renew_network_error``; a store-backed client also saves the new session
+        (a save that fails only warns, so the read goes on). Exceptions from the
+        renewal are re-raised, except that a network failure is replaced by a fresh
+        exception of the same type with a fixed message (see
+        ``_scrubbed_network_error``).
         """
         self._record("unauthorized", old)
         network_error: OSError | None = None

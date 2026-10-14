@@ -101,7 +101,7 @@
 ## 4. 未决
 
 - **血氧的桶大小**：只在一个东八区账号上看到 2 h、偶数整点 UTC 小时；其他账号、其他时区、其他设备未验证。与 notes/08 §4 相同，86400 s 的边距假设桶不超过 1 天。
-- **`weight`、`single_spo2`、`low_spo2` 是否按桶**：都没测（`weight` 只有一行，测不出；`low_spo2` 没有行）。`weight` 和 `spo2` 的域无论如何都走提前一天的读取；`MiFit.raw` 不做修正，保持服务端原样。
+- **`weight`、`single_spo2`、`low_spo2` 是否按桶**：都没测（`weight` 的记录太少，测不出；`low_spo2` 没有行）。`weight` 和 `spo2` 的域无论如何都走提前一天的读取；`MiFit.raw` 不做修正，保持服务端原样。
 - **原始 `max_spo2` / `min_spo2` key**：APK 里有，未探测。
 - **`low_spo2` 的形状**：本账号没有行，未见。
 - **档案**：`daily_sleep_goal` 的单位，`regular_goal_list` 中 `field` 4 的含义。
