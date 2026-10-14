@@ -155,6 +155,7 @@
 ### T3 长区间 / 全量导出
 - 默认分块（按周或按月）+ 串行 + 带抖动的延时（设计 §3 风控默认值），全量导出需要显式开启。
 - 断点续传（中断后从上次的块继续），`--full` 等分页上限触顶时给出明确提示。
+- 后续清理（backlog）：抽出共享的日报行解码器（`heart_rate_daily`、`spo2_daily`、`steps`、`workouts`、`weight`、`spo2` 都在重复同一段解码 + notes 逻辑）、共享的测试替身（各测试文件里 `FakeTransport` / `payload_with_rows` 的拷贝），以及一个 `as_positive_float` 辅助函数。
 
 ### T4 CI（完成）
 - GitHub Actions 在 Linux 上跑 `pytest`（Linux 有 tzdata，夏令时用例会真正执行）。

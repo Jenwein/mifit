@@ -44,7 +44,7 @@ def fetch_spo2_daily(
     A window with no rows gives an empty result, never a fabricated figure. A row
     whose outer ``time`` is missing or unusable is skipped with a note (its decoded
     value is still kept in ``raw``). A figure that is absent, ``0``, negative or not
-    a number becomes ``None``: ``0`` percent means "not measured". A row whose
+    a number becomes ``None``: ``0`` is treated as "not measured". A row whose
     figures are all missing still gives a record, with every figure ``None``.
     """
     start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))

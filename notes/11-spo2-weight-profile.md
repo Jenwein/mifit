@@ -46,7 +46,7 @@
 
 ### 1.3 首桶丢失：与原始心率完全相同
 
-实验窗口 `[H, 该本地日结束]`，H = 本地 16:00（东八区上是偶数整点 UTC 小时）。比较全部离线完成，按外层 `time` 与 `value` 逐行比对。
+实验窗口 `[H, 该本地日结束]`，H = 某个本地整点（东八区上是偶数整点 UTC 小时）。比较全部离线完成，按外层 `time` 与 `value` 逐行比对。
 
 | 读取 | 窗口内行数 |
 |---|---|
@@ -65,7 +65,7 @@
 - **形状**：外层与原始血氧相同（`{key, sid, time, update_time, value, zone_name, zone_offset}`）；外层 `time` = `value.time`，不是零点。`value` 解码后（类型同真机）：
 
   ```json
-  {"time": 1600000000, "weight": 70.5, "bmi": 23.0,
+  {"time": 1600000000, "weight": 70.2, "bmi": 22.9,
    "body_fat_rate": 0.0, "muscle_rate": 0.0, "moisture_rate": 0.0,
    "bone_mass": 0.0, "protein_rate": 0.0, "visceral_fat": 0.0,
    "basal_metabolism": 0}

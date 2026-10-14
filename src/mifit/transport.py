@@ -290,7 +290,12 @@ class Transport:
         sign_path: str | None,
         base_path: str,
     ) -> tuple[Any, str]:
-        """Sign ``data_obj`` for the current session, pause, GET; return the response and its nonce."""
+        """Sign ``data_obj`` for the current session, pause, GET; return the response and its nonce.
+
+        The URL is ``BASE_HOST + base_path + endpoint_path`` (regionalized for the
+        session). A ``data_obj`` of ``None`` sends no ``data`` parameter at all,
+        so the signed query holds only the signing fields.
+        """
         base_url = BASE_HOST + base_path + endpoint_path
         url = regionalize(base_url, self._session.region)
         nonce = generate_nonce()

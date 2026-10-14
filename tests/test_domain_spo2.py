@@ -172,6 +172,19 @@ def test_spo2_value_that_is_not_an_object_is_noted():
     ]
 
 
+def test_spo2_point_is_timed_by_the_outer_time():
+    # The outer ``time`` decides the point's instant and the window filter; the
+    # decoded ``value.time`` (equal to it on every live row) is only kept in ``raw``.
+    value = {"time": START + 605, "spo2": 97}
+    payload = payload_with_rows((START + 600, value))
+
+    result = fetch_spo2_window(FakeTransport(payload), START, END)
+
+    assert result.records == [Spo2Point(epoch_s=START + 600, spo2_pct=97)]
+    assert result.raw == [value]
+    assert result.notes == []
+
+
 def test_spo2_empty_window_yields_no_records_and_no_notes():
     result = fetch_spo2_window(FakeTransport(payload_with_rows()), START, END)
 

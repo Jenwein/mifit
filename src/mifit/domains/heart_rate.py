@@ -26,11 +26,11 @@ from __future__ import annotations
 import json
 
 from mifit.domains.base import DomainResult, register
-from mifit.domains.raw_window import fetch_raw_window
+from mifit.domains.raw_window import RAW_ENDPOINT, fetch_raw_window
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.transport import Transport
 
-_ENDPOINT = "data/get_fitness_data_by_time"
+_ENDPOINT = RAW_ENDPOINT
 
 
 @register("heart_rate")

@@ -15,9 +15,9 @@ class UserProfile:
     """The account's body measurements and daily goals as set in the app.
 
     ``height_cm`` is the height in centimetres. ``weight_kg`` is the weight stored
-    in the profile, in kilograms (the app keeps it in step with the latest
-    weighing). ``step_goal`` is the daily step goal and ``calorie_goal_kcal`` the
-    daily calorie goal. Each is ``None`` when not set.
+    in the profile, in kilograms (it matched the latest weighing on the one
+    account checked). ``step_goal`` is the daily step goal and
+    ``calorie_goal_kcal`` the daily calorie goal. Each is ``None`` when not set.
 
     Personal details (name, birth date, sex, account ids) and the goals whose
     meaning is unverified are deliberately absent: they stay in the domain

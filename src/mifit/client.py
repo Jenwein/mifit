@@ -27,6 +27,7 @@ from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.profile import fetch_profile
+from mifit.domains.raw_window import RAW_ENDPOINT
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
@@ -36,7 +37,7 @@ from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError
 from mifit.transport import Transport
 
-_RAW_ENDPOINT = "data/get_fitness_data_by_time"
+_RAW_ENDPOINT = RAW_ENDPOINT
 
 _DATE_FORMAT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _DAY_START = time(0, 0, 0)
