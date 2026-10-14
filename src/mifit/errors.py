@@ -18,6 +18,21 @@ class AuthError(MiFitError):
     """
 
 
+class RenewalError(AuthError):
+    """The session expired or was refused and could not be renewed automatically; log in again.
+
+    Raised when the stored passToken cannot be traded for a new service token:
+    the session has no passToken, Xiaomi refused it, asked for a security
+    confirmation, or the token exchange failed. ``code`` is the account
+    service's business code when it refused the passToken (e.g. ``70016``),
+    else ``None``. The message states the reason only, never a credential.
+    """
+
+    def __init__(self, message: str, *, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class ApiError(MiFitError):
     """A non-successful API outcome: HTTP error, undecryptable body, or ``code != 0``.
 

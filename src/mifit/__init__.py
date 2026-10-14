@@ -7,6 +7,7 @@ from mifit.errors import (
     AuthError,
     MiFitError,
     NotificationRequiredError,
+    RenewalError,
 )
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
@@ -20,6 +21,7 @@ __all__ = [
     "AuthError",
     "ApiError",
     "NotificationRequiredError",
+    "RenewalError",
     "StepRecord",
     "HeartRatePoint",
     "HeartRateDailySummary",

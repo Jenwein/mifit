@@ -566,7 +566,12 @@ def test_heart_rate_daily_delegates_to_domain_with_local_day_bounds(build, monke
 
 def test_package_exports():
     from mifit.auth.session import Session as SessionClass
-    from mifit.errors import ApiError, MiFitError, NotificationRequiredError
+    from mifit.errors import (
+        ApiError,
+        MiFitError,
+        NotificationRequiredError,
+        RenewalError,
+    )
 
     assert mifit.MiFit is MiFit
     assert mifit.Session is SessionClass
@@ -574,6 +579,7 @@ def test_package_exports():
     assert mifit.ApiError is ApiError
     assert mifit.MiFitError is MiFitError
     assert mifit.NotificationRequiredError is NotificationRequiredError
+    assert mifit.RenewalError is RenewalError
     assert mifit.StepRecord is StepRecord
     assert mifit.HeartRatePoint is HeartRatePoint
     assert mifit.HeartRateDailySummary is HeartRateDailySummary
@@ -588,6 +594,7 @@ def test_package_exports():
         "AuthError",
         "ApiError",
         "NotificationRequiredError",
+        "RenewalError",
         "StepRecord",
         "HeartRatePoint",
         "HeartRateDailySummary",

@@ -91,7 +91,9 @@ class QrChallenge:
 
 @dataclass(repr=False)
 class LoginResult:
-    """The parsed outcome of an approved QR login (before the STS exchange).
+    """The parsed outcome of an account login (before the STS exchange).
+
+    It comes from an approved QR login or from a passToken renewal.
 
     ``nonce`` is the account login nonce as decimal text (or an int, when built
     by hand); it is not the per-request nonce used to sign health requests.
@@ -297,6 +299,91 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _parse_login_content(
+    response: Any,
+    what: str,
+    *,
+    known: dict[str, str] | None = None,
+    result_label: str | None = None,
+) -> LoginResult:
+    """Parse an account login response the way the app's ``processLoginContent`` does.
+
+    Shared by the QR long poll and the passToken renewal. Checks the HTTP status,
+    the business ``code`` (``ApiError`` with ``.code``) and ``securityStatus``
+    (``NotificationRequiredError``). ``userId``/``passToken``/``cUserId`` come from
+    the JSON, then the response cookies, then ``known`` (keyed by the same wire
+    names); ``ssecurity``/``nonce`` from the JSON, then the ``Extension-Pragma``
+    header; ``location`` from the JSON. A field still missing is an ``ApiError``
+    that names the field only. ``what`` labels the request in messages and
+    ``result_label`` (default ``"<what> result"``) the missing-field message.
+    """
+    payload = _load_json(response, what)
+    _raise_for_code(payload, what)
+
+    if (_to_int(payload.get("securityStatus")) or 0) != 0:
+        notification_url = _text(payload.get("notificationUrl"))
+        if not notification_url:
+            raise ApiError(
+                f"{what} asked for a security confirmation without saying where.",
+                payload={"fields": sorted(payload)},
+            )
+        if not notification_url.startswith("http"):
+            notification_url = ACCOUNT_DOMAIN + notification_url
+        raise NotificationRequiredError(notification_url)
+
+    cookies = _response_cookies(response)
+    stored = known or {}
+
+    def identity(name: str) -> str:
+        # JSON first, then the response cookies, then the caller's stored value.
+        return (
+            _text(payload.get(name))
+            or _text(cookies.get(name))
+            or _text(stored.get(name))
+        )
+
+    user_id = identity("userId")
+    pass_token = identity("passToken")
+    c_user_id = identity("cUserId")
+    location = _text(payload.get("location"))
+    ssecurity = _text(payload.get("ssecurity"))
+    nonce = _nonce_text(payload.get("nonce"))
+    if not ssecurity or nonce is None:
+        # The account SDK falls back to the Extension-Pragma header for these two.
+        pragma = _extension_pragma(response)
+        ssecurity = ssecurity or _text(pragma.get("ssecurity"))
+        if nonce is None:
+            nonce = _nonce_text(pragma.get("nonce"))
+
+    missing = [
+        name
+        for name, present in (
+            ("userId", bool(user_id)),
+            ("passToken", bool(pass_token)),
+            ("cUserId", bool(c_user_id)),
+            ("ssecurity", bool(ssecurity)),
+            ("nonce", nonce is not None),
+            ("location", bool(location)),
+        )
+        if not present
+    ]
+    if missing or nonce is None:
+        raise _missing_fields_error(result_label or f"{what} result", missing, payload)
+
+    region_hint = next(
+        (text for key in _REGION_HINT_KEYS if (text := _text(payload.get(key)))), None
+    )
+    return LoginResult(
+        pass_token=pass_token,
+        c_user_id=c_user_id,
+        ssecurity=ssecurity,
+        nonce=nonce,
+        location=location,
+        user_id=user_id,
+        region_hint=region_hint,
+    )
+
+
 # ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
@@ -355,63 +442,11 @@ def poll_qr_login(
     complete, successful login.
     """
     http = _http_or_default(http)
-    what = "QR login long poll"
     response = _get(
         http, challenge.lp_url, timeout=timeout_s, cookies=_device_cookies(device_id)
     )
-    payload = _load_json(response, what)
-    _raise_for_code(payload, what)
-
-    if (_to_int(payload.get("securityStatus")) or 0) != 0:
-        notification_url = _text(payload.get("notificationUrl"))
-        if not notification_url:
-            raise ApiError(
-                f"{what} asked for a security confirmation without saying where.",
-                payload={"fields": sorted(payload)},
-            )
-        if not notification_url.startswith("http"):
-            notification_url = ACCOUNT_DOMAIN + notification_url
-        raise NotificationRequiredError(notification_url)
-
-    user_id = _text(payload.get("userId"))
-    pass_token = _text(payload.get("passToken"))
-    c_user_id = _text(payload.get("cUserId"))
-    location = _text(payload.get("location"))
-    ssecurity = _text(payload.get("ssecurity"))
-    nonce = _nonce_text(payload.get("nonce"))
-    if not ssecurity or nonce is None:
-        # The account SDK falls back to the Extension-Pragma header for these two.
-        pragma = _extension_pragma(response)
-        ssecurity = ssecurity or _text(pragma.get("ssecurity"))
-        if nonce is None:
-            nonce = _nonce_text(pragma.get("nonce"))
-
-    missing = [
-        name
-        for name, present in (
-            ("userId", bool(user_id)),
-            ("passToken", bool(pass_token)),
-            ("cUserId", bool(c_user_id)),
-            ("ssecurity", bool(ssecurity)),
-            ("nonce", nonce is not None),
-            ("location", bool(location)),
-        )
-        if not present
-    ]
-    if missing or nonce is None:
-        raise _missing_fields_error("QR login result", missing, payload)
-
-    region_hint = next(
-        (text for key in _REGION_HINT_KEYS if (text := _text(payload.get(key)))), None
-    )
-    return LoginResult(
-        pass_token=pass_token,
-        c_user_id=c_user_id,
-        ssecurity=ssecurity,
-        nonce=nonce,
-        location=location,
-        user_id=user_id,
-        region_hint=region_hint,
+    return _parse_login_content(
+        response, "QR login long poll", known=None, result_label="QR login result"
     )
 
 
