@@ -1,11 +1,20 @@
-"""Make the ``src`` layout importable for tests without installing the package.
+"""Make the ``src`` layout importable and keep the test suite off the network.
 
-Packaging (pyproject.toml, console entry points) is added in a later task; until
-then tests resolve ``mifit`` by putting ``src`` on ``sys.path``.
+pyproject.toml sets ``pythonpath = ["src"]`` for pytest, and developers install
+the package with ``pip install -e ".[test]"`` (see the README). Putting ``src``
+on ``sys.path`` here as well keeps ``mifit`` importable when neither applies,
+e.g. if pytest is pointed at another config file with ``-c``.
 
-Every test also runs with the network refused, raising ``RuntimeError`` rather than an
-``OSError`` (urllib3/requests and the CLI would turn that into an ordinary network error
-and hide the guard).
+Every test also runs with the network refused. The guard raises
+``RuntimeError`` rather than an ``OSError``: an ``OSError`` would be turned into
+an ordinary network error by urllib3/requests and by the CLI, which would hide
+the guard behind a handled failure instead of failing the test.
+
+Limits of the guard: it only covers code that runs in the test process while a
+test function executes. It does not cover module import time, fixtures with a
+broader scope than ``function``, or child processes. On Windows it also blocks
+asyncio and ``socket.socketpair`` (whose fallback there uses ``connect``), so a
+future async test would need a loopback allowance.
 """
 
 import socket
