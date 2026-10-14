@@ -37,13 +37,13 @@
 ## 1. 已完成（截至 2026-10-14）
 
 - **底座**：nonce/RC4/SHA1 签名、地区路由、扫码登录 + STS、本地会话存储、签名传输（含 401 处理）、分页、`MiFit` 门面、`mifit login` / `mifit export` CLI。
-- **数据域**（均已真机核对）：
+- **数据域**（除标注外均已真机核对）：
   - `steps`：日步数、距离与 app 一致（`step_calories` 是步数报告自带的走路卡路里，不是 app 的卡路里环）。
   - `heart_rate`：原始心率点，单日区间和均值与 app 一致；按时间窗读取已补全（M3：起点提前一天再过滤，见 notes/08；多页读取也已真机核对）；`--full` 为不带起点、往回翻页的读法，触顶（10 页）时有提示。
   - `heart_rate_daily`：日汇总的平均 / 最高 / 最低 / 静息心率（`avg_bpm` / `max_bpm` / `min_bpm` / `resting_bpm`）；待真机核对。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 352 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 354 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 

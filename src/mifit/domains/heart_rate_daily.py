@@ -92,10 +92,14 @@ def _to_record(
 ) -> HeartRateDailySummary | None:
     # The day key is the OUTER entry's ``time``; the decoded ``value`` carries no
     # time of its own (``latest_hr.time`` is a shifted local clock, not the day).
+    # A bool, a string or a non-finite float is not a usable day key.
+    key = as_int(entry.get("time"))
+    if key is None:
+        return None
     try:
-        day = report_day(int(entry["time"]))
+        day = report_day(key)
         epoch_s = local_midnight(day, tz)
-    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+    except (ValueError, OverflowError, OSError):
         return None
     return HeartRateDailySummary(
         date=day.isoformat(),

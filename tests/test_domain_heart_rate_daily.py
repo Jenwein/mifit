@@ -288,7 +288,9 @@ def test_row_with_bad_value_is_skipped_with_note(bad_value):
 
 
 @pytest.mark.parametrize(
-    "bad_time", [ABSENT, None, "x"], ids=["absent", "null", "not-a-number"]
+    "bad_time",
+    [ABSENT, None, "x", True, str(DAY_1)],
+    ids=["absent", "null", "not-a-number", "bool", "numeric-string"],
 )
 def test_row_without_usable_day_is_skipped_with_note(bad_time):
     payload = payload_with_rows((DAY_1, figures()))

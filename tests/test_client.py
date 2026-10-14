@@ -590,6 +590,10 @@ def test_package_exports():
         "NotificationRequiredError",
         "StepRecord",
         "HeartRatePoint",
+        "HeartRateDailySummary",
         "ConsumptionRecord",
+        "SleepRecord",
+        "SleepSession",
+        "SleepStage",
     ):
         assert name in mifit.__all__

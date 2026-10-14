@@ -1,4 +1,5 @@
-"""Shared domain plumbing: the result container and a minimal name registry.
+"""Shared domain plumbing: the result container, a minimal name registry, and
+``as_int``, the domains' common reading of a reported whole number.
 
 A domain is a function ``fn(transport, start_epoch_s, end_epoch_s) -> DomainResult``
 registered under a short name so callers can list and dispatch domains.
