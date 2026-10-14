@@ -1,9 +1,11 @@
-"""Command-line interface: ``mifit login`` and ``mifit export``.
+"""Command-line interface: ``mifit login``, ``mifit export`` and ``mifit profile``.
 
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
 sleep, spo2, spo2 daily, weight, workouts) for a date range and writes ``{records, raw, notes}``
-as JSON.
+as JSON. ``profile`` reads the account profile (height, weight, daily step and
+calorie goals) and writes it the same way; its ``raw`` is the whole profile,
+personal details included, for the user's own eyes.
 
 Nothing here prints a credential. Messages come from the SDK's own errors (which
 are written to keep secrets out) and, for network failures, from the exception's
@@ -18,7 +20,7 @@ import dataclasses
 import io
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -167,45 +169,74 @@ def _plain(record: Any) -> Any:
     return record
 
 
-def _cmd_export(args: argparse.Namespace) -> int:
-    if args.full and args.domain not in _FULL_DOMAINS:
-        _eprint(f"note: --full only affects heart_rate; ignored for {args.domain}.")
+def _read(fetch: Callable[[Any], DomainResult]) -> DomainResult | None:
+    """Open the client and return ``fetch(client)``.
 
+    A failure is reported on stderr and gives ``None``: an ``AuthError`` with the
+    session's ages (when a client was opened) and the advice to log in, any other
+    SDK error with its message, a network failure by its type only.
+    """
     client = None
     try:
         client = _open_client()
-        result = _fetch(client, args.domain, args.start, args.end, args.full)
+        return fetch(client)
     except AuthError as exc:
         _eprint(f"error: {exc}")
         if client is not None:
             # Ages and the renewal state only; the session itself is never printed.
             _eprint(f"session: {describe_session(client.session)}")
         _eprint("Run `mifit login` to sign in.")
-        return _EXIT_ERROR
+        return None
     except MiFitError as exc:
         _eprint(f"error: {exc}")
-        return _EXIT_ERROR
+        return None
     except requests.RequestException as exc:
         _eprint(f"error: network request failed ({type(exc).__name__}).")
-        return _EXIT_ERROR
+        return None
 
+
+def _write_result(result: DomainResult, json_path: str | None) -> int:
+    """Show the notes on stderr and write ``{records, raw, notes}`` as JSON to
+    ``json_path``, or to stdout when it is ``None``; return the exit code."""
     for note in result.notes:
         _eprint(f"note: {note}")
 
     records = [_plain(record) for record in result.records]
     text = json.dumps({"records": records, "raw": result.raw, "notes": result.notes}, indent=2)
-    if args.json_path is None:
+    if json_path is None:
         # Keep stdout to the JSON alone so it can be piped.
         print(text)
         return _EXIT_OK
 
     try:
-        Path(args.json_path).write_text(text + "\n", encoding="utf-8")
+        Path(json_path).write_text(text + "\n", encoding="utf-8")
     except OSError as exc:
-        _eprint(f"error: could not write {args.json_path} ({exc.strerror or type(exc).__name__}).")
+        _eprint(f"error: could not write {json_path} ({exc.strerror or type(exc).__name__}).")
         return _EXIT_ERROR
-    print(f"Wrote {len(records)} record(s) to {args.json_path}.")
+    print(f"Wrote {len(records)} record(s) to {json_path}.")
     return _EXIT_OK
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    if args.full and args.domain not in _FULL_DOMAINS:
+        _eprint(f"note: --full only affects heart_rate; ignored for {args.domain}.")
+
+    result = _read(lambda client: _fetch(client, args.domain, args.start, args.end, args.full))
+    if result is None:
+        return _EXIT_ERROR
+    return _write_result(result, args.json_path)
+
+
+# ---------------------------------------------------------------------------
+# profile
+# ---------------------------------------------------------------------------
+
+
+def _cmd_profile(args: argparse.Namespace) -> int:
+    result = _read(lambda client: client.profile())
+    if result is None:
+        return _EXIT_ERROR
+    return _write_result(result, args.json_path)
 
 
 # ---------------------------------------------------------------------------
@@ -249,19 +280,29 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="YYYY-MM-DD",
         help="last day to export, inclusive (local time)",
     )
-    export.add_argument(
-        "--json",
-        dest="json_path",
-        metavar="PATH",
-        help="write the JSON to this file instead of stdout",
-    )
+    _add_json_option(export)
     export.add_argument(
         "--full",
         action="store_true",
         help="heart_rate only: page back through the full history instead of one window",
     )
     export.set_defaults(handler=_cmd_export)
+
+    profile = commands.add_parser(
+        "profile", help="export your profile (height, weight, daily goals) as JSON"
+    )
+    _add_json_option(profile)
+    profile.set_defaults(handler=_cmd_profile)
     return parser
+
+
+def _add_json_option(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--json",
+        dest="json_path",
+        metavar="PATH",
+        help="write the JSON to this file instead of stdout",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

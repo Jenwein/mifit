@@ -26,6 +26,7 @@ from mifit.domains.base import DomainResult
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
+from mifit.domains.profile import fetch_profile
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
@@ -311,6 +312,15 @@ class MiFit:
         return fetch_weight(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
+
+    def profile(self) -> DomainResult:
+        """The account profile: height, weight and the daily step and calorie goals.
+
+        One ``UserProfile`` record. ``raw`` holds the whole profile as the service
+        sent it, including name, birth date and account ids, so treat it as
+        personal data.
+        """
+        return fetch_profile(self._transport)
 
     def raw(self, key: str, start: DateArg, end: DateArg) -> list[dict]:
         """The service's own rows for fitness-data ``key``, undecoded and unfiltered.

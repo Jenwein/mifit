@@ -9,10 +9,11 @@
 """Signed, regional HTTP transport for the Mi Fitness cloud API.
 
 One call = one request: the payload is serialized to compact JSON and sent as
-the single signed/encrypted ``data`` query parameter, the response body is
-RC4-decrypted, and success is judged on the HTTP status first and the decrypted
-business ``code`` second. The one exception: with a ``renew`` hook, an HTTP 401
-renews the session and sends the request once more.
+the single signed/encrypted ``data`` query parameter (a request without a payload
+sends none), the response body is RC4-decrypted, and success is judged on the
+HTTP status first and the decrypted business ``code`` second. The one exception:
+with a ``renew`` hook, an HTTP 401 renews the session and sends the request once
+more. Requests go under ``app/v1/`` unless a call names another base path.
 """
 
 from __future__ import annotations
@@ -118,21 +119,29 @@ class Transport:
     def get_json(
         self,
         endpoint_path: str,
-        data_obj: dict,
+        data_obj: dict | None,
         *,
         sign_path: str | None = None,
+        base_path: str = BASE_PATH,
     ) -> dict:
         """GET ``endpoint_path`` with ``data_obj`` signed as the only parameter.
 
-        ``sign_path`` overrides the path that goes into the signature (the URL
-        itself is unchanged). Raises ``AuthError`` on an HTTP 401 that was not
-        renewed away (``RenewalError`` when the ``renew`` hook failed),
-        ``ApiError`` on any other non-2xx status, an undecryptable body, or a
-        decrypted ``code != 0``. An ``OSError`` from ``http`` (every ``requests``
-        exception is one: timeouts, connection errors) propagates unchanged, and
-        so does one from the ``renew`` hook.
+        The URL is ``BASE_HOST + base_path + endpoint_path`` with the session's
+        regional host prefix; ``base_path`` defaults to ``app/v1/`` (the profile,
+        for one, lives under ``healthapp/``). ``data_obj=None`` sends no ``data``
+        parameter at all: the query is only ``rc4_hash__``, ``signature`` and
+        ``_nonce``, signed over no parameters. ``sign_path`` overrides the path
+        that goes into the signature (the URL itself is unchanged); by default it
+        is the URL's path. Both keywords hold for the retry after a renewal too.
+
+        Raises ``AuthError`` on an HTTP 401 that was not renewed away
+        (``RenewalError`` when the ``renew`` hook failed), ``ApiError`` on any
+        other non-2xx status, an undecryptable body, or a decrypted
+        ``code != 0``. An ``OSError`` from ``http`` (every ``requests`` exception
+        is one: timeouts, connection errors) propagates unchanged, and so does one
+        from the ``renew`` hook.
         """
-        response, nonce = self._send(endpoint_path, data_obj, sign_path)
+        response, nonce = self._send(endpoint_path, data_obj, sign_path, base_path)
         if (
             response.status_code == 401
             and self._renew is not None
@@ -163,7 +172,7 @@ class Transport:
                 raise AuthError(_SAME_TOKEN_401)
             self._session = new
             # A fresh nonce, signed with the new ssecurity and sent with the new cookies.
-            response, nonce = self._send(endpoint_path, data_obj, sign_path)
+            response, nonce = self._send(endpoint_path, data_obj, sign_path, base_path)
             if response.status_code == 401:
                 self._renewals_left = 0
                 raise AuthError(_STILL_401)
@@ -275,16 +284,25 @@ class Transport:
         return PagedResult(items, truncated)
 
     def _send(
-        self, endpoint_path: str, data_obj: dict, sign_path: str | None
+        self,
+        endpoint_path: str,
+        data_obj: dict | None,
+        sign_path: str | None,
+        base_path: str,
     ) -> tuple[Any, str]:
         """Sign ``data_obj`` for the current session, pause, GET; return the response and its nonce."""
-        base_url = BASE_HOST + BASE_PATH + endpoint_path
+        base_url = BASE_HOST + base_path + endpoint_path
         url = regionalize(base_url, self._session.region)
         nonce = generate_nonce()
+        plain = (
+            {}
+            if data_obj is None
+            else {"data": json.dumps(data_obj, separators=(",", ":"))}
+        )
         params = encrypt_query_params(
             method="GET",
             path=urlparse(base_url).path,
-            params={"data": json.dumps(data_obj, separators=(",", ":"))},
+            params=plain,
             nonce=nonce,
             ssecurity=self._session.ssecurity,
             signature_path=sign_path,

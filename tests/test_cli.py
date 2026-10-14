@@ -25,6 +25,7 @@ from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
+from mifit.models.profile import UserProfile
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
@@ -98,6 +99,7 @@ SPO2_DAY = Spo2DailySummary(
 )
 SPO2_POINT = Spo2Point(epoch_s=1790812860, spo2_pct=97)
 WEIGHT = WeightRecord(epoch_s=1790812800, weight_kg=70.5, bmi=None)
+PROFILE = UserProfile(height_cm=175.0, weight_kg=70.0, step_goal=8000, calorie_goal_kcal=None)
 WORKOUT = Workout(
     start_epoch_s=1790820000,
     end_epoch_s=1790822701,
@@ -187,6 +189,10 @@ class FakeMiFit:
             raw=[{"time": 1790812860, "bpm": 71}],
             notes=["Window query: result may be incomplete."],
         )
+
+    def profile(self):
+        self.calls.append(("profile",))
+        return DomainResult(records=[PROFILE], raw=[{"height": 175}], notes=["n1"])
 
 
 @pytest.fixture
@@ -586,6 +592,47 @@ def test_export_unwritable_json_path_is_reported(fake_mifit, tmp_path, capsys):
 
     assert rc != 0
     assert str(missing_dir) in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# profile
+# ---------------------------------------------------------------------------
+
+
+def test_profile_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "profile.json"
+
+    rc = cli.main(["profile", "--json", str(out)])
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert set(data) == {"records", "raw", "notes"}
+    assert data["records"] == [asdict(PROFILE)]
+    assert data["raw"] == [{"height": 175}]
+    assert data["notes"] == ["n1"]
+    assert fake_mifit.instances[0].calls == [("profile",)]
+
+
+def test_profile_prints_json_to_stdout_and_notes_to_stderr(fake_mifit, capsys):
+    rc = cli.main(["profile"])
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)  # stdout is the JSON and nothing else
+    assert data["records"] == [asdict(PROFILE)]
+    assert data["notes"] == ["n1"]
+    assert "note: n1" in captured.err
+
+
+def test_profile_without_session_tells_to_log_in(fake_mifit, capsys):
+    fake_mifit.error_on_init = AuthError("No valid Mi Fitness login session was found.")
+
+    rc = cli.main(["profile"])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "No valid Mi Fitness login session" in err
+    assert "mifit login" in err
 
 
 # ---------------------------------------------------------------------------

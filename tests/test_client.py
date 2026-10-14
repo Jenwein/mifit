@@ -40,6 +40,7 @@ from mifit.errors import AuthError, RenewalError
 from mifit.region import SID
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
+from mifit.models.profile import UserProfile
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
@@ -1176,6 +1177,24 @@ def test_weight_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
+def test_profile_delegates_to_domain(build, monkeypatch):
+    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport):
+        seen.append(transport)
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_profile", spy)
+
+    result = client.profile()
+
+    assert result is sentinel
+    (transport,) = seen
+    assert transport is fake
+
+
 def test_package_exports():
     from mifit.auth.session import Session as SessionClass
     from mifit.errors import (
@@ -1203,6 +1222,7 @@ def test_package_exports():
     assert mifit.Spo2DailySummary is Spo2DailySummary
     assert mifit.Spo2Point is Spo2Point
     assert mifit.WeightRecord is WeightRecord
+    assert mifit.UserProfile is UserProfile
     for name in (
         "MiFit",
         "Session",
@@ -1222,5 +1242,6 @@ def test_package_exports():
         "Spo2DailySummary",
         "Spo2Point",
         "WeightRecord",
+        "UserProfile",
     ):
         assert name in mifit.__all__

@@ -146,6 +146,69 @@ def test_sign_path_overrides_signing_path_only():
     assert call["params"]["signature"] != default_signed["signature"]
 
 
+PROFILE_ENDPOINT = "user/get_miot_user_profile"
+PROFILE_SIGN_PATH = "/user/get_miot_user_profile"
+PROFILE_URL_PATH = "/healthapp/user/get_miot_user_profile"
+
+
+def test_base_path_replaces_app_v1_and_is_regionalized():
+    http = FakeHttp()
+    make_transport(http).get_json("user/x", DATA_OBJ, base_path="healthapp/")
+
+    (call,) = http.calls
+    assert urlparse(call["url"]).netloc == "hlth.io.mi.com"
+    assert urlparse(call["url"]).path == "/healthapp/user/x"
+    # Signed over the new URL path, with the payload as the usual ``data``.
+    assert call["params"] == encrypt_query_params(
+        method="GET",
+        path="/healthapp/user/x",
+        params={"data": COMPACT_DATA},
+        nonce=call["params"]["_nonce"],
+        ssecurity=SYNTH_SSECURITY,
+    )
+
+    http = FakeHttp()
+    make_transport(http, region="de").get_json("user/x", DATA_OBJ, base_path="healthapp/")
+
+    (call,) = http.calls
+    assert urlparse(call["url"]).netloc == "de.hlth.io.mi.com"
+    assert urlparse(call["url"]).path == "/healthapp/user/x"
+
+
+def test_none_data_sends_no_data_param():
+    http = FakeHttp()
+    make_transport(http).get_json(ENDPOINT, None)
+
+    (call,) = http.calls
+    assert urlparse(call["url"]).path == SIGN_PATH
+    assert set(call["params"]) == {"rc4_hash__", "signature", "_nonce"}
+    assert call["params"] == encrypt_query_params(
+        method="GET",
+        path=SIGN_PATH,
+        params={},
+        nonce=call["params"]["_nonce"],
+        ssecurity=SYNTH_SSECURITY,
+    )
+
+
+def test_base_path_and_sign_path_combine():
+    http = FakeHttp()
+    make_transport(http).get_json(
+        PROFILE_ENDPOINT, None, sign_path=PROFILE_SIGN_PATH, base_path="healthapp/"
+    )
+
+    (call,) = http.calls
+    assert urlparse(call["url"]).path == PROFILE_URL_PATH
+    assert call["params"] == encrypt_query_params(
+        method="GET",
+        path=PROFILE_URL_PATH,
+        params={},
+        nonce=call["params"]["_nonce"],
+        ssecurity=SYNTH_SSECURITY,
+        signature_path=PROFILE_SIGN_PATH,
+    )
+
+
 def test_each_request_uses_a_fresh_nonce():
     http = FakeHttp()
     transport = make_transport(http)
@@ -363,6 +426,36 @@ def test_401_renews_once_and_retries_with_the_new_session():
         params={"data": COMPACT_DATA},
         nonce=retry["params"]["_nonce"],
         ssecurity=NEW_SSECURITY,
+    )
+    assert transport.session is new
+
+
+def test_healthapp_request_without_data_renews_and_retries():
+    # The profile read: another base path, no ``data``, its own signature path.
+    new = renewed_session()
+    http = ScriptedHttp(UNAUTHORIZED, (200, OK_PAYLOAD, NEW_SSECURITY))
+    hook = RenewHook(new)
+    transport = renewing_transport(http, hook)
+
+    result = transport.get_json(
+        PROFILE_ENDPOINT, None, sign_path=PROFILE_SIGN_PATH, base_path="healthapp/"
+    )
+
+    assert result == OK_PAYLOAD
+    assert len(hook.calls) == 1
+    first, retry = http.calls
+    for call in (first, retry):
+        assert urlparse(call["url"]).path == PROFILE_URL_PATH
+        assert set(call["params"]) == {"rc4_hash__", "signature", "_nonce"}
+    assert f"serviceToken={NEW_SERVICE_TOKEN}" in retry["headers"]["Cookie"]
+    # The retry is the same request, signed afresh for the new session.
+    assert retry["params"] == encrypt_query_params(
+        method="GET",
+        path=PROFILE_URL_PATH,
+        params={},
+        nonce=retry["params"]["_nonce"],
+        ssecurity=NEW_SSECURITY,
+        signature_path=PROFILE_SIGN_PATH,
     )
     assert transport.session is new
 
