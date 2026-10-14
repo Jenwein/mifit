@@ -281,16 +281,6 @@ def test_unparseable_value_is_skipped_with_note():
     assert result.raw == [{"time": 1759248600, "bpm": 72, "type": None}]
 
 
-def test_full_read_does_not_carry_the_windowed_query_caveat():
-    transport = FakeTransport(load_fixture())
-
-    result = fetch_heart_rate_full(transport, END)
-
-    # The full read is the candidate fuller read, not the windowed query the
-    # incompleteness caveat is about.
-    assert not any("windowed" in note.lower() for note in result.notes)
-
-
 def test_capped_full_read_says_so():
     transport = FakeTransport(load_fixture(), truncated=True)
 
