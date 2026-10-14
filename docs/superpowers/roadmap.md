@@ -56,7 +56,7 @@
 | 会话多久过期、能否用 passToken 自助续期，都未验证。目前一遇 401 就提示重新扫码。 | 无人值守 / 定时使用 | T2 |
 | ~~移植自 kevinkwee/Mi-Fitness-Sync（MIT）的签名/传输逻辑没有保留署名；仓库无 LICENSE、无 README~~ → **已修（T1）**：LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README。 | — | ✅ T1 |
 | ~~夏令时用例在本机因缺 tzdata 被跳过。~~ → **已修（T4）**：`pip install -e ".[test]"` 装上 tzdata，Windows 本机也跑夏令时用例；CI 在 Linux 上跑全部测试，测试里禁止联网。 | — | ✅ T4 |
-| sleep 审查遗留 Minor（2026-10-14，均低概率，待用户决定是否修）：① 畸形数据（不可哈希的 state、非列表的 `segment_details`、NaN/Infinity 时间）会抛异常而非跳过并记 note；② 相同起止时间的重复原始会话以最后一条为准，无分期的那条在后可能悄悄抹掉夜间分期；③ `raw` 混入已删除记录（删除标记丢失）和加宽窗口带出的相邻会话；④ 时间完全相同的会话共用同一个 `stages` 列表对象；⑤ 当天没有睡眠会话时仍多发一次原始记录请求；⑥ 原始窗口测试只在 UTC 下；⑦ `test_extra_raw_sessions_are_ignored` 有一半断言不会失败；⑧ 原始记录请求失败会让整个 `sleep()` 失败（已取到的日汇总也丢掉）。 | sleep 健壮性 | 待定 |
+| ~~sleep 审查遗留 Minor ①–⑧~~ → **已修（sleep 加固，2026-10-14）**：①畸形数据跳过并记 note（不可哈希的 state 记为 unknown）；②相同起止的重复原始会话优先取有分期的；③`raw` 只含日汇总和实际匹配上的原始会话（已删除、加宽窗口带出的不再混入；全部原始会话用 `MiFit.raw("sleep", …)`）；④分期列表按会话复制；⑤没有会话时不发原始请求；⑥补 UTC−5 原始窗口测试；⑦重写该测试使断言可失败；⑧原始请求的 ApiError 保留日汇总并记 note，AuthError 照常抛出。另：`score` 移出 B 层，只留在 `raw`（`sleep_score`）：app 只显示等级，数值未核对（设计 §2 反目标）。 | — | ✅ sleep 加固 |
 
 ---
 

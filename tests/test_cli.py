@@ -44,7 +44,6 @@ SLEEP = SleepRecord(
     light_min=0,
     rem_min=None,
     awake_min=0,
-    score=70,
     avg_hr_bpm=60,
     min_hr_bpm=55,
     max_hr_bpm=70,

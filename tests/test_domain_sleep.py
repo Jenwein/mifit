@@ -165,7 +165,7 @@ def test_maps_day_totals():
         40,
     )
     assert record.rem_min is None  # absent on the wire
-    assert record.score == 72
+    assert result.raw[1]["sleep_score"] == 72  # reachable in raw only; raw[1] is day A
     assert (record.avg_hr_bpm, record.min_hr_bpm, record.max_hr_bpm) == (61, 52, 80)
     assert (record.avg_spo2_pct, record.min_spo2_pct, record.max_spo2_pct) == (95, 91, 99)
 
@@ -254,7 +254,7 @@ def test_unverified_fields_stay_out_of_records():
         f.name for f in dataclasses.fields(SleepSession)
     }
 
-    for unverified in ("stage", "evaluation", "awake_count", "uncomplete"):
+    for unverified in ("stage", "evaluation", "awake_count", "uncomplete", "score"):
         assert not [n for n in names if unverified in n and n != "stages"]
 
 

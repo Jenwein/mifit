@@ -25,6 +25,7 @@ Run 2026-10-14 against the user's real account (cached QR session, UTC+8), using
 - **`score` stays in B.** Its meaning is fixed by the APK (`AllDaySleepReport.getScore` ↔ `sleep_score`) and by the name, but its value couldn't be seen in the app. The docstring treats 0 as "no score". Revisit if a user with scores visible finds a mismatch.
 - **Naps are not labelled in B.** The app presents them separately as 小睡, but the rule it uses was not found. In the observed data, a nap is a session with no stage breakdown: stage minutes are `None` and `stages` is `[]` (fix `1655fc1`). Consumers can tell naps apart that way.
 - **The day total includes naps,** as the app's does, so `asleep_min` is the figure the app shows.
+- **Superseded (2026-10-14, sleep hardening):** `score` moved out of B; it is in `raw` only (`sleep_score`). The design §2 anti-goal wins over the name-based reading, and the score is also reported for a nap-only day, where its meaning in the app is unknown.
 
 ## Outcome
 

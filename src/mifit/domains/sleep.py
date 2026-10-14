@@ -14,16 +14,17 @@ Raw rows the service marks ``deleted`` are ignored. Of several raw rows with the
 times the first in service order is used, unless it has no stages and a later one has.
 Each matched daily session gets its own copy of the stages. The raw read is widened by
 a day on each side and filtered by that match, so its window bounds never decide a
-day.
+day. It is skipped when no day has a session, and if it fails with an ``ApiError``
+the days stand without stages and one note says so.
 
 ``DomainResult.raw`` holds the decoded daily values in service order, then the decoded
 value of each raw session that matched a daily session, once each, in the order they
 were served. Raw rows that matched nothing, duplicates and deleted rows are left out;
 ``MiFit.raw("sleep", start, end)`` returns every raw session as served.
 
-Fields whose meaning has not been verified against the app (``sleep_stage``,
-``long_sleep_evaluation``, ``day_sleep_evaluation``, ``awake_count``) stay in
-``raw`` only.
+Fields whose meaning has not been verified against the app (``sleep_score``,
+``sleep_stage``, ``long_sleep_evaluation``, ``day_sleep_evaluation``,
+``awake_count``) stay in ``raw`` only.
 """
 
 from __future__ import annotations
@@ -247,7 +248,6 @@ def _to_record(
         light_min=light,
         rem_min=rem,
         awake_min=awake,
-        score=_measured(value.get("sleep_score")),
         avg_hr_bpm=_measured(value.get("avg_hr")),
         min_hr_bpm=_measured(value.get("min_hr")),
         max_hr_bpm=_measured(value.get("max_hr")),

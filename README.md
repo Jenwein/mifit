@@ -114,10 +114,11 @@ as `requests` exceptions, and a bad date argument raises `ValueError` or
   names. It is not a complete dump of every row the service sent.
 - **`records`** are typed dataclasses with neutral names (`asleep_min`,
   `avg_hr_bpm`, ...). A field's meaning is established from what the app
-  displays or from the app's own code before it enters this layer; a few (the
-  sleep score value, the REM stage) could not be checked against the app on the
-  author's account. A value the service did not report is `None`, never a
-  made-up `0`.
+  displays or from the app's own code before it enters this layer. One, the
+  REM stage, rests on the app's code alone, because the author's device
+  reports no REM. The sleep score is not in this layer: the app showed only a
+  rating, so the number could not be checked; it is in `raw` as `sleep_score`.
+  A value the service did not report is `None`, never a made-up `0`.
 - **`notes`** are caveats about that particular result: skipped rows, data
   that may be incomplete.
 

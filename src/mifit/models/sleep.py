@@ -55,7 +55,7 @@ class SleepRecord:
     across its sessions. The stage minutes cover only the staged sessions, so with a
     nap on the day they add up to less than ``asleep_min``; they are all ``None`` when
     no session was staged. Any figure the source did not report, or reported as a
-    meaningless ``0`` (score, heart rate, SpO2), is ``None``, never zero.
+    meaningless ``0`` (heart rate, SpO2), is ``None``, never zero.
     """
 
     date: str
@@ -65,7 +65,6 @@ class SleepRecord:
     light_min: int | None
     rem_min: int | None
     awake_min: int | None
-    score: int | None
     avg_hr_bpm: int | None
     min_hr_bpm: int | None
     max_hr_bpm: int | None
