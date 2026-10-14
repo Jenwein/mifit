@@ -63,6 +63,41 @@ def test_header_holds_only_export_arguments():
     }
 
 
+def test_header_carries_extra_export_options():
+    header = export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=False)
+
+    assert header == {
+        "mifit_partial": FORMAT,
+        "domain": "workout_detail",
+        "from": "2026-10-01",
+        "to": "2026-10-14",
+        "chunk": "week",
+        "track": False,
+    }
+    assert list(header) == ["mifit_partial", "domain", "from", "to", "chunk", "track"]
+
+
+def test_load_names_a_differing_track_setting(tmp_path):
+    path = tmp_path / "out.json.partial"
+    labels = ["2026-10-08..2026-10-14", "2026-10-01..2026-10-07"]
+    start_partial(
+        path, export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=False)
+    )
+
+    with pytest.raises(PartialError) as caught:
+        load_partial(
+            path,
+            export_header("workout_detail", "2026-10-01", "2026-10-14", "week", track=True),
+            labels,
+        )
+
+    message = str(caught.value)
+    assert "track false" in message
+    assert "workout_detail" in message and "2026-10-14" in message and "week" in message
+    assert "--resume" in message
+    assert exception_chain(caught.value) == [caught.value]
+
+
 def test_start_then_load_returns_no_parts(store):
     assert load_partial(store, HEADER, LABELS) == {}
 

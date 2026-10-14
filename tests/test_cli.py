@@ -33,6 +33,7 @@ from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
+from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 from mifit.models.workouts import Workout
 from support import exception_chain
 
@@ -117,6 +118,11 @@ WORKOUT = Workout(
     max_hr_bpm=170,
     steps=6000,
 )
+DETAIL = WorkoutDetail(
+    workout=WORKOUT,
+    samples=[WorkoutSample(1790820000, 120, 2.5, 3, 170, 360, None, 50.5)],
+    track=[TrackPoint(1790820000, 10.0, 20.0)],
+)
 
 
 def make_session():
@@ -185,6 +191,14 @@ class FakeMiFit:
     def workouts(self, start, end):
         self.calls.append(("workouts", start, end, {}))
         return DomainResult(records=[WORKOUT], raw=[{"sport_type": 1}], notes=[])
+
+    def workout_detail(self, start, end, *, track=True):
+        self.calls.append(("workout_detail", start, end, {"track": track}))
+        return DomainResult(
+            records=[DETAIL],
+            raw=[{"workout": {"sport_type": 1}, "record": None, "gps": None}],
+            notes=[],
+        )
 
     def heart_rate(self, start, end, *, full=False):
         self.calls.append(("heart_rate", start, end, {"full": full}))
@@ -374,6 +388,54 @@ def test_export_workouts_writes_records(fake_mifit, tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["records"] == [asdict(WORKOUT)]
     assert fake_mifit.instances[0].calls == [("workouts", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_workout_detail_writes_nested_records(fake_mifit, tmp_path):
+    out = tmp_path / "detail.json"
+
+    rc = cli.main(
+        [
+            "export",
+            "workout_detail",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+        ]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(DETAIL)]
+    assert data["raw"] == [{"workout": {"sport_type": 1}, "record": None, "gps": None}]
+    assert fake_mifit.instances[0].calls == [
+        ("workout_detail", "2026-10-01", "2026-10-02", {"track": True})
+    ]
+
+
+def test_export_workout_detail_no_track(fake_mifit, capsys):
+    rc = cli.main(
+        ["export", "workout_detail", "--from", "2026-10-01", "--to", "2026-10-02", "--no-track"]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("workout_detail", "2026-10-01", "2026-10-02", {"track": False})
+    ]
+    assert "--no-track" not in capsys.readouterr().err  # it applies here: no "ignored" note
+
+
+def test_no_track_is_ignored_for_other_domains(fake_mifit, capsys):
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--no-track"])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [("steps", "2026-10-01", "2026-10-02", {})]
+    assert (
+        "note: --no-track only affects workout_detail; ignored for steps."
+        in capsys.readouterr().err
+    )
 
 
 def test_export_unknown_domain_errors(fake_mifit, capsys):
@@ -1079,6 +1141,88 @@ def test_resume_with_different_arguments_is_refused(fake_mifit, monkeypatch, tmp
 
     assert rc == 1
     assert "2026-03-15" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == before
+
+
+DETAIL_RANGE = ["--from", "2026-10-01", "--to", "2026-10-14"]
+
+
+def detail_echo(fail_at=None, error=None):
+    """``echo`` for ``FakeMiFit.workout_detail``: the call also records its ``track``."""
+
+    def read(self, start, end, *, track=True):
+        self.calls.append(("workout_detail", start, end, {"track": track}))
+        if start == fail_at:
+            raise error
+        return DomainResult(
+            records=[{"chunk": f"{start}..{end}"}], raw=[{"from": start}], notes=[f"read {start}"]
+        )
+
+    return read
+
+
+def export_workout_detail(out, *flags):
+    """Export workout_detail over ``DETAIL_RANGE`` (two week chunks) to ``out``."""
+    return cli.main(["export", "workout_detail", *DETAIL_RANGE, "--json", str(out), *flags])
+
+
+def test_chunked_workout_detail_passes_track_to_every_chunk(fake_mifit, monkeypatch, tmp_path):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "workout_detail", detail_echo())
+
+    rc = export_workout_detail(out, "--no-track")
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("workout_detail", "2026-10-08", "2026-10-14", {"track": False}),
+        ("workout_detail", "2026-10-01", "2026-10-07", {"track": False}),
+    ]
+    assert not partial_of(out).exists()
+
+
+def test_partial_header_records_the_track_setting(fake_mifit, monkeypatch, tmp_path):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        FakeMiFit, "workout_detail", detail_echo(fail_at="2026-10-01", error=ApiError("boom"))
+    )
+
+    rc = export_workout_detail(out, "--no-track")
+
+    assert rc == 1
+    first_line = partial_of(out).read_bytes().splitlines()[0]
+    assert json.loads(first_line) == {
+        "mifit_partial": 1,
+        "domain": "workout_detail",
+        "from": "2026-10-01",
+        "to": "2026-10-14",
+        "chunk": "week",
+        "track": False,
+    }
+    assert first_line == (
+        b'{"mifit_partial":1,"domain":"workout_detail","from":"2026-10-01",'
+        b'"to":"2026-10-14","chunk":"week","track":false}'
+    )
+    assert stored_labels(out) == ["2026-10-08..2026-10-14"]
+
+
+def test_resume_with_a_different_track_setting_is_refused(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        FakeMiFit, "workout_detail", detail_echo(fail_at="2026-10-01", error=ApiError("boom"))
+    )
+    assert export_workout_detail(out, "--no-track") == 1
+    before = partial_of(out).read_bytes()
+    fake_mifit.instances.clear()
+    capsys.readouterr()
+
+    rc = export_workout_detail(out, "--resume")
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "track" in err
     assert fake_mifit.instances == []
     assert partial_of(out).read_bytes() == before
 

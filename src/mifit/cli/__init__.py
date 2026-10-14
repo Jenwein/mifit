@@ -2,20 +2,23 @@
 
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
-sleep, spo2, spo2 daily, weight, workouts) for a date range and writes ``{records, raw, notes}``
-as JSON. ``profile`` reads the account profile (height, weight, daily step and
-calorie goals) and writes it the same way; its ``raw`` is the whole profile,
-personal details included, for the user's own eyes.
+sleep, spo2, spo2 daily, weight, workouts, workout detail) for a date range and writes
+``{records, raw, notes}`` as JSON. ``profile`` reads the account profile (height,
+weight, daily step and calorie goals) and writes it the same way; its ``raw`` is the
+whole profile, personal details included, for the user's own eyes.
 
-A range longer than one chunk (``mifit.chunks``: a week for raw heart rate and SpO2,
-31 days for the rest, or ``--chunk``) is read chunk by chunk through one client, one
-request at a time, with progress on stderr; a range that fits in one chunk is the one
-call it always was. A range over 92 days needs ``--long``. ``heart_rate --full`` is a
-single backward read and is never chunked. With ``--json PATH``, each finished chunk
-is appended to ``PATH.partial`` (``mifit.cli.partial``), so an interrupted export
-continues with ``--resume`` instead of reading everything again; that file holds only
-the export's own data and arguments, never a credential or session field, and is
-deleted once the output is written.
+A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
+workout detail, 31 days for the rest, or ``--chunk``) is read chunk by chunk through
+one client, one request at a time, with progress on stderr; a range that fits in one
+chunk is the one call it always was. A range over 92 days needs ``--long``.
+``heart_rate --full`` is a single backward read and is never chunked. With ``--json
+PATH``, each finished chunk is appended to ``PATH.partial`` (``mifit.cli.partial``),
+so an interrupted export continues with ``--resume`` instead of reading everything
+again; that file holds only the export's own data and arguments, never a credential
+or session field, and is deleted once the output is written.
+
+A workout's GPS track shows where it took place. ``workout_detail --no-track`` asks
+for no GPS file, so the track is in neither the output nor ``PATH.partial``.
 
 Nothing here prints a credential. Messages come from the SDK's own errors (which
 are written to keep secrets out) and, for network failures, from the exception's
@@ -68,6 +71,8 @@ _EXIT_INTERRUPTED = 130  # the shell convention for "stopped by Ctrl+C"
 
 # Domains whose MiFit method takes ``full=``; ``--full`` means nothing elsewhere.
 _FULL_DOMAINS = frozenset({"heart_rate"})
+# Domains whose MiFit method takes ``track=``; ``--no-track`` means nothing elsewhere.
+_TRACK_DOMAINS = frozenset({"workout_detail"})
 
 # The longest range an export reads without ``--long`` (about a quarter).
 _LONG_RANGE_DAYS = 92
@@ -186,10 +191,20 @@ def _open_client() -> Any:
     raise AuthError(message)
 
 
-def _fetch(client: Any, domain: str, start: str, end: str, full: bool) -> DomainResult:
-    if domain in _FULL_DOMAINS:
-        return getattr(client, domain)(start, end, full=full)
-    return getattr(client, domain)(start, end)
+def _domain_options(args: argparse.Namespace) -> dict[str, Any]:
+    """The keyword arguments the export's domain method takes from the flags:
+    ``full`` for ``heart_rate``, ``track`` for ``workout_detail``, none elsewhere."""
+    if args.domain in _FULL_DOMAINS:
+        return {"full": args.full}
+    if args.domain in _TRACK_DOMAINS:
+        return {"track": not args.no_track}
+    return {}
+
+
+def _fetch(
+    client: Any, domain: str, start: str, end: str, options: dict[str, Any]
+) -> DomainResult:
+    return getattr(client, domain)(start, end, **options)
 
 
 def _plain(record: Any) -> Any:
@@ -327,14 +342,14 @@ def _export_usage_error(args: argparse.Namespace) -> str | None:
     return None
 
 
-def _plan(args: argparse.Namespace) -> tuple[list[Chunk], str, bool]:
-    """The chunks of this export in reading order, its chunk size, and whether it is
-    ``heart_rate --full``: one backward read, so a single chunk, never split."""
+def _plan(args: argparse.Namespace) -> tuple[list[Chunk], str]:
+    """The chunks of this export in reading order and its chunk size. ``heart_rate
+    --full`` is one backward read, so a single chunk, never split."""
     first, last = parse_day(args.start), parse_day(args.end)
     size = args.chunk or chunk_size_for(args.domain)
     if args.full and args.domain in _FULL_DOMAINS:
-        return [Chunk(first, last)], size, True
-    return plan_chunks(args.domain, first, last, size), size, False
+        return [Chunk(first, last)], size
+    return plan_chunks(args.domain, first, last, size), size
 
 
 def _resume_hint(partial: Path, *, auth: bool, saved: bool) -> str:
@@ -442,10 +457,16 @@ def _remove_partial(partial: Path) -> None:
 def _cmd_export(args: argparse.Namespace) -> int:
     if args.full and args.domain not in _FULL_DOMAINS:
         _eprint(f"note: --full only affects heart_rate; ignored for {args.domain}.")
+    if args.no_track and args.domain not in _TRACK_DOMAINS:
+        _eprint(f"note: --no-track only affects workout_detail; ignored for {args.domain}.")
 
-    plan, size, full = _plan(args)
+    options = _domain_options(args)
+    plan, size = _plan(args)
     chunked = len(plan) > 1
-    header = export_header(args.domain, args.start, args.end, size)
+    # The track setting changes what each chunk holds, so the header records it and a
+    # resume must repeat it. ``--full`` is never chunked, so it never reaches the header.
+    saved_options = {"track": options["track"]} if args.domain in _TRACK_DOMAINS else {}
+    header = export_header(args.domain, args.start, args.end, size, **saved_options)
     # Progress is kept on disk only for a chunked export to a file.
     partial = partial_path(args.json_path) if chunked and args.json_path is not None else None
     parts = {} if partial is None else _load_progress(partial, header, plan, args.resume)
@@ -472,7 +493,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 start, end = args.start, args.end
             # The same strict-JSON part is stored and merged, so a resumed chunk is
             # exactly a freshly read one.
-            part = _json_ready(_fetch(client, args.domain, start, end, full))
+            part = _json_ready(_fetch(client, args.domain, start, end, options))
             if partial is not None:
                 _save_part(partial, header, chunk.label, part, create=not stored)
                 stored = True
@@ -562,6 +583,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--full",
         action="store_true",
         help="heart_rate only: page back through the full history instead of one window",
+    )
+    export.add_argument(
+        "--no-track",
+        action="store_true",
+        help="workout_detail only: leave out the GPS track (no GPS file is requested)",
     )
     export.add_argument(
         "--chunk",

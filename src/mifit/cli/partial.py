@@ -9,15 +9,16 @@ The file is JSON Lines (ASCII, LF), every line strict JSON with compact separato
 Non-ASCII text is written as JSON escapes, as the main output does, so any string the
 service sends, a lone surrogate included, can be stored and read back:
 
-* line 1, the header: ``{"mifit_partial": 1, "domain", "from", "to", "chunk"}``, the
-  export's own arguments and nothing else, so a resumed run can tell that the file
-  belongs to the same export;
+* line 1, the header: ``{"mifit_partial": 1, "domain", "from", "to", "chunk"}``, then
+  any option that changes what the export reads (``"track"`` for ``workout_detail``):
+  the export's own arguments and nothing else, so a resumed run can tell that the
+  file belongs to the same export;
 * then one line per finished chunk: ``{"chunk": <label>, "records", "raw", "notes"}``.
 
 Each write is flushed and fsynced, so after a crash or power loss the file holds
 every chunk finished before it, plus at most one torn line at the end. The file
-holds the export's own data (the same data as the output) and those four header
-fields; no session, token or user id ever goes into it.
+holds the export's own data (the same data as the output) and those header fields;
+no session, token or user id ever goes into it.
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ FORMAT = 1
 """The file format number, written in the header; a change to the format bumps it."""
 
 _PART_KEYS = ("chunk", "records", "raw", "notes")
+_CORE_KEYS = ("domain", "from", "to", "chunk")
+"""The export arguments every header holds; options such as ``track`` follow them."""
 _PLAIN = re.compile(r"[A-Za-z0-9_.:-]{1,40}")
 
 
@@ -61,9 +64,19 @@ def partial_path(json_path: str | Path) -> Path:
     return Path(f"{json_path}.partial")
 
 
-def export_header(domain: str, start: str, end: str, chunk: str) -> dict:
-    """The header line of an export: its arguments, which a resumed run must repeat."""
-    return {"mifit_partial": FORMAT, "domain": domain, "from": start, "to": end, "chunk": chunk}
+def export_header(domain: str, start: str, end: str, chunk: str, **options: Any) -> dict:
+    """The header line of an export: its arguments, which a resumed run must repeat.
+
+    ``options`` (such as ``track=False``) follow ``chunk``, in the order given.
+    """
+    return {
+        "mifit_partial": FORMAT,
+        "domain": domain,
+        "from": start,
+        "to": end,
+        "chunk": chunk,
+        **options,
+    }
 
 
 def _dumps(obj: Any) -> bytes:
@@ -132,9 +145,13 @@ def _parse_part(line: bytes) -> tuple[str, DomainResult] | None:
 
 
 def _show(value: Any) -> str:
-    """A stored header value for a message: itself when it is a short plain word, date or
-    number, else ``?``, so a hand-edited file cannot put control characters on the terminal."""
-    text = value if isinstance(value, str) else str(value) if isinstance(value, int) else ""
+    """A stored header name or value for a message: itself when it is a short plain word,
+    date or number (a boolean as JSON spells it), else ``?``, so a hand-edited file
+    cannot put control characters on the terminal."""
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
+        text = value if isinstance(value, str) else str(value) if isinstance(value, int) else ""
     return text if _PLAIN.fullmatch(text) else "?"
 
 
@@ -143,16 +160,20 @@ def _damaged(path: Path) -> PartialError:
 
 
 def _foreign_header(path: Path, stored: dict, header: dict) -> PartialError:
-    keys = ("domain", "from", "to", "chunk")
+    """The error for a stored header that is not ``header``: another version's when
+    every export argument of ``header`` matches, else another export's, naming the
+    stored ``domain``, ``from``, ``to`` and ``chunk`` (``?`` when missing) and then
+    every other stored field but ``mifit_partial``, such as ``track``."""
+    keys = [key for key in header if key != "mifit_partial"]
     if all(stored.get(key) == header[key] for key in keys):
         return PartialError(
             f"{path} was written by another version of mifit; delete it to start over"
         )
-    domain, start, end, chunk = (_show(stored.get(key)) for key in keys)
+    extra = [key for key in stored if key not in _CORE_KEYS and key != "mifit_partial"]
+    fields = ", ".join(f"{_show(key)} {_show(stored.get(key))}" for key in [*_CORE_KEYS, *extra])
     return PartialError(
-        f"{path} belongs to another export (domain {domain}, from {start}, to {end}, "
-        f"chunk {chunk}); rerun with --resume and those arguments to continue it, "
-        "or delete the file to start over"
+        f"{path} belongs to another export ({fields}); rerun with --resume and those "
+        "arguments to continue it, or delete the file to start over"
     )
 
 

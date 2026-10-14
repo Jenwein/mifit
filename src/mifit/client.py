@@ -8,7 +8,7 @@ become the bounds of that *local* calendar day, or ints already in Unix seconds.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Container, Iterator
+from collections.abc import Callable, Container, Iterator, Mapping
 from datetime import timedelta, tzinfo
 from typing import Any
 
@@ -34,8 +34,10 @@ from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
 from mifit.domains.weight import fetch_weight
+from mifit.domains.workout_detail import fetch_workout_detail
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError
+from mifit.fds.download import FdsDownloader
 from mifit.transport import Transport
 
 _RAW_ENDPOINT = RAW_ENDPOINT
@@ -118,6 +120,11 @@ class MiFit:
     (``session`` omitted, or after ``login_qr``) saves the renewed session there
     and logs the 401 and the renewal to the session log; a session passed in is
     renewed in memory only, so read ``session`` to keep it.
+
+    ``fds_http`` is used in place of ``requests`` by the object-store downloads of
+    ``workout_detail``, for tests (see ``mifit.fds.download.FdsDownloader`` for what
+    it must accept). It never sees the session: the download links carry their own
+    signature.
     """
 
     def __init__(
@@ -126,6 +133,7 @@ class MiFit:
         *,
         http: Any = None,
         auto_renew: bool = True,
+        fds_http: Any = None,
     ) -> None:
         store_backed = session is None
         if session is None:
@@ -150,6 +158,7 @@ class MiFit:
                 "(MiFit.login_qr) and the session will be saved for next time."
             )
         self._http = http
+        self._fds_http = fds_http
         self._auto_renew = auto_renew
         self._store_backed = store_backed
         self._session = session
@@ -287,6 +296,48 @@ class MiFit:
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 
+    def workout_detail(
+        self, start: DateArg, end: DateArg, *, track: bool = True
+    ) -> DomainResult:
+        """Per-second samples and the GPS track of each workout from ``start`` to ``end``.
+
+        The workouts are the ones ``workouts`` gives for the same arguments, newest
+        first, each as a ``WorkoutDetail``: its ``workout`` summary, its ``samples``
+        (one ``WorkoutSample`` per recorded second: heart rate, cumulative distance
+        and steps, cadence, pace or speed, altitude) and its ``track`` (``TrackPoint``
+        fixes). ``raw`` holds ``{"workout", "record", "gps"}`` for each workout, at
+        the same index. ``samples`` and ``track`` are ``None`` when the file was not
+        read (a note says why) and ``[]`` when it held no points::
+
+            res = client.workout_detail("2026-10-01", "2026-10-14")
+            for d in res.records:
+                d.workout, d.samples, d.track
+
+            w = client.workouts("2026-10-12", "2026-10-12").records[0]
+            one = client.workout_detail(w.start_epoch_s, w.start_epoch_s)  # that one only
+
+            no_gps = client.workout_detail("2026-10-01", "2026-10-14", track=False)
+
+        A track shows where you were. ``track=False`` skips the GPS file: it is not
+        requested, ``track`` is ``None`` and no note is added.
+
+        Each workout's files cost up to three requests (a link request and two
+        downloads), so one call reads the detail of at most 10 supported workouts,
+        the newest; the older ones keep their record, with ``samples`` and ``track``
+        ``None``, and a note counts them. Ask for a shorter range, or read week by
+        week with ``read_chunks``. Only outdoor runs and rides have a detail so far;
+        other workouts get a note and send no request. The files are downloaded
+        afresh on every call, outside the session: nothing is cached or written to
+        disk.
+        """
+        return fetch_workout_detail(
+            self._transport,
+            to_epoch_s(start),
+            to_epoch_s(end, end_of_day=True),
+            downloader=FdsDownloader(http=self._fds_http),
+            track=track,
+        )
+
     def spo2_daily(self, start: DateArg, end: DateArg) -> DomainResult:
         """Daily SpO2 summaries from ``start`` to ``end`` (inclusive days).
 
@@ -364,16 +415,19 @@ class MiFit:
         *,
         size: chunks.ChunkSize | None = None,
         skip: Container[str] = frozenset(),
+        options: Mapping[str, Any] | None = None,
     ) -> Iterator[tuple[chunks.Chunk, DomainResult]]:
         """Read ``domain`` from ``start`` to ``end`` in chunks, one at a time.
 
         ``start`` and ``end`` are ``"YYYY-MM-DD"`` local days, both inclusive, and
         the chunks are blocks of whole local days counted from ``start``: a week
-        for raw heart rate and SpO2, a month (31 days) for the other domains,
-        unless ``size`` (``"day"``, ``"week"`` or ``"month"``) says otherwise.
-        Each chunk is one ordinary call of the domain method, sent through this
-        client's transport, so every request keeps the same pacing and the whole
-        read shares one renewal budget. Nothing runs in parallel.
+        for raw heart rate, SpO2 and workout detail, a month (31 days) for the
+        other domains, unless ``size`` (``"day"``, ``"week"`` or ``"month"``) says
+        otherwise. Each chunk is one ordinary call of the domain method, sent
+        through this client's transport, so every request keeps the same pacing
+        and the whole read shares one renewal budget. Nothing runs in parallel.
+        ``options`` are keyword arguments for the domain method, given to every
+        chunk's call, such as ``{"track": False}`` for ``workout_detail``.
 
         Returns a lazy generator of ``(chunk, result)``, newest chunk first
         (oldest first for ``consumption``, as its single read goes); a chunk is
@@ -383,12 +437,15 @@ class MiFit:
         already yielded stay valid. ``mifit.chunks.merge_chunks`` turns the parts
         into one result: its ``records`` equal a single read of the range, and so
         does its ``raw`` except for ``sleep`` (one block of daily values and
-        matched sessions per chunk); with more than one chunk, each note starts
-        with its chunk's label. Unknown domains, dates that are not
+        matched sessions per chunk), and for ``workout_detail`` only while each
+        call stays within its 10-workout cap; with more than one chunk, each note
+        starts with its chunk's label. Unknown domains, dates that are not
         ``"YYYY-MM-DD"`` strings and a reversed range are refused before anything
         is read (see ``mifit.chunks.read_chunks``).
         """
-        return chunks.read_chunks(self, domain, start, end, size=size, skip=skip)
+        return chunks.read_chunks(
+            self, domain, start, end, size=size, skip=skip, options=options
+        )
 
     def login_qr(self, on_qr: Callable[[str, str], None] | None = None) -> None:
         """Log in again by QR code, save the new session and switch to it.

@@ -3,9 +3,12 @@
 The chunked-read tests run ``MiFit`` over ``WindowFake``, a model of the service's
 window rule, so a merged chunked read of every registered domain can be compared
 with a single read of the same range: equal records, and equal raw (as a multiset
-for sleep, whose raw comes in per-chunk sections). Every row here is synthetic.
+for sleep, whose raw comes in per-chunk sections). ``workout_detail`` also gets its
+link requests and downloads from a ``FakeFdsService`` (``DetailWindowFake``). Every
+row and file here is synthetic.
 """
 
+import copy
 import functools
 import json
 import random
@@ -13,8 +16,22 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
+from fds_fixtures import (
+    RUN_FLAGS_LIVE,
+    FakeFdsService,
+    StoreResponse,
+    file_key,
+    gps_file,
+    gps_point,
+    record_file,
+    run_point,
+    run_segment,
+    sport_row,
+    sport_value,
+)
 
 import mifit  # noqa: F401  (importing the package registers every domain)
+from mifit import chunks as chunks_module
 from mifit import client as client_module
 from mifit import transport as transport_module
 from mifit.chunks import (
@@ -31,6 +48,8 @@ from mifit.client import MiFit
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.domains.days import local_midnight
 from mifit.domains.raw_window import RAW_ENDPOINT
+from mifit.fds import download as download_module
+from mifit.fds.ids import GPS, RECORD
 from support import EncryptingHttp, WindowFake, synthetic_session
 
 ROWS_FIRST = date(2025, 12, 31)
@@ -166,6 +185,64 @@ def weight_sample(n, moment):
     return {"time": moment, "weight": 70 + n % 10 / 10, "bmi": 22.5}
 
 
+class StoreFromService:
+    """An ``http`` for the downloader: each GET answers 200 with the body
+    ``service.fetch`` gives for that link."""
+
+    def __init__(self, service):
+        self._service = service
+
+    def get(self, url, **kwargs):
+        return StoreResponse(200, [self._service.fetch(url)], None)
+
+
+class DetailWindowFake(WindowFake):
+    """``WindowFake`` over workout list rows whose ``get_json`` answers each
+    ``gen_download_url`` request from a ``FakeFdsService`` over ``files``.
+
+    ``store`` is the matching ``http`` for the downloader (``MiFit(fds_http=...)``).
+    Each link request is recorded in ``json_calls``, as ``WindowFake`` records its
+    one-day reads.
+    """
+
+    def __init__(self, rows, files):
+        super().__init__(rows)
+        self.service = FakeFdsService(files)
+        self.store = StoreFromService(self.service)
+
+    def get_json(self, endpoint_path, data_obj=None, **kwargs):
+        self.json_calls.append(
+            {"endpoint_path": endpoint_path, "data_obj": copy.deepcopy(data_obj)}
+        )
+        return {"code": 0, "message": "ok", "result": self.service.answer(data_obj)}
+
+
+def detail_fake(starts):
+    """A ``DetailWindowFake`` with one run (format 22) starting at each of ``starts``,
+    each with a record file and a GPS file whose figures differ from run to run."""
+    rows, files = [], {}
+    for n, start in enumerate(sorted(starts)):
+        value = sport_value(proto=22, sport=1, time=start, start_time=start)
+        rows.append(sport_row(value))
+        points = [run_point(heart_rate=100 + n % 100), run_point(heart_rate=101 + n % 100)]
+        segment = run_segment(points, resume=start)
+        files[file_key(value, RECORD)] = record_file(start, 32, 22, 8, RUN_FLAGS_LIVE, segment)
+        fixes = [gps_point(start, 20.0 + n / 100, 10.0), gps_point(start + 1, 20.0, 10.0 + n / 100)]
+        files[file_key(value, GPS)] = gps_file(start, 32, 22, *fixes)
+    return DetailWindowFake(rows, files)
+
+
+def workout_detail_world():
+    """Eight runs in START..END, four of them at the local midnight that starts a week
+    chunk (the first one at START's), and one run on each side of the range."""
+    edges = [date(2026, 1, 1), date(2026, 1, 8), date(2026, 2, 5), date(2026, 3, 12)]
+    noons = [date(2026, 1, 20), date(2026, 2, 14), date(2026, 3, 1), date(2026, 3, 15)]
+    starts = [local_midnight(day) for day in [*edges, date(2026, 3, 16)]] + [
+        int(datetime.combine(day, time(12)).timestamp()) for day in [ROWS_FIRST, *noons]
+    ]
+    return detail_fake(starts)
+
+
 COMPARISONS = [
     ("steps", lambda: WindowFake(steps_rows()), {"data_list"}),
     (
@@ -182,6 +259,8 @@ COMPARISONS = [
     ("spo2", lambda: WindowFake(raw_points(spo2_sample)), {"data_list"}),
     ("weight", lambda: WindowFake(raw_points(weight_sample)), {"data_list"}),
     ("workouts", lambda: WindowFake(workout_rows()), {"sport_records"}),
+    # Eight supported workouts: within the 10-workout cap of a single call.
+    ("workout_detail", workout_detail_world, {"sport_records"}),
     ("sleep", sleep_fake, {"data_list"}),
     ("consumption", lambda: WindowFake(consumption_rows()), set()),
 ]
@@ -195,11 +274,16 @@ def raw_as_multiset(raw):
 
 @pytest.fixture
 def windowed(monkeypatch):
-    """Return ``build(fake) -> MiFit``: a client whose transport is ``fake``."""
+    """Return ``build(fake) -> MiFit``: a client whose transport is ``fake``.
+
+    A fake with a ``store`` (``DetailWindowFake``) also serves the client's file
+    downloads, which run without their pause here.
+    """
+    monkeypatch.setattr(download_module.time, "sleep", lambda seconds: None)
 
     def _build(fake):
         monkeypatch.setattr(client_module, "Transport", lambda *args, **kwargs: fake)
-        return MiFit(synthetic_session())
+        return MiFit(synthetic_session(), fds_http=getattr(fake, "store", None))
 
     return _build
 
@@ -308,9 +392,7 @@ def test_merge_of_one_part_keeps_notes_as_they_are():
 
 
 def test_the_comparisons_cover_every_registered_domain():
-    # ``workout_detail`` is the exception: one call reads at most 10 workouts and
-    # numbers its notes per call, so its chunked read is not one read cut in pieces.
-    assert {domain for domain, _, _ in COMPARISONS} == set(REGISTRY) - {"workout_detail"}
+    assert {domain for domain, _, _ in COMPARISONS} == set(REGISTRY)
 
 
 @pytest.mark.parametrize(
@@ -331,11 +413,15 @@ def test_read_chunks_matches_single_read(windowed, domain, make_fake, list_keys)
 
     assert len(plan) > 1
     # Each chunk sends a single read's requests, and every one-day request
-    # (consumption) is sent once, in the single read's order.
+    # (consumption) or link request (workout_detail) is sent once, in the single
+    # read's order.
     assert chunked_calls == len(plan) * single_calls
     assert chunked_days == single_days
     assert {call["list_key"] for call in fake.calls} == list_keys
     assert single.records  # the comparison is not between two empty reads
+    if domain == "workout_detail":
+        # Every file was read, so the samples and tracks are compared too.
+        assert all(detail.samples and detail.track for detail in single.records)
     assert merged.records == single.records
     if domain == "sleep":
         # Sleep's raw is two sections, the daily values and then the matched raw
@@ -345,6 +431,68 @@ def test_read_chunks_matches_single_read(windowed, domain, make_fake, list_keys)
     else:
         assert merged.raw == single.raw
     assert merged.notes == single.notes == []
+
+
+def test_workout_detail_above_the_cap_reads_more_in_chunks(windowed):
+    # Twelve runs, one a day at local noon from 02-01: one call reads the newest 10,
+    # while each week chunk holds at most 7 and reads them all (chunks module docstring).
+    days = [date(2026, 2, 1) + timedelta(days=n) for n in range(12)]
+    fake = detail_fake(int(datetime.combine(day, time(12)).timestamp()) for day in days)
+    client = windowed(fake)
+
+    parts = list(client.read_chunks("workout_detail", "2026-02-01", "2026-02-14"))
+    merged = merge_chunks(parts)
+    single = client.workout_detail("2026-02-01", "2026-02-14")
+
+    assert [chunk.label for chunk, _ in parts] == [
+        "2026-02-08..2026-02-14",
+        "2026-02-01..2026-02-07",
+    ]
+    # The same workouts in the same order, and the newest 10 read alike.
+    assert [d.workout for d in merged.records] == [d.workout for d in single.records]
+    assert len(single.records) == 12
+    assert merged.records[:10] == single.records[:10]
+    assert merged.raw[:10] == single.raw[:10]
+    # The single call leaves the oldest two unread and says so; the chunks read them.
+    for detail, raw in zip(single.records[10:], single.raw[10:]):
+        assert detail.samples is None and detail.track is None
+        assert raw["record"] is None and raw["gps"] is None
+    for detail, raw in zip(merged.records[10:], merged.raw[10:]):
+        assert detail.samples and detail.track
+        assert raw["record"] and raw["gps"]
+    assert single.notes == [
+        "Read the detail of the newest 10 supported workouts only; 2 older one(s) in "
+        "the range have no samples or track: ask for a shorter range."
+    ]
+    assert merged.notes == []
+
+
+def test_read_chunks_forwards_options_to_every_chunk():
+    class Stub:
+        def __init__(self):
+            self.calls = []
+
+        def workout_detail(self, start, end, **kwargs):
+            self.calls.append((start, end, kwargs))
+            return DomainResult()
+
+    with_options, without = Stub(), Stub()
+
+    list(
+        chunks_module.read_chunks(
+            with_options, "workout_detail", "2026-10-01", "2026-10-14", options={"track": False}
+        )
+    )
+    list(chunks_module.read_chunks(without, "workout_detail", "2026-10-01", "2026-10-14"))
+
+    assert with_options.calls == [
+        ("2026-10-08", "2026-10-14", {"track": False}),
+        ("2026-10-01", "2026-10-07", {"track": False}),
+    ]
+    assert without.calls == [
+        ("2026-10-08", "2026-10-14", {}),
+        ("2026-10-01", "2026-10-07", {}),
+    ]
 
 
 def test_a_chunk_edge_on_a_fall_back_midnight_loses_no_row(windowed, monkeypatch):

@@ -16,6 +16,7 @@ from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
+from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 from mifit.models.workouts import Workout
 
 __all__ = [
@@ -34,6 +35,9 @@ __all__ = [
     "SleepSession",
     "SleepStage",
     "Workout",
+    "WorkoutDetail",
+    "WorkoutSample",
+    "TrackPoint",
     "Spo2DailySummary",
     "Spo2Point",
     "WeightRecord",

@@ -14,7 +14,7 @@ A chunk is a block of whole local days. Each domain has a size (``DOMAIN_CHUNK``
 * ``workouts`` and ``weight`` use ``month``: their rows are sparse.
 * ``workout_detail`` uses ``week``: each workout costs up to three requests and a call
   reads at most 10. A call over a range with more workouts reads the newest 10 and
-  notes the rest, so a chunked read of such a range reads more of them than one call.
+  notes the rest, so a chunked read of such a range can read more of them than one call.
 * A domain missing from the table uses ``week``, the conservative size.
 
 Blocks are fixed lengths counted from the first day (``day`` 1, ``week`` 7,
@@ -25,7 +25,8 @@ Chunks are planned newest-first, as the paging domains' ``reverse`` reads return
 their rows, except for the domains in ``OLDEST_FIRST`` (``consumption``, whose
 single read walks the days oldest-first). Merged in that order
 (``merge_chunks``), a chunked read's ``records`` equal one read of the whole
-range, order included, and so does its ``raw`` for every domain but ``sleep``.
+range, order included, and so does its ``raw`` for every domain but ``sleep``,
+and for ``workout_detail`` only while each call stays within its 10-workout cap.
 A single sleep read's ``raw`` has two sections, the daily values and then the
 matched raw sessions, so merged it holds those two sections once per chunk, in
 chunk order: the same values in another order. With more than one chunk the
@@ -45,7 +46,7 @@ no extra delay is added between chunks.
 
 from __future__ import annotations
 
-from collections.abc import Container, Iterator, Sequence
+from collections.abc import Container, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
@@ -142,6 +143,7 @@ def read_chunks(
     *,
     size: ChunkSize | None = None,
     skip: Container[str] = frozenset(),
+    options: Mapping[str, Any] | None = None,
 ) -> Iterator[tuple[Chunk, DomainResult]]:
     """Read ``domain`` from ``start`` to ``end`` chunk by chunk, lazily.
 
@@ -152,10 +154,14 @@ def read_chunks(
     ``end`` or an unknown ``size``; ``TypeError`` for a date that is not a
     string.
 
+    ``options`` are keyword arguments for the domain method, passed to every
+    chunk's call, such as ``{"track": False}`` for ``workout_detail``; they are
+    copied here, so a later change to the mapping does not reach the read.
+
     Returns a generator over ``(chunk, result)`` in ``plan_chunks`` order. Each
     chunk whose label is in ``skip`` is passed over; every other one is read with
-    ``client.<domain>(chunk.first, chunk.last)`` (as ISO dates) only when the
-    caller asks for the next part, so nothing is read before the first
+    ``client.<domain>(chunk.first, chunk.last, **options)`` (as ISO dates) only
+    when the caller asks for the next part, so nothing is read before the first
     ``next()``. An exception from a chunk's read propagates; the parts already
     yielded are the caller's to keep.
     """
@@ -169,16 +175,16 @@ def read_chunks(
         raise ValueError(f"start {start} is after end {end}")
     plan = plan_chunks(domain, first, last, size)
     read = getattr(client, domain)
-    return _read_plan(read, plan, skip)
+    return _read_plan(read, plan, skip, dict(options or {}))
 
 
 def _read_plan(
-    read: Any, plan: list[Chunk], skip: Container[str]
+    read: Any, plan: list[Chunk], skip: Container[str], options: dict[str, Any]
 ) -> Iterator[tuple[Chunk, DomainResult]]:
     for chunk in plan:
         if chunk.label in skip:
             continue
-        yield chunk, read(chunk.first.isoformat(), chunk.last.isoformat())
+        yield chunk, read(chunk.first.isoformat(), chunk.last.isoformat(), **options)
 
 
 def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
@@ -186,7 +192,8 @@ def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
 
     ``records`` and ``raw`` are concatenated. For the parts of ``read_chunks``,
     in the order it yields them, ``records`` equal a single read of the whole
-    range. ``raw`` does too, except for ``sleep``: its raw comes as one block of
+    range (for ``workout_detail``, while each call stays within its 10-workout
+    cap). ``raw`` does too, except for ``sleep``: its raw comes as one block of
     daily values and matched sessions per chunk, in chunk order, where a single
     read gives all the daily values first. With more than one part every note is
     prefixed with its chunk's label (``"<label>: <note>"``), so a repeated note

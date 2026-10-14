@@ -37,8 +37,10 @@ from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
 from mifit.domains.weight import fetch_weight
+from mifit.domains.workout_detail import fetch_workout_detail
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError, RenewalError
+from mifit.fds.download import FdsDownloader, _FreshSessionHttp
 from mifit.region import SID
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
@@ -47,6 +49,7 @@ from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
+from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 from mifit.models.workouts import Workout
 from support import PagedFake, exception_chain
 
@@ -1026,7 +1029,7 @@ def test_importing_client_registers_the_domains():
 
     assert out.stdout.strip() == (
         "['consumption', 'heart_rate', 'heart_rate_daily', 'sleep', 'spo2', "
-        "'spo2_daily', 'steps', 'weight', 'workouts']"
+        "'spo2_daily', 'steps', 'weight', 'workout_detail', 'workouts']"
     )
 
 
@@ -1056,6 +1059,10 @@ def test_spo2_is_registered_once_client_is_imported():
 
 def test_weight_is_registered_once_client_is_imported():
     assert REGISTRY["weight"] is fetch_weight
+
+
+def test_workout_detail_is_registered_once_client_is_imported():
+    assert REGISTRY["workout_detail"] is fetch_workout_detail
 
 
 def test_sleep_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
@@ -1116,6 +1123,95 @@ def test_workouts_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
     assert transport is fake
     assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
+
+
+@pytest.fixture
+def workout_detail_spy(monkeypatch):
+    """Replace the workout-detail domain with a recorder of what the facade passes."""
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, start_epoch_s, end_epoch_s, *, downloader, track):
+        seen.append(
+            {
+                "transport": transport,
+                "start": start_epoch_s,
+                "end": end_epoch_s,
+                "downloader": downloader,
+                "track": track,
+            }
+        )
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_workout_detail", spy)
+    return seen, sentinel
+
+
+def test_workout_detail_delegates_with_bounds_downloader_and_track(build, workout_detail_spy):
+    seen, sentinel = workout_detail_spy
+    store_http = object()
+    client, fake, _ = build(
+        load_fixture("steps_daily_sample.json"), http=object(), fds_http=store_http
+    )
+
+    result = client.workout_detail("2026-10-01", "2026-10-03", track=False)
+
+    assert result is sentinel
+    (call,) = seen
+    assert call["transport"] is fake
+    # Local day bounds, as for ``workouts``: the end date's last second keeps it inclusive.
+    assert datetime.fromtimestamp(call["start"]) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(call["end"]) == datetime(2026, 10, 3, 23, 59, 59)
+    # The files come through a downloader of their own, on the injected object-store
+    # client, never on the health API's ``http``.
+    assert isinstance(call["downloader"], FdsDownloader)
+    assert call["downloader"]._http is store_http
+    assert call["track"] is False
+
+    client.workout_detail("2026-10-01", "2026-10-03")
+
+    assert seen[1]["track"] is True
+
+
+def test_workout_detail_by_epoch_reads_one_workout(build, workout_detail_spy):
+    seen, _ = workout_detail_spy
+    client, _, _ = build(load_fixture("steps_daily_sample.json"))
+
+    client.workout_detail(1790820000, 1790820000)
+
+    (call,) = seen
+    assert call["start"] == call["end"] == 1790820000
+
+
+def test_default_downloader_uses_a_fresh_netrc_free_session(build, workout_detail_spy):
+    seen, _ = workout_detail_spy
+    client, _, _ = build(load_fixture("steps_daily_sample.json"), http=object())
+
+    client.workout_detail("2026-10-01", "2026-10-01")
+
+    # Without ``fds_http`` the downloads open a new cookie-free, netrc-free
+    # ``requests.Session`` each (Task 3's default), not the transport's ``http``.
+    downloader = seen[0]["downloader"]
+    assert isinstance(downloader._http, _FreshSessionHttp)
+
+
+def test_read_chunks_forwards_options(build, monkeypatch):
+    client, _, _ = build(load_fixture("steps_daily_sample.json"))
+    captured = []
+    monkeypatch.setattr(
+        client_module.chunks,
+        "read_chunks",
+        lambda *args, **kwargs: captured.append((args, kwargs)) or iter(()),
+    )
+    options = {"track": False}
+
+    client.read_chunks("workout_detail", "2026-10-01", "2026-10-14", options=options)
+    client.read_chunks("steps", "2026-10-01", "2026-10-14")
+
+    (args, kwargs), (_, default_kwargs) = captured
+    assert args == (client, "workout_detail", "2026-10-01", "2026-10-14")
+    assert kwargs["options"] == {"track": False}
+    assert default_kwargs["options"] is None
 
 
 def test_spo2_daily_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
@@ -1224,6 +1320,9 @@ def test_package_exports():
     assert mifit.Spo2Point is Spo2Point
     assert mifit.WeightRecord is WeightRecord
     assert mifit.UserProfile is UserProfile
+    assert mifit.WorkoutDetail is WorkoutDetail
+    assert mifit.WorkoutSample is WorkoutSample
+    assert mifit.TrackPoint is TrackPoint
     for name in (
         "MiFit",
         "Session",
@@ -1244,5 +1343,8 @@ def test_package_exports():
         "Spo2Point",
         "WeightRecord",
         "UserProfile",
+        "WorkoutDetail",
+        "WorkoutSample",
+        "TrackPoint",
     ):
         assert name in mifit.__all__
