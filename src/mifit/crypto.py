@@ -1,3 +1,9 @@
+# Portions of this file are adapted from Mi-Fitness-Sync
+# (https://github.com/kevinkwee/Mi-Fitness-Sync),
+# src/mi_fitness_sync/activity/crypto.py,
+# used under the MIT License. See THIRD_PARTY_NOTICES for the
+# upstream copyright notice and license text.
+
 """Signing and encryption primitives for the Mi Fitness cloud API.
 
 Pure standard library. The algorithm is fixed (verified against an independent

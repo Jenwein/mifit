@@ -1,3 +1,9 @@
+# Portions of this file are adapted from Mi-Fitness-Sync
+# (https://github.com/kevinkwee/Mi-Fitness-Sync),
+# src/mi_fitness_sync/activity/transport.py,
+# used under the MIT License. See THIRD_PARTY_NOTICES for the
+# upstream copyright notice and license text.
+
 """Signed, regional HTTP transport for the Mi Fitness cloud API.
 
 One call = one request: the payload is serialized to compact JSON and sent as

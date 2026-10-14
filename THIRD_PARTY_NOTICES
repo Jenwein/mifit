@@ -1,0 +1,50 @@
+Third-party notices for mifit
+
+mifit is licensed under the MIT License (see LICENSE). Parts of it are adapted
+from the project below, which is distributed under its own license, reproduced
+here as that license requires.
+
+==============================================================================
+Mi-Fitness-Sync
+https://github.com/kevinkwee/Mi-Fitness-Sync
+==============================================================================
+
+Files in mifit that contain portions adapted from it:
+
+  - src/mifit/crypto.py
+      from src/mi_fitness_sync/activity/crypto.py: nonce, signed nonce, RC4
+      with the 1024-byte discard, request signature, query-parameter
+      encryption and response decryption.
+  - src/mifit/transport.py
+      from src/mi_fitness_sync/activity/transport.py: the signed GET request,
+      cookie and region_tag headers, and HTTP 401 / HTTP error / business
+      code handling.
+  - src/mifit/region.py
+      from src/mi_fitness_sync/activity/region_mapping.py and
+      activity/transport.py: the country-code to region table and the
+      regional host rewrite.
+  - src/mifit/auth/qr.py
+      from src/mi_fitness_sync/auth/client.py: the STS service-token exchange
+      (clientSign, service-token cookie lookup) and response-prefix handling.
+
+MIT License
+
+Copyright (c) 2026 Michael Elian Kevin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

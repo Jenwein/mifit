@@ -1,3 +1,9 @@
+# Portions of this file are adapted from Mi-Fitness-Sync
+# (https://github.com/kevinkwee/Mi-Fitness-Sync),
+# src/mi_fitness_sync/auth/client.py,
+# used under the MIT License. See THIRD_PARTY_NOTICES for the
+# upstream copyright notice and license text.
+
 """QR-code login (longPolling) and the STS exchange for a Mi service token.
 
 The flow mirrors the Xiaomi account SDK that ships inside the Mi Fitness APK:

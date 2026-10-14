@@ -1,3 +1,9 @@
+# Portions of this file are adapted from Mi-Fitness-Sync
+# (https://github.com/kevinkwee/Mi-Fitness-Sync),
+# src/mi_fitness_sync/activity/region_mapping.py and activity/transport.py,
+# used under the MIT License. See THIRD_PARTY_NOTICES for the
+# upstream copyright notice and license text.
+
 """Country-code to Mi Fitness regional host mapping.
 
 The table is copied verbatim from the APK's ``assets/server_config/servers.json``.
