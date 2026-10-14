@@ -28,6 +28,7 @@ from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
+from mifit.models.weight import WeightRecord
 from mifit.models.workouts import Workout
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +97,7 @@ SPO2_DAY = Spo2DailySummary(
     min_spo2_pct=None,
 )
 SPO2_POINT = Spo2Point(epoch_s=1790812860, spo2_pct=97)
+WEIGHT = WeightRecord(epoch_s=1790812800, weight_kg=70.5, bmi=None)
 WORKOUT = Workout(
     start_epoch_s=1790820000,
     end_epoch_s=1790822701,
@@ -166,6 +168,12 @@ class FakeMiFit:
         self.calls.append(("spo2", start, end, {}))
         return DomainResult(
             records=[SPO2_POINT], raw=[{"time": 1790812860, "spo2": 97}], notes=[]
+        )
+
+    def weight(self, start, end):
+        self.calls.append(("weight", start, end, {}))
+        return DomainResult(
+            records=[WEIGHT], raw=[{"time": 1790812800, "weight": 70.5}], notes=[]
         )
 
     def workouts(self, start, end):
@@ -320,6 +328,20 @@ def test_export_spo2_writes_records(fake_mifit, tmp_path):
     assert data["records"] == [asdict(SPO2_POINT)]
     assert data["raw"] == [{"time": 1790812860, "spo2": 97}]
     assert fake_mifit.instances[0].calls == [("spo2", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_weight_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "weight.json"
+
+    rc = cli.main(
+        ["export", "weight", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(WEIGHT)]
+    assert data["raw"] == [{"time": 1790812800, "weight": 70.5}]
+    assert fake_mifit.instances[0].calls == [("weight", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_workouts_writes_records(fake_mifit, tmp_path):

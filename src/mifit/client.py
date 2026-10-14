@@ -30,6 +30,7 @@ from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
+from mifit.domains.weight import fetch_weight
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError
 from mifit.transport import Transport
@@ -298,6 +299,16 @@ class MiFit:
         (``low_spo2``) are separate keys; read them with ``raw``.
         """
         return fetch_spo2_window(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def weight(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Every weight record from ``start`` to ``end``, with kg and BMI.
+
+        Body-composition figures stay in ``raw`` (unverified; zero on the account
+        checked, notes/11). A long range is fine: records are sparse.
+        """
+        return fetch_weight(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 

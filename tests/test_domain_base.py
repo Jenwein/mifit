@@ -2,7 +2,7 @@
 
 import pytest
 
-from mifit.domains.base import as_int, as_positive_int
+from mifit.domains.base import as_float, as_int, as_positive_int
 
 
 @pytest.mark.parametrize(
@@ -92,3 +92,26 @@ def test_as_positive_int_keeps_positive_numbers(raw, expected):
 )
 def test_as_positive_int_rejects_zero_negatives_and_non_numbers(raw):
     assert as_positive_int(raw) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (70.5, 70.5),
+        (70, 70.0),
+        (0, 0.0),  # a reported zero is a number; callers decide what it means
+        (-1.5, -1.5),
+    ],
+)
+def test_as_float(raw, expected):
+    assert as_float(raw) == expected
+    assert type(as_float(raw)) is float
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, True, False, "70", [70], {"kg": 70}, float("nan"), float("inf"), float("-inf")],
+    ids=["none", "true", "false", "str", "list", "dict", "nan", "inf", "-inf"],
+)
+def test_as_float_rejects_everything_else(raw):
+    assert as_float(raw) is None

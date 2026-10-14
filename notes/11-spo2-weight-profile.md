@@ -109,3 +109,4 @@
 ## 5. SDK 落地
 
 - 血氧：`spo2_daily`（`domains/spo2_daily.py`）按步数的日规则读日汇总，每个本地日一条 `Spo2DailySummary`（服务端的日均/最高/最低，`0` → `None`）；`spo2`（`domains/spo2.py`，`MiFit.spo2`）读原始全天血氧，每个点一条 `Spo2Point`（时刻取外层 `time`，`spo2` 不是正数的行跳过并加 note，解码值仍进 `raw`）。原始窗口读取抽成共享的 `domains/raw_window.py::fetch_raw_window`（起点提前 `START_MARGIN_S = 86400`，按外层 `time` 过滤，返回保留的行和无可用 `time` 的行数）；`heart_rate` 改为经它读取，请求、过滤和 note 与之前逐字相同，`spo2` 也经它读取。
+- 体重：`weight`（`domains/weight.py`，`MiFit.weight`）经 `fetch_raw_window` 读 key `"weight"`（APK `FitnessPersistKey.Weight`），每条记录一个 `WeightRecord(epoch_s, weight_kg, bmi)`：时刻取外层 `time`，`weight` 不是正数的行跳过并加 note（解码值仍进 `raw`），`bmi` 不是正数则为 `None`。身体成分字段全部只留在 `raw`（本账号全为 `0`，无法核对，§2）。

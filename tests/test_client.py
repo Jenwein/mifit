@@ -34,6 +34,7 @@ from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
+from mifit.domains.weight import fetch_weight
 from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError, RenewalError
 from mifit.region import SID
@@ -42,6 +43,7 @@ from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
+from mifit.models.weight import WeightRecord
 from mifit.models.workouts import Workout
 from mifit.transport import PagedResult, Transport
 
@@ -1022,7 +1024,7 @@ def test_importing_client_registers_the_domains():
 
     assert out.stdout.strip() == (
         "['consumption', 'heart_rate', 'heart_rate_daily', 'sleep', 'spo2', "
-        "'spo2_daily', 'steps', 'workouts']"
+        "'spo2_daily', 'steps', 'weight', 'workouts']"
     )
 
 
@@ -1048,6 +1050,10 @@ def test_spo2_daily_is_registered_once_client_is_imported():
 
 def test_spo2_is_registered_once_client_is_imported():
     assert REGISTRY["spo2"] is fetch_spo2_window
+
+
+def test_weight_is_registered_once_client_is_imported():
+    assert REGISTRY["weight"] is fetch_weight
 
 
 def test_sleep_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
@@ -1150,6 +1156,26 @@ def test_spo2_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
+def test_weight_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
+    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, start_epoch_s, end_epoch_s):
+        seen.append((transport, start_epoch_s, end_epoch_s))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_weight", spy)
+
+    result = client.weight("2026-10-01", "2026-10-03")
+
+    assert result is sentinel
+    ((transport, start_s, end_s),) = seen
+    assert transport is fake
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
+
+
 def test_package_exports():
     from mifit.auth.session import Session as SessionClass
     from mifit.errors import (
@@ -1176,6 +1202,7 @@ def test_package_exports():
     assert mifit.Workout is Workout
     assert mifit.Spo2DailySummary is Spo2DailySummary
     assert mifit.Spo2Point is Spo2Point
+    assert mifit.WeightRecord is WeightRecord
     for name in (
         "MiFit",
         "Session",
@@ -1194,5 +1221,6 @@ def test_package_exports():
         "Workout",
         "Spo2DailySummary",
         "Spo2Point",
+        "WeightRecord",
     ):
         assert name in mifit.__all__
