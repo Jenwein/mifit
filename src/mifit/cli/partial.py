@@ -5,7 +5,9 @@ lose them all. ``mifit export`` therefore writes each finished chunk to
 ``<output>.partial`` as soon as it is read, so a later run can pick up from there
 instead of asking the service again.
 
-The file is JSON Lines (UTF-8, LF), every line strict JSON with compact separators:
+The file is JSON Lines (ASCII, LF), every line strict JSON with compact separators.
+Non-ASCII text is written as JSON escapes, as the main output does, so any string the
+service sends, a lone surrogate included, can be stored and read back:
 
 * line 1, the header: ``{"mifit_partial": 1, "domain", "from", "to", "chunk"}``, the
   export's own arguments and nothing else, so a resumed run can tell that the file
@@ -65,12 +67,13 @@ def export_header(domain: str, start: str, end: str, chunk: str) -> dict:
 
 
 def _dumps(obj: Any) -> bytes:
-    """One JSON Lines line of ``obj``: compact strict JSON, UTF-8, LF-terminated.
+    """One JSON Lines line of ``obj``: compact strict JSON, ASCII only (non-ASCII text
+    is escaped, so no string can fail to encode), LF-terminated.
 
     Raises ``ValueError`` on a NaN or an infinity, before anything is written.
     """
-    text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    return text.encode("utf-8") + b"\n"
+    text = json.dumps(obj, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    return text.encode("ascii") + b"\n"
 
 
 def _write(path: Path, mode: str, line: bytes) -> None:
@@ -168,8 +171,12 @@ def load_partial(
     label not in ``labels``, is a ``PartialError``: the file is damaged, or was
     made for another chunk plan.
 
-    Afterwards the file is safe to append to: a dropped tail is cut off, and a last
-    line that lost only its newline gets one. A file that needs neither is not touched.
+    Afterwards the file is safe to append to, so this may write: a dropped tail is cut
+    off (truncated), and a last sound line that lost only its newline gets it back
+    (written and fsynced). A file that needs neither is not touched.
+
+    Raises ``FileNotFoundError`` for a missing file, and ``OSError`` if the file cannot
+    be read or the repair cannot be written.
     """
     path = Path(path)
     data = path.read_bytes()

@@ -97,15 +97,35 @@ def test_every_line_is_strict_json_and_lf(store):
     data = store.read_bytes()
     assert b"\r" not in data
     assert data.endswith(b"\n")
-    lines = data.decode("utf-8").split("\n")[:-1]
+    assert data.isascii()  # non-ASCII text is written as JSON escapes, like the main output
+    lines = data.decode("ascii").split("\n")[:-1]
     assert len(lines) == 3
     docs = [json.loads(line, parse_constant=reject_constant) for line in lines]
     assert docs[0] == HEADER
     assert list(docs[1]) == ["chunk", "records", "raw", "notes"]
     assert docs[1]["chunk"] == LABELS[0]
-    # compact separators, and text is written as itself rather than \u escapes
+    # compact separators, and the escaped text reads back as itself
     assert lines[0] == json.dumps(HEADER, separators=(",", ":"))
-    assert "café 心率" in lines[1]
+    assert "café" not in lines[1]
+    assert docs[1]["raw"][0]["v"][2] == "café 心率"
+
+
+def test_a_lone_surrogate_and_other_odd_strings_round_trip(store):
+    # Legal JSON from the service. Python cannot encode a lone surrogate as UTF-8, so
+    # the file carries it as an escape; the label, a key and a note carry one too.
+    lone = "a" + chr(0xD800) + "b"
+    controls = "x" + chr(0) + chr(0x1F) + chr(0x2028) + "y"
+    odd = DomainResult(
+        records=[{"s": lone, "controls": controls, "emoji": chr(0x1F600)}],
+        raw=[{lone: [lone, chr(0x1F600)]}],
+        notes=[lone],
+    )
+    label = LABELS[0] + lone
+
+    append_part(store, label, odd)
+
+    assert store.read_bytes().isascii()
+    assert load_partial(store, HEADER, [label]) == {label: odd}
 
 
 def test_append_rejects_non_finite_numbers(store):
@@ -136,11 +156,11 @@ def test_load_drops_a_torn_last_line(store):
     assert load_partial(store, HEADER, LABELS) == {LABELS[0]: part(1)}
 
 
-def test_load_drops_a_last_line_cut_inside_a_multibyte_character(store):
+def test_load_drops_a_last_line_cut_inside_an_escape(store):
     append_part(store, LABELS[0], part(1))
     append_part(store, LABELS[1], part(2))
     data = store.read_bytes()
-    cut = data.rindex("心".encode("utf-8")) + 1  # one byte into a three-byte character
+    cut = data.rindex(b"\\" + b"u5fc3") + 3  # the line ends in "\u5": half of an escape
     store.write_bytes(data[:cut])
     assert load_partial(store, HEADER, LABELS) == {LABELS[0]: part(1)}
 
@@ -178,11 +198,87 @@ def test_load_keeps_a_complete_last_line_that_lacks_its_newline(store):
     }
 
 
-def test_load_does_not_touch_a_sound_file(store):
+def test_load_does_not_touch_a_sound_file(store, monkeypatch):
     append_part(store, LABELS[0], part(1))
     before = store.read_bytes()
+    synced = []
+    monkeypatch.setattr(os, "fsync", lambda fd: synced.append(fd))
+    monkeypatch.setattr(os, "truncate", lambda *args: pytest.fail("truncated a sound file"))
+
     load_partial(store, HEADER, LABELS)
+
     assert store.read_bytes() == before
+    assert synced == []
+
+
+def header_line():
+    return json.dumps(HEADER, separators=(",", ":")).encode("ascii") + b"\n"
+
+
+def assert_repaired(store, sound, parts):
+    """``store`` loads to ``parts`` and now holds exactly ``sound``; one more chunk then
+    appends cleanly, and the whole file loads again."""
+    assert load_partial(store, HEADER, LABELS) == parts
+    assert store.read_bytes() == sound
+    append_part(store, LABELS[2], part(9))
+    assert load_partial(store, HEADER, LABELS) == {**parts, LABELS[2]: part(9)}
+
+
+def test_load_repairs_a_header_followed_only_by_a_torn_line(store):
+    with open(store, "ab") as f:
+        f.write(b'{"chunk":"' + LABELS[0].encode() + b'","rec')
+    assert_repaired(store, header_line(), {})
+
+
+def test_load_repairs_a_garbage_last_line_that_ends_with_a_newline(store):
+    append_part(store, LABELS[0], part(1))
+    sound = store.read_bytes()
+    with open(store, "ab") as f:
+        f.write(b"\xff\xfe not a line\n")
+    assert_repaired(store, sound, {LABELS[0]: part(1)})
+
+
+def test_load_repairs_a_zero_filled_tail(store):
+    append_part(store, LABELS[0], part(1))
+    sound = store.read_bytes()
+    with open(store, "ab") as f:
+        f.write(bytes(64))  # a file extended by the filesystem but never written
+    assert_repaired(store, sound, {LABELS[0]: part(1)})
+
+
+def test_load_restores_the_newline_of_a_header_that_lost_it(store):
+    store.write_bytes(header_line()[:-1])
+    assert_repaired(store, header_line(), {})
+
+
+def test_restoring_a_lost_newline_is_fsynced(store, monkeypatch):
+    append_part(store, LABELS[0], part(1))
+    sound = store.read_bytes()
+    store.write_bytes(sound[:-1])
+    synced = []
+    monkeypatch.setattr(os, "fsync", lambda fd: synced.append(fd))
+
+    load_partial(store, HEADER, LABELS)
+
+    assert store.read_bytes() == sound
+    assert len(synced) == 1
+
+
+def test_load_of_a_missing_file_raises_file_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_partial(tmp_path / "missing.json.partial", HEADER, LABELS)
+
+
+def test_load_passes_on_an_error_from_the_repair(store, monkeypatch):
+    append_part(store, LABELS[0], part(1))
+    store.write_bytes(store.read_bytes()[:-5])
+
+    def refuse(*args):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(os, "truncate", refuse)
+    with pytest.raises(OSError):
+        load_partial(store, HEADER, LABELS)
 
 
 def test_load_rejects_a_damaged_middle_line(store):
