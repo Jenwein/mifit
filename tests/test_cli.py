@@ -32,6 +32,7 @@ from mifit.models.profile import UserProfile
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
+from mifit.models.stress import StressDailySummary
 from mifit.models.weight import WeightRecord
 from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 from mifit.models.workouts import Workout
@@ -103,6 +104,13 @@ SPO2_DAY = Spo2DailySummary(
     min_spo2_pct=None,
 )
 SPO2_POINT = Spo2Point(epoch_s=1790812860, spo2_pct=97)
+STRESS_DAY = StressDailySummary(
+    date="2026-10-01",
+    epoch_s=1790812800,
+    avg_stress_level=35,
+    max_stress_level=80,
+    min_stress_level=None,
+)
 WEIGHT = WeightRecord(epoch_s=1790812800, weight_kg=70.5, bmi=None)
 PROFILE = UserProfile(height_cm=175.0, weight_kg=70.0, step_goal=8000, calorie_goal_kcal=None)
 WORKOUT = Workout(
@@ -185,6 +193,10 @@ class FakeMiFit:
     def spo2_daily(self, start, end):
         self.calls.append(("spo2_daily", start, end, {}))
         return DomainResult(records=[SPO2_DAY], raw=[{"avg_spo2": 96}], notes=[])
+
+    def stress_daily(self, start, end):
+        self.calls.append(("stress_daily", start, end, {}))
+        return DomainResult(records=[STRESS_DAY], raw=[{"avg_stress": 35}], notes=[])
 
     def spo2(self, start, end):
         self.calls.append(("spo2", start, end, {}))
@@ -356,6 +368,28 @@ def test_export_spo2_daily_writes_records(fake_mifit, tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["records"] == [asdict(SPO2_DAY)]
     assert fake_mifit.instances[0].calls == [("spo2_daily", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_stress_daily_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "stress_daily.json"
+
+    rc = cli.main(
+        [
+            "export",
+            "stress_daily",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+        ]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(STRESS_DAY)]
+    assert fake_mifit.instances[0].calls == [("stress_daily", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_spo2_writes_records(fake_mifit, tmp_path):

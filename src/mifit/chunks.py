@@ -8,7 +8,8 @@ A chunk is a block of whole local days. Each domain has a size (``DOMAIN_CHUNK``
   margin of ``raw_window``), so a week costs one day of margin where day chunks
   would double every read.
 * The daily-report domains (``steps``, ``heart_rate_daily``, ``sleep``,
-  ``spo2_daily``) use ``month``: 31 daily rows fit one page at ``limit`` 50.
+  ``spo2_daily``, ``stress_daily``) use ``month``: 31 daily rows fit one page at
+  ``limit`` 50.
 * ``consumption`` uses ``month``: it sends one request per day either way, so a
   chunk is 31 one-day requests, which is also the step a resumed read restarts from.
 * ``workouts`` and ``weight`` use ``month``: their rows are sparse.
@@ -67,6 +68,7 @@ DOMAIN_CHUNK: dict[str, ChunkSize] = {
     "workouts": "month",
     "workout_detail": "week",
     "spo2_daily": "month",
+    "stress_daily": "month",
     "spo2": "week",
     "weight": "month",
 }

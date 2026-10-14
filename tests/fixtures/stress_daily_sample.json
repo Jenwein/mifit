@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "stress",
+        "time": 1760400000,
+        "value": "{\"avg_stress\":35,\"max_stress\":80,\"min_stress\":12,\"stress_scale\":{\"relax\":600,\"mild\":300,\"moderate\":60,\"severe\":5}}",
+        "update_time": 1760430000,
+        "watermark": 1
+      },
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "stress",
+        "time": 1760486400,
+        "value": "{\"avg_stress\":28,\"max_stress\":66,\"stress_scale\":{\"relax\":700,\"mild\":200,\"moderate\":30,\"severe\":0}}",
+        "update_time": 1760516400,
+        "watermark": 2
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}

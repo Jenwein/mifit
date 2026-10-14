@@ -36,6 +36,7 @@ from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
+from mifit.domains.stress_daily import fetch_stress_daily
 from mifit.domains.weight import fetch_weight
 from mifit.domains.workout_detail import fetch_workout_detail
 from mifit.domains.workouts import fetch_workouts
@@ -48,6 +49,7 @@ from mifit.models.profile import UserProfile
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
+from mifit.models.stress import StressDailySummary
 from mifit.models.weight import WeightRecord
 from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 from mifit.models.workouts import Workout
@@ -1078,7 +1080,7 @@ def test_importing_client_registers_the_domains():
 
     assert out.stdout.strip() == (
         "['consumption', 'heart_rate', 'heart_rate_daily', 'sleep', 'spo2', "
-        "'spo2_daily', 'steps', 'weight', 'workout_detail', 'workouts']"
+        "'spo2_daily', 'steps', 'stress_daily', 'weight', 'workout_detail', 'workouts']"
     )
 
 
@@ -1100,6 +1102,10 @@ def test_workouts_is_registered_once_client_is_imported():
 
 def test_spo2_daily_is_registered_once_client_is_imported():
     assert REGISTRY["spo2_daily"] is fetch_spo2_daily
+
+
+def test_stress_daily_is_registered_once_client_is_imported():
+    assert REGISTRY["stress_daily"] is fetch_stress_daily
 
 
 def test_spo2_is_registered_once_client_is_imported():
@@ -1283,6 +1289,26 @@ def test_spo2_daily_delegates_to_domain_with_local_day_bounds(build, monkeypatch
     assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
+def test_stress_daily_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
+    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, start_epoch_s, end_epoch_s):
+        seen.append((transport, start_epoch_s, end_epoch_s))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_stress_daily", spy)
+
+    result = client.stress_daily("2026-10-01", "2026-10-03")
+
+    assert result is sentinel
+    ((transport, start_s, end_s),) = seen
+    assert transport is fake
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
+
+
 def test_spo2_delegates_to_domain_with_local_day_bounds(build, monkeypatch):
     client, fake, _ = build(load_fixture("steps_daily_sample.json"))
     seen = []
@@ -1367,6 +1393,7 @@ def test_package_exports():
     assert mifit.Workout is Workout
     assert mifit.Spo2DailySummary is Spo2DailySummary
     assert mifit.Spo2Point is Spo2Point
+    assert mifit.StressDailySummary is StressDailySummary
     assert mifit.WeightRecord is WeightRecord
     assert mifit.UserProfile is UserProfile
     assert mifit.WorkoutDetail is WorkoutDetail
@@ -1390,6 +1417,7 @@ def test_package_exports():
         "Workout",
         "Spo2DailySummary",
         "Spo2Point",
+        "StressDailySummary",
         "WeightRecord",
         "UserProfile",
         "WorkoutDetail",

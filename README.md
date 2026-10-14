@@ -26,6 +26,7 @@ Python objects, so you can build on it.
 | `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed, altitude) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
 | `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
 | `spo2` | raw SpO2 readings | `Spo2Point` | pending |
+| `stress_daily` | stress level per day: average, highest, lowest (time per stress band in `raw` only) | `StressDailySummary` | pending |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
 | `profile` (its own command: `mifit profile`) | height, weight, daily step and calorie goals | `UserProfile` | pending |
 | `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
@@ -78,7 +79,7 @@ mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [
 ```
 
 - `<domain>`: `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
-  `spo2`, `spo2_daily`, `steps`, `weight`, `workouts` or `workout_detail`
+  `spo2`, `spo2_daily`, `steps`, `stress_daily`, `weight`, `workouts` or `workout_detail`
   (per-second samples and GPS track of outdoor runs and rides; not yet checked
   against the app).
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.

@@ -3,9 +3,9 @@
 The commands are ``mifit login``, ``mifit export``, ``mifit profile`` and ``mifit raw``.
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
-sleep, spo2, spo2 daily, weight, workouts, workout detail) for a date range and writes
-``{records, raw, notes}`` as JSON. ``profile`` reads the account profile (height,
-weight, daily step and calorie goals) and writes it the same way; its ``raw`` is the
+sleep, spo2, spo2 daily, stress daily, weight, workouts, workout detail) for a date
+range and writes ``{records, raw, notes}`` as JSON. ``profile`` reads the account profile
+(height, weight, daily step and calorie goals) and writes it the same way; its ``raw`` is the
 whole profile, personal details included, for the user's own eyes. ``raw`` reads one
 key of the fitness-data endpoint, any key, and writes the rows as the service sent
 them, with ``value`` decoded (``records`` is empty; see ``notes/domain-catalog.md``);

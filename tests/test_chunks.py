@@ -173,6 +173,10 @@ def spo2_daily_figures(n):
     return {"avg_spo2": 95 + n % 4, "max_spo2": 99, "min_spo2": 90 + n % 5}
 
 
+def stress_daily_figures(n):
+    return {"avg_stress": 30 + n % 20, "max_stress": 70 + n % 25, "min_stress": 5 + n % 10}
+
+
 def heart_rate_sample(n, moment):
     return {"time": moment, "bpm": 55 + n % 60, "type": 1}
 
@@ -253,6 +257,11 @@ COMPARISONS = [
     (
         "spo2_daily",
         lambda: WindowFake(daily_reports(spo2_daily_figures)),
+        {"data_list"},
+    ),
+    (
+        "stress_daily",
+        lambda: WindowFake(daily_reports(stress_daily_figures)),
         {"data_list"},
     ),
     ("heart_rate", lambda: WindowFake(raw_points(heart_rate_sample)), {"data_list"}),

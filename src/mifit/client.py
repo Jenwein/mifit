@@ -34,6 +34,7 @@ from mifit.domains.sleep import fetch_sleep
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
+from mifit.domains.stress_daily import fetch_stress_daily
 from mifit.domains.weight import fetch_weight
 from mifit.domains.workout_detail import fetch_workout_detail
 from mifit.domains.workouts import fetch_workouts
@@ -346,6 +347,17 @@ class MiFit:
         and lowest SpO2 % as the service's daily report states them.
         """
         return fetch_spo2_daily(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def stress_daily(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Daily stress summaries from ``start`` to ``end`` (inclusive days).
+
+        One record per local day with stress data, giving the day's average,
+        highest and lowest stress level as the service's daily report states them.
+        The time spent in each stress band stays in ``raw``.
+        """
+        return fetch_stress_daily(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 
