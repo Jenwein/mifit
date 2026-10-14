@@ -21,7 +21,9 @@ Fields whose meaning has not been verified against the app (``sleep_stage``,
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, timedelta, tzinfo
+from typing import NamedTuple
 
 from mifit.domains.base import DomainResult, register
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
@@ -36,6 +38,15 @@ _STAGES = {2: "deep", 3: "light", 4: "rem", 5: "awake"}
 from the APK's constants only. Any other code is ``"unknown"``."""
 _TZ_UNIT_S = 900
 """``timezone`` counts quarter hours."""
+
+
+class _RawSession(NamedTuple):
+    """One decoded raw session: its value, its readable stages and the number of stage
+    items that could not be read."""
+
+    value: dict
+    stages: list[SleepStage]
+    skipped: int
 
 
 @register("sleep")
@@ -103,7 +114,7 @@ def _attach_stages(
         list_key="data_list",
     )
 
-    timelines: dict[tuple[int, int], list[SleepStage]] = {}
+    timelines: dict[tuple[int, int], _RawSession] = {}
     for row in rows:
         try:
             value = json.loads(row["value"])
@@ -116,37 +127,62 @@ def _attach_stages(
             continue
         try:
             key = (int(value["bedtime"]), int(value["wake_up_time"]))
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             continue
-        timelines[key] = _to_stages(value.get("items"))
+        stages, skipped = _to_stages(value.get("items"))
+        timelines[key] = _RawSession(value, stages, skipped)
 
     for record in result.records:
         unmatched = False
         for session in record.sessions:
-            stages = timelines.get((session.start_epoch_s, session.end_epoch_s))
-            if stages is None:
+            raw = timelines.get((session.start_epoch_s, session.end_epoch_s))
+            if raw is None:
                 unmatched = True
-            else:
-                session.stages = stages
+                continue
+            session.stages = raw.stages
+            if raw.skipped:
+                result.notes.append(
+                    f"Skipped {raw.skipped} unreadable stage item(s) of a sleep session "
+                    f"on {record.date}."
+                )
         if unmatched:
             result.notes.append(
                 f"Stage timeline not found for a sleep session on {record.date}."
             )
 
 
-def _to_stages(items: object) -> list[SleepStage]:
+def _to_stages(items: object) -> tuple[list[SleepStage], int]:
+    """The readable stages of a raw session and how many items were skipped.
+
+    No ``items`` is a nap (nothing skipped); anything but a list counts as one
+    skipped item. Inside a list, an item that is not an object or whose start or end
+    is missing, non-numeric or non-finite is skipped.
+    """
+    if items is None:
+        return [], 0
+    if not isinstance(items, list):
+        return [], 1
     stages = []
-    for item in items if isinstance(items, list) else []:
+    skipped = 0
+    for item in items:
         if not isinstance(item, dict):
+            skipped += 1
             continue
         try:
             start = int(item.get("start_time", item.get("start")))
             end = int(item.get("end_time", item.get("end")))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            skipped += 1
             continue
-        state = item.get("state")
-        stages.append(SleepStage(start, end, _STAGES.get(state, "unknown")))
-    return stages
+        stages.append(SleepStage(start, end, _stage_name(item.get("state"))))
+    return stages, skipped
+
+
+def _stage_name(state: object) -> str:
+    """The stage for a wire code; anything unknown or unreadable is ``"unknown"``."""
+    if isinstance(state, int) and not isinstance(state, bool):
+        return _STAGES.get(state, "unknown")
+    return "unknown"
 
 
 def _to_record(
@@ -159,8 +195,15 @@ def _to_record(
     except (KeyError, TypeError, ValueError, OverflowError, OSError):
         return None
 
+    segments = value.get("segment_details")
+    if segments is None:
+        segments = []
+    elif not isinstance(segments, list):
+        notes.append(f"Skipped the sessions of {day.isoformat()}: they are not a list.")
+        segments = []
+
     sessions = []
-    for segment in value.get("segment_details") or []:
+    for segment in segments:
         session = _to_session(segment)
         if session is None:
             notes.append(f"Skipped a sleep session on {day.isoformat()} without usable times.")
@@ -194,7 +237,7 @@ def _to_session(segment: object) -> SleepSession | None:
         start = int(segment["bedtime"])
         end = int(segment["wake_up_time"])
         asleep_min = int(segment["duration"])
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
         return None
     zone = _minutes(segment.get("timezone"))
     deep, light, rem, awake = _stage_minutes(segment, asleep_min)
@@ -233,8 +276,11 @@ def _stage_minutes(
 
 
 def _minutes(raw: object) -> int | None:
-    """A reported whole number (``0`` included), or ``None`` when absent or unusable."""
+    """A reported whole number (``0`` included), or ``None`` when absent or unusable
+    (not a number, or a float that is not finite)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    if isinstance(raw, float) and not math.isfinite(raw):
         return None
     return int(raw)
 

@@ -12,8 +12,11 @@ plus one session from the day before the window.
 
 import dataclasses
 import json
+from collections.abc import Callable
 from datetime import date, timezone
 from pathlib import Path
+
+import pytest
 
 from mifit.domains.base import REGISTRY
 from mifit.domains.days import local_midnight
@@ -36,6 +39,15 @@ NAP_A_BED = DAY_A + 13 * 3600
 NAP_A_WAKE = NAP_A_BED + 1800
 # Stage boundaries of the night in the raw fixture.
 T0, T1, T2, T3, T4 = NIGHT_BED, NIGHT_BED + 3600, NIGHT_BED + 9600, NIGHT_BED + 12000, NIGHT_WAKE
+# The raw session from the day before the window.
+EXTRA_BED = DAY_A - 86400 + 2 * 3600
+# Row indices in the fixtures: day A in the daily payload; the night and the
+# before-the-window session in the raw payload.
+DAILY_A = 1
+RAW_NIGHT = 2
+RAW_EXTRA = 3
+INF = float("inf")
+NAN = float("nan")
 
 
 def load(name):
@@ -65,6 +77,15 @@ def fetch(daily=None, raw=None):
         daily or load("sleep_daily_sample.json"), raw or load("sleep_raw_sample.json")
     )
     return transport, fetch_sleep(transport, START, END, tz=UTC)
+
+
+def edit_value(payload: dict, index: int, change: Callable[[dict], None]) -> dict:
+    """Decode row ``index``'s ``value``, apply ``change`` to it, re-encode, return ``payload``."""
+    row = payload["result"]["data_list"][index]
+    value = json.loads(row["value"])
+    change(value)
+    row["value"] = json.dumps(value)
+    return payload
 
 
 def raw_without(predicate):
@@ -271,7 +292,7 @@ def test_extra_raw_sessions_are_ignored():
     _, result = fetch()
 
     starts = [s.start_epoch_s for r in result.records for s in r.sessions]
-    assert DAY_A - 86400 + 2 * 3600 not in starts
+    assert EXTRA_BED not in starts
     assert result.notes == []
 
 
@@ -294,3 +315,91 @@ def test_raw_lists_daily_then_session_values():
     assert result.raw == [json.loads(r["value"]) for r in daily["result"]["data_list"]] + [
         json.loads(r["value"]) for r in raw["result"]["data_list"]
     ]
+
+
+def test_non_finite_session_time_skips_the_session_with_a_note():
+    daily = edit_value(
+        load("sleep_daily_sample.json"),
+        DAILY_A,
+        lambda v: v["segment_details"][0].update(bedtime=INF),
+    )
+
+    _, result = fetch(daily)
+
+    (nap,) = record_for(result, "2025-10-14").sessions
+    assert nap.start_epoch_s == NAP_A_BED
+    assert len(result.notes) == 1
+    assert "2025-10-14" in result.notes[0]
+
+
+def test_non_finite_figures_become_none():
+    def change(value):
+        value["avg_hr"] = NAN
+        value["sleep_deep_duration"] = INF
+        value["segment_details"][0]["timezone"] = NAN
+
+    _, result = fetch(edit_value(load("sleep_daily_sample.json"), DAILY_A, change))
+
+    record = record_for(result, "2025-10-14")
+    assert record.avg_hr_bpm is None
+    assert record.deep_min is None
+    assert (record.light_min, record.awake_min) == (280, 40)
+    assert record.sessions[0].utc_offset_s is None
+
+
+def test_raw_session_with_non_finite_times_is_not_matched():
+    raw = edit_value(load("sleep_raw_sample.json"), RAW_NIGHT, lambda v: v.update(bedtime=INF))
+
+    _, result = fetch(raw=raw)
+
+    assert night_of(result).stages == []
+    assert len(result.notes) == 1
+    assert "2025-10-14" in result.notes[0]
+
+
+def test_unhashable_state_maps_to_unknown():
+    def change(value):
+        value["items"][0]["state"] = [2]
+        value["items"][1]["state"] = {"x": 1}
+
+    _, result = fetch(raw=edit_value(load("sleep_raw_sample.json"), RAW_NIGHT, change))
+
+    assert [s.stage for s in night_of(result).stages] == ["unknown", "unknown", "awake", "light"]
+    assert result.notes == []
+
+
+@pytest.mark.parametrize("segments", [5, "abc", {"bedtime": 1}])
+def test_segment_details_not_a_list_is_noted(segments):
+    daily = edit_value(
+        load("sleep_daily_sample.json"),
+        DAILY_A,
+        lambda v: v.update(segment_details=segments),
+    )
+
+    _, result = fetch(daily)
+
+    assert record_for(result, "2025-10-14").sessions == []
+    assert len(result.notes) == 1
+    assert "2025-10-14" in result.notes[0]
+    assert "not a list" in result.notes[0]
+
+
+@pytest.mark.parametrize(
+    "bad_item",
+    [{"start_time": INF, "end_time": T2, "state": 2}, "junk", {"state": 2}],
+    ids=["non-finite-time", "not-an-object", "no-times"],
+)
+def test_unreadable_stage_items_are_skipped_with_a_note(bad_item):
+    def change(value):
+        value["items"][1] = bad_item
+
+    _, result = fetch(raw=edit_value(load("sleep_raw_sample.json"), RAW_NIGHT, change))
+
+    assert night_of(result).stages == [
+        SleepStage(T0, T1, "light"),
+        SleepStage(T2, T3, "awake"),
+        SleepStage(T3, T4, "light"),
+    ]
+    assert len(result.notes) == 1
+    assert "2025-10-14" in result.notes[0]
+    assert "1 unreadable stage item" in result.notes[0]
