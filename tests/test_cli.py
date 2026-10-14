@@ -19,7 +19,7 @@ from mifit.auth.session import Session
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
-from mifit.models.heart_rate import HeartRatePoint
+from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.steps import StepRecord
 
@@ -73,6 +73,14 @@ CONSUMPTION = ConsumptionRecord(
     total_kcal=2272.5,
 )
 HEART_RATE_POINT = HeartRatePoint(epoch_s=1790812860, bpm=71, kind=None)
+HR_DAY = HeartRateDailySummary(
+    date="2026-10-01",
+    epoch_s=1790812800,
+    avg_bpm=70,
+    max_bpm=130,
+    min_bpm=50,
+    resting_bpm=None,
+)
 
 
 def make_session():
@@ -116,6 +124,10 @@ class FakeMiFit:
     def sleep(self, start, end):
         self.calls.append(("sleep", start, end, {}))
         return DomainResult(records=[SLEEP], raw=[{"total_duration": 60}], notes=[])
+
+    def heart_rate_daily(self, start, end):
+        self.calls.append(("heart_rate_daily", start, end, {}))
+        return DomainResult(records=[HR_DAY], raw=[{"avg_hr": 70}], notes=[])
 
     def heart_rate(self, start, end, *, full=False):
         self.calls.append(("heart_rate", start, end, {"full": full}))
@@ -209,6 +221,28 @@ def test_export_sleep_writes_nested_records(fake_mifit, tmp_path):
     assert fake_mifit.instances[0].calls == [("sleep", "2026-10-01", "2026-10-02", {})]
 
 
+def test_export_heart_rate_daily_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "heart_rate_daily.json"
+
+    rc = cli.main(
+        [
+            "export",
+            "heart_rate_daily",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+        ]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(HR_DAY)]
+    assert fake_mifit.instances[0].calls == [("heart_rate_daily", "2026-10-01", "2026-10-02", {})]
+
+
 def test_export_unknown_domain_errors(fake_mifit, capsys):
     rc = cli.main(["export", "no_such_domain", "--from", "2026-10-01", "--to", "2026-10-02"])
 
@@ -251,6 +285,16 @@ def test_export_full_flag_does_not_affect_steps(fake_mifit, capsys):
 
     assert rc == 0
     assert fake_mifit.instances[0].calls == [("steps", "2026-10-01", "2026-10-02", {})]
+    assert "--full" in capsys.readouterr().err  # said that it was ignored
+
+
+def test_export_full_flag_is_ignored_for_heart_rate_daily(fake_mifit, capsys):
+    rc = cli.main(
+        ["export", "heart_rate_daily", "--from", "2026-10-01", "--to", "2026-10-02", "--full"]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [("heart_rate_daily", "2026-10-01", "2026-10-02", {})]
     assert "--full" in capsys.readouterr().err  # said that it was ignored
 
 

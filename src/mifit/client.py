@@ -19,6 +19,7 @@ from mifit.auth.session import Session, load_session, save_session
 from mifit.domains.base import DomainResult
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
+from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
 from mifit.errors import AuthError
@@ -145,6 +146,16 @@ class MiFit:
         if full:
             return fetch_heart_rate_full(self._transport, end_s)
         return fetch_heart_rate_window(self._transport, start_s, end_s)
+
+    def heart_rate_daily(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Daily heart-rate summaries from ``start`` to ``end`` (inclusive days).
+
+        One record per local day with data, giving the day's average, highest, lowest
+        and resting heart rate as the app shows them.
+        """
+        return fetch_heart_rate_daily(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
 
     def raw(self, key: str, start: DateArg, end: DateArg) -> list[dict]:
         """The service's own rows for fitness-data ``key``, undecoded and unfiltered.
