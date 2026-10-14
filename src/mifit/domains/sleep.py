@@ -31,11 +31,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import math
 from datetime import date, timedelta, tzinfo
 from typing import NamedTuple
 
-from mifit.domains.base import DomainResult, register
+from mifit.domains.base import DomainResult, as_int, register
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.errors import ApiError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
@@ -306,13 +305,8 @@ def _stage_minutes(
 
 
 def _minutes(raw: object) -> int | None:
-    """A reported whole number (``0`` included), or ``None`` when absent or unusable
-    (not a number, or a float that is not finite)."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None
-    if isinstance(raw, float) and not math.isfinite(raw):
-        return None
-    return int(raw)
+    """A reported whole number (``0`` included), or ``None`` when absent or unusable."""
+    return as_int(raw)
 
 
 def _measured(raw: object) -> int | None:

@@ -6,6 +6,7 @@ registered under a short name so callers can list and dispatch domains.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -40,3 +41,13 @@ def register(name: str) -> Callable[[DomainFn], DomainFn]:
         return fn
 
     return decorator
+
+
+def as_int(raw: object) -> int | None:
+    """A reported whole number (``0`` included), or ``None`` when absent or unusable:
+    not a number (a ``bool`` is not one), or a float that is not finite."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    if isinstance(raw, float) and not math.isfinite(raw):
+        return None
+    return int(raw)

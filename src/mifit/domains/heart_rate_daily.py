@@ -20,10 +20,9 @@ is a shifted local clock, not a true instant.
 from __future__ import annotations
 
 import json
-import math
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, register
+from mifit.domains.base import DomainResult, as_int, register
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.heart_rate import HeartRateDailySummary
 from mifit.transport import Transport
@@ -44,8 +43,9 @@ def fetch_heart_rate_daily(
 
     A window with no rows gives an empty result, never a fabricated figure. A row
     whose outer ``time`` is missing or unusable is skipped with a note (its decoded
-    value is still kept in ``raw``). A figure that is absent, ``0`` or not a number
-    becomes ``None``: ``0`` bpm means "not measured".
+    value is still kept in ``raw``). A figure that is absent, ``0``, negative or not
+    a number becomes ``None``: ``0`` bpm means "not measured". A row whose figures
+    are all missing still gives a record, with every figure ``None``.
     """
     start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
     entries = t.get_paged(
@@ -108,10 +108,7 @@ def _to_record(
 
 
 def _bpm(raw: object) -> int | None:
-    """A reported bpm as an int; ``None`` for absent, ``0`` (not measured) or
-    anything that is not a finite number (a ``bool`` is not one)."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None
-    if isinstance(raw, float) and not math.isfinite(raw):
-        return None
-    return int(raw) or None
+    """A reported bpm as an int; ``None`` unless it is a positive number: absent,
+    ``0`` (the service's "not measured"), negative or not a number is no measurement."""
+    value = as_int(raw)
+    return value if value is not None and value > 0 else None

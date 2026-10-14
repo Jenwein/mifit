@@ -16,6 +16,8 @@ import json
 from datetime import timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from mifit.domains.base import REGISTRY
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.models.heart_rate import HeartRateDailySummary
@@ -30,6 +32,7 @@ END = DAY_2 + 86399
 ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 UTC = timezone.utc
 CST = timezone(timedelta(hours=8))
+ABSENT = object()  # marks a key left out of a row, as opposed to set to None
 
 
 class FakeTransport(Transport):
@@ -202,6 +205,24 @@ def test_non_numeric_figures_become_none():
     ]
 
 
+def test_negative_figures_become_none():
+    # A bpm at or below zero is not a measurement.
+    payload = payload_with_rows(
+        (DAY_1, figures(avg_hr=-70, max_hr=-1, min_hr=-0.5, avg_rhr=-60)),
+    )
+
+    (record,) = fetch_heart_rate_daily(
+        FakeTransport(payload), START, END, tz=UTC
+    ).records
+
+    assert (record.avg_bpm, record.max_bpm, record.min_bpm, record.resting_bpm) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
 def test_float_figures_are_truncated_and_non_finite_become_none():
     payload = payload_with_rows(
         (DAY_1, figures(avg_hr=70.9, max_hr=float("nan"), min_hr=float("inf"))),
@@ -246,31 +267,43 @@ def test_raw_keeps_decoded_values_untouched():
     assert "fat_burning_hr_zone_duration" in result.raw[0]
 
 
-def test_row_with_bad_value_is_skipped_with_note():
-    for bad in ("not json", "[1]"):
-        payload = payload_with_rows((DAY_1, bad))
+@pytest.mark.parametrize(
+    "bad_value",
+    ["not json", "[1]", None, ABSENT],
+    ids=["not-json", "not-an-object", "null", "absent"],
+)
+def test_row_with_bad_value_is_skipped_with_note(bad_value):
+    payload = payload_with_rows((DAY_1, figures()))
+    row = payload["result"]["data_list"][0]
+    if bad_value is ABSENT:
+        del row["value"]
+    else:
+        row["value"] = bad_value
 
-        result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
 
-        assert result.records == []
-        assert len(result.notes) == 1
-        assert result.raw == []
+    assert result.records == []
+    assert len(result.notes) == 1
+    assert result.raw == []
 
 
-def test_row_without_usable_day_is_skipped_with_note():
-    for time in (None, "x"):
-        payload = payload_with_rows((DAY_1, figures()))
-        if time is None:
-            del payload["result"]["data_list"][0]["time"]
-        else:
-            payload["result"]["data_list"][0]["time"] = time
+@pytest.mark.parametrize(
+    "bad_time", [ABSENT, None, "x"], ids=["absent", "null", "not-a-number"]
+)
+def test_row_without_usable_day_is_skipped_with_note(bad_time):
+    payload = payload_with_rows((DAY_1, figures()))
+    row = payload["result"]["data_list"][0]
+    if bad_time is ABSENT:
+        del row["time"]
+    else:
+        row["time"] = bad_time
 
-        result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
 
-        assert result.records == []
-        assert len(result.notes) == 1
-        # The decoded value is kept even though the row gave no record.
-        assert result.raw == [figures()]
+    assert result.records == []
+    assert len(result.notes) == 1
+    # The decoded value is kept even though the row gave no record.
+    assert result.raw == [figures()]
 
 
 def test_unverified_fields_stay_out_of_the_summary():
