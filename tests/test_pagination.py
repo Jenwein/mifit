@@ -180,3 +180,59 @@ def test_missing_list_key_is_treated_as_empty():
 
     assert transport.get_paged(ENDPOINT, BASE_REQUEST) == []
     assert len(transport.calls) == 1
+
+
+def nested_page(items, *, has_more=False, next_key=None):
+    """A page shaped like the real decrypted response: the business data sits
+    under ``result`` and only ``code`` is top-level."""
+    body = {"data_list": items, "has_more": has_more}
+    if next_key is not None:
+        body["next_key"] = next_key
+    return {"code": 0, "message": "ok", "result": body}
+
+
+def test_unwraps_result_envelope_across_pages():
+    transport = ScriptedTransport(
+        [
+            nested_page([{"n": 1}, {"n": 2}], has_more=True, next_key="cursor-1"),
+            nested_page([{"n": 3}], has_more=True, next_key="cursor-2"),
+            nested_page([{"n": 4}], has_more=False),
+        ]
+    )
+
+    result = transport.get_paged(ENDPOINT, BASE_REQUEST, sign_path=SIGN_PATH)
+
+    assert result == [{"n": 1}, {"n": 2}, {"n": 3}, {"n": 4}]
+    assert len(transport.calls) == 3
+    # The cursor comes from result.next_key and is threaded unchanged.
+    assert transport.calls[0]["data_obj"] == BASE_REQUEST
+    assert transport.calls[1]["data_obj"] == {**BASE_REQUEST, "next_key": "cursor-1"}
+    assert transport.calls[2]["data_obj"] == {**BASE_REQUEST, "next_key": "cursor-2"}
+
+
+def test_unwraps_result_envelope_with_custom_list_key_and_guards():
+    transport = ScriptedTransport(
+        [
+            {
+                "code": 0,
+                "result": {"items": [{"n": 1}], "has_more": True, "next_key": "k"},
+            },
+            {
+                "code": 0,
+                "result": {"items": [{"n": 2}], "has_more": True, "next_key": "k"},
+            },
+        ]
+    )
+
+    result = transport.get_paged(ENDPOINT, BASE_REQUEST, list_key="items")
+
+    # Second page echoes the cursor it was sent with: guard stops, nothing raised.
+    assert result == [{"n": 1}, {"n": 2}]
+    assert len(transport.calls) == 2
+
+
+def test_nested_envelope_with_null_result_is_empty_not_a_crash():
+    transport = ScriptedTransport([{"code": 0, "result": None}])
+
+    assert transport.get_paged(ENDPOINT, BASE_REQUEST) == []
+    assert len(transport.calls) == 1

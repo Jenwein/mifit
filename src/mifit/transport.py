@@ -125,11 +125,12 @@ class Transport:
     ) -> list[dict]:
         """Follow a cursor-paginated endpoint and return all items concatenated.
 
-        Calls ``get_json`` repeatedly, collecting ``payload[list_key]`` from each
-        page. While a page reports a truthy ``has_more`` the server's ``next_key``
-        is sent back unchanged as ``next_key`` in the next request (``data_obj`` is
-        copied per request; the caller's dict is never modified, and the first
-        request carries only what the caller put in it).
+        Calls ``get_json`` repeatedly, collecting ``list_key`` from each page's
+        ``result`` object (falling back to the payload itself when it has no
+        ``result``). While a page reports a truthy ``has_more`` the server's
+        ``next_key`` is sent back unchanged as ``next_key`` in the next request
+        (``data_obj`` is copied per request; the caller's dict is never modified,
+        and the first request carries only what the caller put in it).
 
         Stops when ``has_more`` is falsy, after ``max_pages`` pages (``None`` means
         no cap; ``0`` or less fetches nothing), or when ``has_more`` stays true but
@@ -143,11 +144,16 @@ class Transport:
         while max_pages is None or pages < max_pages:
             payload = self.get_json(endpoint_path, request, sign_path=sign_path)
             pages += 1
-            items.extend(payload.get(list_key) or [])
+            # The live service nests the business data under ``result``
+            # (``{"code": 0, "result": {"data_list": [...], ...}}``); a flat
+            # payload is read as is.
+            result = payload.get("result")
+            body = result if isinstance(result, dict) else payload
+            items.extend(body.get(list_key) or [])
 
-            if not payload.get("has_more"):
+            if not body.get("has_more"):
                 break
-            next_key = payload.get("next_key")
+            next_key = body.get("next_key")
             if not next_key or next_key == request.get("next_key"):
                 break
             request = {**data_obj, "next_key": next_key}
