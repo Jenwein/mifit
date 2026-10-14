@@ -11,10 +11,11 @@ import json
 import subprocess
 import sys
 import warnings
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 import requests
@@ -220,6 +221,36 @@ def test_int_epoch_seconds_pass_through_unchanged(build, steps_spy):
     client.steps(1759276800, 1759363199)
 
     assert steps_spy == [(1759276800, 1759363199)]
+
+
+def test_to_epoch_s_reads_the_day_in_a_given_zone():
+    utc = timezone.utc
+
+    assert client_module.to_epoch_s("2026-10-01", tz=utc) == 1790812800
+    assert client_module.to_epoch_s("2026-10-01", end_of_day=True, tz=utc) == 1790899199
+
+
+@pytest.mark.parametrize(
+    ("zone", "day", "midnight", "next_midnight"),
+    [
+        ("America/Santiago", "2026-04-04", 1775271600, 1775361600),
+        ("Africa/Cairo", "2025-10-30", 1761771600, 1761861600),
+        ("Asia/Beirut", "2025-10-25", 1761339600, 1761429600),
+    ],
+)
+def test_end_of_day_is_the_second_before_the_next_local_midnight(
+    zone, day, midnight, next_midnight
+):
+    # On these days the clocks go back an hour at midnight: 23:00 to 23:59:59 happens
+    # twice, and the day's last second is the second 23:59:59, not the first.
+    try:
+        tz = ZoneInfo(zone)
+    except ZoneInfoNotFoundError:
+        pytest.skip("IANA timezone database not available")
+
+    assert next_midnight - midnight == 25 * 3600
+    assert client_module.to_epoch_s(day, tz=tz) == midnight
+    assert client_module.to_epoch_s(day, end_of_day=True, tz=tz) == next_midnight - 1
 
 
 @pytest.mark.parametrize(

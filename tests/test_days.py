@@ -10,7 +10,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
+from mifit.domains.days import (
+    local_day_span,
+    local_midnight,
+    parse_day,
+    report_day,
+    report_window,
+)
 
 DAY_1 = 1760400000  # 2025-10-14T00:00:00Z
 DAY_2 = DAY_1 + 86400
@@ -75,3 +81,26 @@ def test_report_window_for_a_single_day():
 def test_report_day_is_the_utc_date_of_the_key():
     assert report_day(DAY_1) == date(2025, 10, 14)
     assert report_day(DAY_2) == date(2025, 10, 15)
+
+
+def test_parse_day_reads_an_iso_date():
+    assert parse_day("2026-02-28") == date(2026, 2, 28)
+    assert parse_day("2028-02-29") == date(2028, 2, 29)
+
+
+@pytest.mark.parametrize(
+    "bad", ["2026-1-1", "20260101", "2026-W01-1", " 2026-01-01", "2026-01-01T00:00", ""]
+)
+def test_parse_day_refuses_another_shape(bad):
+    # ``date.fromisoformat`` alone would take some of these (``20260101``, week dates).
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        parse_day(bad)
+
+
+def test_parse_day_refuses_a_day_that_does_not_exist_and_names_the_argument():
+    with pytest.raises(ValueError, match="calendar date") as excinfo:
+        parse_day("2026-02-30", "start")
+
+    assert str(excinfo.value) == "start '2026-02-30' is not a calendar date"
+    with pytest.raises(ValueError, match="^end must look like"):
+        parse_day("2026-2-3", "end")

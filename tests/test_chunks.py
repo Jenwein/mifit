@@ -5,9 +5,11 @@ window rule, so a merged chunked read can be compared with a single read of the
 same range. Every row here is synthetic.
 """
 
+import functools
 import json
 import random
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
@@ -250,6 +252,39 @@ def test_read_chunks_matches_single_read(windowed, domain, rows, list_key):
     assert merged.records == single.records
     assert merged.raw == single.raw
     assert merged.notes == single.notes == []
+
+
+def test_a_chunk_edge_on_a_fall_back_midnight_loses_no_row(windowed, monkeypatch):
+    # In Santiago the clocks go back an hour at the midnight that ends 2026-04-04, so
+    # 23:00 to 23:59:59 of that day happens twice; the week chunks meet right there.
+    try:
+        santiago = ZoneInfo("America/Santiago")
+    except ZoneInfoNotFoundError:
+        pytest.skip("IANA timezone database not available")
+    in_santiago = functools.partial(client_module.to_epoch_s, tz=santiago)
+    monkeypatch.setattr(client_module, "to_epoch_s", in_santiago)
+    first_row = int(datetime(2026, 3, 28, tzinfo=timezone.utc).timestamp())
+    rows = []
+    for n in range(16 * 48):  # every half hour for 16 days, by the UTC clock
+        moment = first_row + n * 1800
+        value = {"time": moment, "bpm": 60 + n % 40, "type": 1}
+        rows.append({"time": moment, "value": json.dumps(value)})
+    client, _ = windowed(rows)
+
+    parts = list(client.read_chunks("heart_rate", "2026-03-29", "2026-04-11"))
+    merged = merge_chunks(parts)
+    single = client.heart_rate("2026-03-29", "2026-04-11")
+
+    assert [chunk.label for chunk, _ in parts] == [
+        "2026-04-05..2026-04-11",
+        "2026-03-29..2026-04-04",
+    ]
+    times = [point.epoch_s for point in merged.records]
+    # 03:00Z and 03:30Z are the second 23:00 and 23:30 of 04-04; 04:00Z is the
+    # local midnight that starts 04-05.
+    assert {1775358000, 1775359800} <= set(times)
+    assert times.count(1775361600) == 1
+    assert merged.records == single.records
 
 
 def test_read_chunks_skips_done_labels(windowed):

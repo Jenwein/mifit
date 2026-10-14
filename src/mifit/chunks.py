@@ -30,13 +30,13 @@ no extra delay is added between chunks.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Container, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
 
 from mifit.domains.base import REGISTRY, DomainResult
+from mifit.domains.days import parse_day
 
 ChunkSize = Literal["day", "week", "month"]
 
@@ -57,8 +57,6 @@ DOMAIN_CHUNK: dict[str, ChunkSize] = {
 
 OLDEST_FIRST: frozenset[str] = frozenset({"consumption"})
 """Domains whose single read lists days oldest-first, so their chunks run that way."""
-
-_DATE_FORMAT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 @dataclass(frozen=True)
@@ -149,8 +147,8 @@ def read_chunks(
         raise ValueError(
             f"unknown domain {domain!r}; known domains: {', '.join(sorted(REGISTRY))}"
         )
-    first = _parse_day(start, "start")
-    last = _parse_day(end, "end")
+    first = _day_arg(start, "start")
+    last = _day_arg(end, "end")
     if first > last:
         raise ValueError(f"start {start} is after end {end}")
     plan = plan_chunks(domain, first, last, size)
@@ -186,15 +184,10 @@ def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
     return merged
 
 
-def _parse_day(value: object, name: str) -> date:
+def _day_arg(value: object, name: str) -> date:
     """``value`` as a local day; chunked reads take ``"YYYY-MM-DD"`` strings only."""
     if not isinstance(value, str):
         raise TypeError(
             f"chunked reads take 'YYYY-MM-DD' dates; {name} is a {type(value).__name__}"
         )
-    if not _DATE_FORMAT.fullmatch(value):
-        raise ValueError(f"{name} must look like 'YYYY-MM-DD', got {value!r}")
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        raise ValueError(f"{name} {value!r} is not a calendar date") from None
+    return parse_day(value, name)

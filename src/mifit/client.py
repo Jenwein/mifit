@@ -7,10 +7,9 @@ become the bounds of that *local* calendar day, or ints already in Unix seconds.
 
 from __future__ import annotations
 
-import re
 import warnings
 from collections.abc import Callable, Container, Iterator
-from datetime import date, datetime, time
+from datetime import timedelta, tzinfo
 from typing import Any
 
 # ``load_session``, ``save_session``, ``renew_session``, ``record_event`` and
@@ -25,6 +24,7 @@ from mifit.auth.renew import renew_session
 from mifit.auth.session import Session, load_session, save_session
 from mifit.domains.base import DomainResult, stalled_note
 from mifit.domains.consumption import fetch_consumption
+from mifit.domains.days import local_midnight, parse_day
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.profile import fetch_profile
@@ -39,10 +39,6 @@ from mifit.errors import AuthError
 from mifit.transport import Transport
 
 _RAW_ENDPOINT = RAW_ENDPOINT
-
-_DATE_FORMAT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DAY_START = time(0, 0, 0)
-_DAY_END = time(23, 59, 59)
 
 DateArg = str | int
 """A ``"YYYY-MM-DD"`` string (local day) or an int of Unix seconds."""
@@ -68,13 +64,18 @@ def _scrubbed_network_error(exc: OSError) -> OSError:
         return requests.ConnectionError(_RENEWAL_NETWORK_FAILURE)
 
 
-def to_epoch_s(value: DateArg, *, end_of_day: bool = False) -> int:
+def to_epoch_s(
+    value: DateArg, *, end_of_day: bool = False, tz: tzinfo | None = None
+) -> int:
     """Convert a date argument to Unix seconds.
 
     An int is taken to be epoch seconds already and returned unchanged. A
-    ``"YYYY-MM-DD"`` string is read as a day in the machine's *local* timezone and
-    becomes that day's first second (``00:00:00``) or, with ``end_of_day=True``,
-    its last (``23:59:59``).
+    ``"YYYY-MM-DD"`` string is read as a day in ``tz``, the machine's *local*
+    timezone by default, and becomes that day's first second (its local midnight)
+    or, with ``end_of_day=True``, its last: the second before the next day's local
+    midnight. That is ``23:59:59`` on most days; on a day whose clocks go back at
+    midnight, ``23:59:59`` happens twice and the second one is the last, so the
+    ends of consecutive days always meet with no gap.
 
     Raises ``TypeError`` for anything that is neither a string nor an int (a
     ``bool`` is rejected, not treated as 0/1) and ``ValueError`` for a string that
@@ -88,13 +89,11 @@ def to_epoch_s(value: DateArg, *, end_of_day: bool = False) -> int:
     if isinstance(value, int):
         return value
 
-    if not _DATE_FORMAT.fullmatch(value):
-        raise ValueError(f"date must look like 'YYYY-MM-DD', got {value!r}")
+    day = parse_day(value)
     try:
-        day = date.fromisoformat(value)
-        # A naive datetime is interpreted in local time by ``timestamp()``.
-        moment = datetime.combine(day, _DAY_END if end_of_day else _DAY_START)
-        return int(moment.timestamp())
+        if end_of_day:
+            return local_midnight(day + timedelta(days=1), tz) - 1
+        return local_midnight(day, tz)
     except (ValueError, OverflowError, OSError):
         raise ValueError(f"{value!r} is not a supported calendar date") from None
 
