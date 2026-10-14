@@ -436,9 +436,11 @@ def test_export_renewal_network_error_does_not_echo_the_sts_url(monkeypatch, cap
     assert rc != 0
     captured = capsys.readouterr()
     output = captured.out + captured.err
-    assert "could not be renewed" in captured.err
-    assert "ConnectionError" in captured.err
-    assert "Run `mifit login`" in captured.err
+    # A network failure, reported as one: logging in again over a dead network
+    # would not help, so there is no re-login advice.
+    assert "error: network request failed (ConnectionError)." in captured.err
+    assert "mifit login" not in output
+    assert "could not be renewed" not in output
     for secret in (client_sign, "sts.synthetic.example.com", "SYNTH-PASS-TOKEN-CLI-0001"):
         assert secret not in output
     log = default_session_log_path().read_text(encoding="utf-8")

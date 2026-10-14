@@ -82,7 +82,9 @@ class Transport:
     transport, and never before a 401. A renewal that returns the same service
     token is not retried, and a 401 right after a renewal is taken for a refused
     signature, not an expired session; either one switches renewal off for this
-    transport. Without a hook, a 401 raises ``AuthError`` at once.
+    transport. A hook that fails with an ``OSError`` (every ``requests`` error is
+    one) never reached a verdict, so its exception propagates and the attempt
+    does not count. Without a hook, a 401 raises ``AuthError`` at once.
     """
 
     def __init__(
@@ -142,6 +144,11 @@ class Transport:
                     f"be renewed: {exc}",
                     code=exc.code,
                 ) from None
+            except OSError:
+                # A network failure: the passToken was never judged, so the
+                # attempt is given back.
+                self._renewals_left += 1
+                raise
             if new.service_token == old.service_token:
                 self._renewals_left = 0
                 raise AuthError(_SAME_TOKEN_401)

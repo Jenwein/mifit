@@ -432,6 +432,26 @@ def test_renewal_failure_raises_renewal_error_mentioning_401():
     assert len(http.calls) == 1
 
 
+def test_network_failure_in_the_hook_propagates_and_keeps_the_renewal():
+    # The account service never judged the passToken, so the attempt is not
+    # counted: with a budget of one, the next 401 may still renew.
+    requests = pytest.importorskip("requests")
+    error = requests.ConnectionError("The session renewal request failed on the network.")
+    new = renewed_session()
+    http = ScriptedHttp(UNAUTHORIZED, UNAUTHORIZED, (200, OK_PAYLOAD, NEW_SSECURITY))
+    hook = RenewHook(error, new)
+    transport = renewing_transport(http, hook, max_renewals=1)
+
+    with pytest.raises(requests.ConnectionError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    assert excinfo.value is error
+    assert len(http.calls) == 1
+    assert transport.get_json(ENDPOINT, DATA_OBJ) == OK_PAYLOAD
+    assert len(hook.calls) == 2
+    assert transport.session is new
+
+
 def test_renewals_are_capped_per_transport():
     steps = []
     for _ in range(4):

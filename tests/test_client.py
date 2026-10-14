@@ -12,6 +12,7 @@ import subprocess
 import sys
 from datetime import datetime, time
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlparse
 
 import pytest
@@ -637,28 +638,83 @@ def test_failed_renewal_is_logged_and_re_raised(monkeypatch):
     assert client.session is stored
 
 
-def test_network_failure_during_renewal_becomes_a_renewal_error_without_the_url(monkeypatch):
-    # requests puts the URL it was fetching in the message; on the STS call that
-    # URL carries the one-time ticket and the clientSign.
+def exception_chain(exc):
+    """``exc`` and every exception reachable from it through ``__cause__``/``__context__``."""
+    seen = []
+    pending = [exc]
+    while pending:
+        link = pending.pop()
+        if link is None or any(link is s for s in seen):
+            continue
+        seen.append(link)
+        pending += [link.__cause__, link.__context__]
+    return seen
+
+
+def assert_chain_hides_the_sts_url(exc, *secrets):
+    for link in exception_chain(exc):
+        text = str(link) + repr(link)
+        for secret in ("sts.synthetic.example.com", *secrets):
+            assert secret not in text, f"{type(link).__name__} carries {secret!r}"
+        # A requests exception keeps the request it was sending, URL and all.
+        assert getattr(link, "request", None) is None
+
+
+def sts_connection_error(url):
+    """What requests raises when the STS call cannot connect: the URL, with its
+    one-time ticket and clientSign, is in the message, in ``.request`` and in the
+    urllib3 error it was raised from."""
+    try:
+        raise OSError(f"HTTPSConnectionPool: Max retries exceeded with url: {url}")
+    except OSError as inner:
+        try:
+            raise requests.ConnectionError(
+                f"Max retries exceeded with url: {url}", request=SimpleNamespace(url=url)
+            ) from inner
+        except requests.ConnectionError as error:
+            return error
+
+
+def test_network_failure_during_renewal_stays_a_network_error_without_the_url(monkeypatch):
     stored = renewable_session()
-    error = requests.ConnectionError(
-        f"Max retries exceeded with url: {STS_LOCATION}&clientSign={CLIENT_SIGN}"
-    )
+    error = sts_connection_error(f"{STS_LOCATION}&clientSign={CLIENT_SIGN}")
     monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
     recorder = RenewalRecorder(monkeypatch, error=error)
     client = MiFit()
 
-    with pytest.raises(RenewalError) as excinfo:
+    with pytest.raises(requests.ConnectionError) as excinfo:
         client._renew(stored)
 
     exc = excinfo.value
-    text = str(exc) + repr(exc)
-    assert "ConnectionError" in text
-    assert CLIENT_SIGN not in text
-    assert "sts.synthetic.example.com" not in text
-    assert exc.code is None
-    assert exc.__cause__ is None and exc.__suppress_context__
+    # The same type, so callers and the CLI treat it as the network failure it
+    # is, but a fresh object: nothing of the original is reachable from it.
+    assert type(exc) is requests.ConnectionError
+    assert exc is not error
+    assert "renewal" in str(exc)
+    assert exc.__cause__ is None and exc.__context__ is None
+    assert_chain_hides_the_sts_url(exc, CLIENT_SIGN)
     assert recorder.event_names == ["unauthorized", "renew_failed"]
+    assert client.session is stored
+
+
+def test_network_failure_of_an_unbuildable_type_becomes_a_requests_connection_error(monkeypatch):
+    class PickyNetworkError(OSError):
+        """An OSError that cannot be built from a message alone."""
+
+        def __init__(self, url, attempts):
+            super().__init__(f"{attempts} attempts at {url}")
+
+    explicit = renewable_session()
+    error = PickyNetworkError(f"{STS_LOCATION}&clientSign={CLIENT_SIGN}", 3)
+    RenewalRecorder(monkeypatch, error=error)
+    client = MiFit(explicit)
+
+    with pytest.raises(requests.ConnectionError) as excinfo:
+        client._renew(explicit)
+
+    assert type(excinfo.value) is requests.ConnectionError
+    assert excinfo.value.__context__ is None
+    assert_chain_hides_the_sts_url(excinfo.value, CLIENT_SIGN)
 
 
 def test_save_failure_after_renewal_warns_and_keeps_going(monkeypatch):
@@ -754,9 +810,11 @@ class RoutingHttp:
     service-token cookie.
     """
 
-    def __init__(self):
+    def __init__(self, sts_failure=None):
         self.health_statuses = [401, 200]
         self.calls = []
+        self.sts_failure = sts_failure  # None, "network" or an HTTP status
+        self.client_sign = None
 
     def get(self, url, params=None, headers=None, timeout=None, allow_redirects=True, cookies=None):
         if url == RENEW_URL:
@@ -764,6 +822,11 @@ class RoutingHttp:
             return FakeHttpResponse(text=LOGIN_BODY)
         if url == STS_LOCATION:
             self.calls.append("sts")
+            self.client_sign = params["clientSign"]
+            if self.sts_failure == "network":
+                raise sts_connection_error(f"{url}&clientSign={self.client_sign}")
+            if self.sts_failure is not None:
+                return FakeHttpResponse(status_code=self.sts_failure)
             return FakeHttpResponse(cookies={f"{SID}_serviceToken": NEW_SERVICE_TOKEN})
         if urlparse(url).hostname.endswith("hlth.io.mi.com"):
             self.calls.append("health")
@@ -793,6 +856,29 @@ def test_end_to_end_401_is_renewed_offline(no_delay):
     assert client.session.ssecurity == NEW_SSECURITY
     assert client.session.pass_token == NEW_PASS_TOKEN
     assert http.calls == ["health", "serviceLogin", "sts", "health"]
+
+
+@pytest.mark.parametrize(
+    ("sts_failure", "expected"),
+    [("network", requests.ConnectionError), (500, RenewalError)],
+)
+def test_failed_renewal_never_chains_to_the_sts_url(no_delay, sts_failure, expected):
+    """Real ``Transport`` and ``renew_session``: whatever a caller catches when the
+    STS call fails, nothing reachable from it holds the STS URL or the clientSign."""
+    old = renewable_session()
+    http = RoutingHttp(sts_failure=sts_failure)
+    client = MiFit(old, http=http)
+
+    with pytest.raises(expected) as excinfo:
+        client.raw("steps", 1, 2)
+
+    assert type(excinfo.value) is expected
+    assert http.calls == ["health", "serviceLogin", "sts"]
+    assert http.client_sign
+    assert_chain_hides_the_sts_url(
+        excinfo.value, http.client_sign, NEW_PASS_TOKEN, NEW_SSECURITY, SYNTH_PASS_TOKEN
+    )
+    assert client.session is old
 
 
 def test_renewal_uses_its_own_http_client_and_saves_the_session(no_delay, monkeypatch):

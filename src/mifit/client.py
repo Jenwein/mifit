@@ -28,7 +28,7 @@ from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_win
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
-from mifit.errors import AuthError, RenewalError
+from mifit.errors import AuthError
 from mifit.transport import Transport
 
 _RAW_ENDPOINT = "data/get_fitness_data_by_time"
@@ -39,6 +39,26 @@ _DAY_END = time(23, 59, 59)
 
 DateArg = str | int
 """A ``"YYYY-MM-DD"`` string (local day) or an int of Unix seconds."""
+
+_RENEWAL_NETWORK_FAILURE = "The session renewal request failed on the network."
+
+
+def _scrubbed_network_error(exc: OSError) -> OSError:
+    """A fresh exception of ``exc``'s type that carries none of its details.
+
+    A ``requests`` error holds the URL it was fetching, in its message, in its
+    ``request`` and in the urllib3 error it was raised from; on the renewal's STS
+    call that URL carries the one-time ticket and the clientSign. The replacement
+    keeps the type, so callers (and the CLI) still see a network failure, with a
+    fixed message and nothing else. A type that cannot be built from a message
+    alone becomes a ``requests.ConnectionError``.
+    """
+    try:
+        return type(exc)(_RENEWAL_NETWORK_FAILURE)
+    except Exception:
+        import requests  # imported lazily, as in ``Transport``
+
+        return requests.ConnectionError(_RENEWAL_NETWORK_FAILURE)
 
 
 def to_epoch_s(value: DateArg, *, end_of_day: bool = False) -> int:
@@ -81,12 +101,15 @@ class MiFit:
 
     With ``auto_renew`` (the default), a request refused with HTTP 401 renews the
     session once from its passToken and is sent again (see ``Transport`` for the
-    limits); a renewal that fails raises ``RenewalError``, an ``AuthError``. The
-    renewal runs on the injected ``http`` or, by default, on a fresh HTTP client
-    of its own, never on the one the health requests use. A client whose session
-    came from the store (``session`` omitted, or after ``login_qr``) saves the
-    renewed session there and logs the 401 and the renewal to the session log; a
-    session passed in is renewed in memory only, so read ``session`` to keep it.
+    limits); a renewal that fails raises ``RenewalError``, an ``AuthError``. A
+    renewal that fails on the network raises a network error of the same type
+    instead, with a fixed message in place of the original's, whose URL carries
+    a one-time signature. The renewal runs on the injected ``http`` or, by
+    default, on a fresh HTTP client of its own, never on the one the health
+    requests use. A client whose session came from the store (``session``
+    omitted, or after ``login_qr``) saves the renewed session there and logs the
+    401 and the renewal to the session log; a session passed in is renewed in
+    memory only, so read ``session`` to keep it.
     """
 
     def __init__(
@@ -140,26 +163,26 @@ class MiFit:
         Records ``unauthorized`` and then ``renewed`` or ``renew_failed``; a
         store-backed client also saves the new session (a save that fails only
         warns, so the read goes on). Exceptions from the renewal are re-raised,
-        except that a network failure becomes a ``RenewalError`` naming only the
-        exception type.
+        except that a network failure is replaced by a fresh exception of the same
+        type with a fixed message (see ``_scrubbed_network_error``).
         """
         self._record("unauthorized", old)
+        network_error: OSError | None = None
         try:
             # ``self._http`` is None unless one was injected, so by default the
             # renewal builds its own client and its cookies never reach the
             # transport's cookie jar.
             new = renew_session(old, http=self._http)
-        except OSError as exc:
-            # requests' exceptions are OSErrors. Their text holds the URL being
-            # fetched, which on the STS call carries the one-time ticket and the
-            # clientSign, so only the type is kept (and the original dropped).
+        except OSError as exc:  # requests' exceptions are OSErrors
             self._record("renew_failed", old)
-            raise RenewalError(
-                f"The renewal request failed on the network ({type(exc).__name__})."
-            ) from None
+            network_error = _scrubbed_network_error(exc)
         except Exception:
             self._record("renew_failed", old)
             raise
+        if network_error is not None:
+            # Raised here, outside the ``except`` block, so that neither its
+            # ``__context__`` nor its ``__cause__`` leads back to the original.
+            raise network_error
         self._record("renewed", new)
         self._session = new
         if self._store_backed:
