@@ -244,11 +244,11 @@ client, the renewal uses a fresh `requests.Session` of its own.
   `notes` says that rows in the range may be missing.
 - **Workout detail is new.** `workout_detail` is pending a check against the
   app. It covers outdoor runs and rides in the file formats seen so far
-  (record formats 8 and 5, GPS format 2); other sports and formats are
-  reported in `notes`. One call reads the detail of at most 10 workouts (long
-  ranges are read a week per chunk). A GPS track shows where you were,
-  including where you live: `--no-track` (`track=False`) leaves it out. The
-  download links and keys never appear in the output.
+  (record file versions 8 and 5, GPS file version 2); other sports and
+  formats are reported in `notes`. One call reads the detail of at most 10
+  workouts (long ranges are read a week per chunk). A GPS track shows where
+  you were, including where you live: `--no-track` (`track=False`) leaves it
+  out. The download links and keys never appear in the output.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** On an HTTP 401, mifit renews the session once from the
