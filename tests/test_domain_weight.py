@@ -172,6 +172,26 @@ def test_negative_bool_or_non_finite_weight_is_skipped():
     assert all("usable weight" in note for note in result.notes)
 
 
+def test_oversized_integer_figures_do_not_abort_the_read():
+    # ``json.loads`` turns a long digit string into an int ``float()`` cannot hold.
+    values = [
+        weight_value(time=T + 60, weight=10**400),
+        weight_value(time=T + 120, bmi=10**400),
+        weight_value(time=T + 180),
+    ]
+
+    result = fetch_weight(FakeTransport(rows_of(*values)), START, END)
+
+    # The unusable weight is skipped with a note, the unusable BMI is None, and the
+    # good row after them is still read.
+    assert result.records == [
+        WeightRecord(epoch_s=T + 120, weight_kg=70.5, bmi=None),
+        WeightRecord(epoch_s=T + 180, weight_kg=70.5, bmi=23.0),
+    ]
+    assert result.notes == ["Skipped a weight row without a usable weight."]
+    assert result.raw == values
+
+
 def test_missing_or_zero_bmi_becomes_none():
     values = [
         weight_value(time=T + 60, bmi=ABSENT),

@@ -45,24 +45,34 @@ def register(name: str) -> Callable[[DomainFn], DomainFn]:
     return decorator
 
 
-def as_int(raw: object) -> int | None:
-    """A reported whole number (``0`` included), or ``None`` when absent or unusable:
-    not a number (a ``bool`` is not one), or a float that is not finite."""
+def _finite_number(raw: object) -> int | float | None:
+    """``raw`` itself when it is a number the domains can read: an ``int`` or a
+    finite ``float``. ``None`` for anything else (a ``bool`` is not a number)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     if isinstance(raw, float) and not math.isfinite(raw):
         return None
-    return int(raw)
+    return raw
+
+
+def as_int(raw: object) -> int | None:
+    """A reported whole number (``0`` included), or ``None`` when absent or unusable:
+    not a number (a ``bool`` is not one), or a float that is not finite."""
+    number = _finite_number(raw)
+    return None if number is None else int(number)
 
 
 def as_float(raw: object) -> float | None:
     """A reported number (``0`` included) as a ``float``, or ``None`` when absent or
-    unusable: not a number (a ``bool`` is not one), or a float that is not finite."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+    unusable: not a number (a ``bool`` is not one), a float that is not finite, or an
+    integer too large for a float (JSON can carry one)."""
+    number = _finite_number(raw)
+    if number is None:
         return None
-    if isinstance(raw, float) and not math.isfinite(raw):
+    try:
+        return float(number)
+    except OverflowError:
         return None
-    return float(raw)
 
 
 def as_positive_int(raw: object) -> int | None:

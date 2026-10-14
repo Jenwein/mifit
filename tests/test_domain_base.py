@@ -110,8 +110,32 @@ def test_as_float(raw, expected):
 
 @pytest.mark.parametrize(
     "raw",
-    [None, True, False, "70", [70], {"kg": 70}, float("nan"), float("inf"), float("-inf")],
-    ids=["none", "true", "false", "str", "list", "dict", "nan", "inf", "-inf"],
+    [
+        None,
+        True,
+        False,
+        "70",
+        [70],
+        {"kg": 70},
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        10**400,  # ``json.loads`` yields such ints; ``float()`` would raise
+        -(10**400),
+    ],
+    ids=[
+        "none",
+        "true",
+        "false",
+        "str",
+        "list",
+        "dict",
+        "nan",
+        "inf",
+        "-inf",
+        "huge-int",
+        "huge-negative-int",
+    ],
 )
 def test_as_float_rejects_everything_else(raw):
     assert as_float(raw) is None
