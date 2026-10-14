@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,8 @@ import requests
 
 from mifit import cli
 from mifit.auth.session import Session, save_session
+from mifit.chunks import plan_chunks
+from mifit.cli.partial import append_part, start_partial
 from mifit.paths import default_session_log_path
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
@@ -442,8 +445,10 @@ def test_export_full_flag_is_ignored_for_workouts(fake_mifit, capsys):
         ["--from", "2026-13-01", "--to", "2026-10-02"],
         ["--from", "2026-10-01", "--to", "yesterday"],
         ["--from", "2026-10-03", "--to", "2026-10-02"],
+        # Its first second exists on some platforms, its last never does.
+        ["--from", "9999-12-31", "--to", "9999-12-31"],
     ],
-    ids=["bad-month", "not-a-date", "from-after-to"],
+    ids=["bad-month", "not-a-date", "from-after-to", "end-of-day-unrepresentable"],
 )
 def test_export_rejects_bad_dates(fake_mifit, dates, capsys):
     rc = cli.main(["export", "steps", *dates])
@@ -461,6 +466,25 @@ def test_export_requires_both_dates(fake_mifit, missing):
     rc = cli.main(["export", "steps", *(part for pair in args.items() for part in pair)])
 
     assert rc != 0
+    assert fake_mifit.instances == []
+
+
+def test_export_date_must_have_a_representable_end_of_day(fake_mifit, monkeypatch, capsys):
+    """A day whose last second the platform cannot represent is refused by argparse,
+    not left to fail in the middle of a read."""
+    real = cli.to_epoch_s
+
+    def end_unrepresentable(value, *, end_of_day=False, tz=None):
+        if value == "2026-10-02" and end_of_day:
+            raise ValueError(f"{value!r} is not a supported calendar date")
+        return real(value, end_of_day=end_of_day, tz=tz)
+
+    monkeypatch.setattr(cli, "to_epoch_s", end_unrepresentable)
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc == 2
+    assert "'2026-10-02' is not a supported calendar date" in capsys.readouterr().err
     assert fake_mifit.instances == []
 
 
@@ -704,6 +728,645 @@ def test_finite_replaces_only_non_finite_floats_at_any_depth():
     assert cleaned["rows"][4] is None and cleaned["rows"][3] is True
     assert cli._finite([1, 2.0, {"k": "v"}]) == ([1, 2.0, {"k": "v"}], 0)
     assert value["nan"] != value["nan"]  # the input is left untouched
+
+
+# ---------------------------------------------------------------------------
+# chunked export
+# ---------------------------------------------------------------------------
+
+# 74 days: three month chunks counted from --from, read newest first.
+RANGE = ["--from", "2026-01-01", "--to", "2026-03-15"]
+LABELS = ["2026-03-04..2026-03-15", "2026-02-01..2026-03-03", "2026-01-01..2026-01-31"]
+HEADER = {
+    "mifit_partial": 1,
+    "domain": "steps",
+    "from": "2026-01-01",
+    "to": "2026-03-15",
+    "chunk": "month",
+}
+RESUME_HINT = "Completed chunks are saved in {}; rerun the same command with --resume to continue."
+
+
+def echo(fail_at=None, error=None, domain="steps"):
+    """A ``FakeMiFit`` domain method: it records its call, raises ``error`` for the
+    window that starts at ``fail_at``, and otherwise returns one record, one raw row
+    and one note naming its window."""
+
+    def read(self, start, end):
+        self.calls.append((domain, start, end, {}))
+        if start == fail_at:
+            raise error
+        return DomainResult(
+            records=[{"chunk": f"{start}..{end}"}], raw=[{"from": start}], notes=[f"read {start}"]
+        )
+
+    return read
+
+
+def export_steps(out, *flags):
+    """Export steps over ``RANGE`` (three chunks) to ``out``."""
+    return cli.main(["export", "steps", *RANGE, "--json", str(out), *flags])
+
+
+def partial_of(out):
+    return Path(f"{out}.partial")
+
+
+def stored_lines(out):
+    """The lines of ``out``'s partial file, parsed."""
+    return [json.loads(line) for line in partial_of(out).read_bytes().splitlines()]
+
+
+def stored_labels(out):
+    return [line["chunk"] for line in stored_lines(out)[1:]]
+
+
+def fail_second_chunk(monkeypatch, out, error):
+    """Run the three-chunk export to ``out`` with ``error`` raised at its second chunk."""
+    monkeypatch.setattr(FakeMiFit, "steps", echo(fail_at="2026-02-01", error=error))
+    return export_steps(out)
+
+
+def uninterrupted_output(monkeypatch, tmp_path):
+    """The output file of the three-chunk export run in one go, in a directory of its own."""
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    assert export_steps(fresh / "out.json") == 0
+    return (fresh / "out.json").read_text(encoding="utf-8")
+
+
+def test_short_range_is_one_call_as_before(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    # Only these two write a partial file: none may exist at any point of the run.
+    monkeypatch.setattr(cli, "start_partial", lambda *args: pytest.fail("partial created"))
+    monkeypatch.setattr(cli, "append_part", lambda *args: pytest.fail("partial appended"))
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [("steps", "2026-10-01", "2026-10-02", {})]
+    assert not partial_of(out).exists()
+    assert "chunk" not in capsys.readouterr().err
+    assert json.loads(out.read_text(encoding="utf-8"))["notes"] == ["read 2026-10-01"]
+
+
+def test_multi_chunk_export_reads_each_chunk_newest_first(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = export_steps(out)
+
+    assert rc == 0
+    assert len(fake_mifit.instances) == 1  # one client for the whole export
+    assert fake_mifit.instances[0].calls == [
+        ("steps", "2026-03-04", "2026-03-15", {}),
+        ("steps", "2026-02-01", "2026-03-03", {}),
+        ("steps", "2026-01-01", "2026-01-31", {}),
+    ]
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [{"chunk": label} for label in LABELS]
+    assert data["raw"] == [{"from": "2026-03-04"}, {"from": "2026-02-01"}, {"from": "2026-01-01"}]
+    assert data["notes"][0] == "2026-03-04..2026-03-15: read 2026-03-04"
+    err = capsys.readouterr().err
+    assert "export: 3 chunks of up to 31 days, read one at a time." in err
+    assert "chunk 1/3 2026-03-04..2026-03-15: 1 record(s)" in err
+    assert "chunk 3/3 2026-01-01..2026-01-31: 1 record(s)" in err
+    assert not partial_of(out).exists()
+
+
+def test_consumption_chunks_run_oldest_first(fake_mifit, monkeypatch, tmp_path):
+    monkeypatch.setattr(FakeMiFit, "consumption", echo(domain="consumption"))
+
+    rc = cli.main(["export", "consumption", *RANGE, "--json", str(tmp_path / "out.json")])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("consumption", "2026-01-01", "2026-01-31", {}),
+        ("consumption", "2026-02-01", "2026-03-03", {}),
+        ("consumption", "2026-03-04", "2026-03-15", {}),
+    ]
+
+
+def test_chunk_flag_overrides_domain_default(fake_mifit, monkeypatch, tmp_path):
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = cli.main(
+        [
+            "export",
+            "steps",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-14",
+            "--chunk",
+            "week",
+            "--json",
+            str(tmp_path / "out.json"),
+        ]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("steps", "2026-10-08", "2026-10-14", {}),
+        ("steps", "2026-10-01", "2026-10-07", {}),
+    ]
+
+
+def test_day_chunks_are_announced_in_the_singular(fake_mifit, monkeypatch, capsys):
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--chunk", "day"]
+    )
+
+    assert rc == 0
+    assert len(fake_mifit.instances[0].calls) == 2
+    assert "export: 2 chunks of up to 1 day, read one at a time." in capsys.readouterr().err
+
+
+def test_long_range_needs_long_flag(fake_mifit, capsys):
+    rc = cli.main(["export", "steps", "--from", "2026-01-01", "--to", "2026-04-03"])  # 93 days
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "93 days" in err and "92" in err and "--long" in err
+    assert fake_mifit.instances == []
+
+
+def test_92_days_need_no_flag(fake_mifit, monkeypatch, capsys):
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    assert cli.main(["export", "steps", "--from", "2026-01-01", "--to", "2026-04-02"]) == 0
+
+
+def test_long_flag_runs_a_long_range(fake_mifit, monkeypatch, capsys):
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = cli.main(["export", "steps", "--from", "2026-01-01", "--to", "2026-04-03", "--long"])
+
+    assert rc == 0
+    assert len(fake_mifit.instances[0].calls) == 3
+
+
+def test_failed_chunk_keeps_completed_chunks_and_points_to_resume(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+
+    rc = fail_second_chunk(monkeypatch, out, ApiError("boom"))
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "error: boom (chunk 2/3 2026-02-01..2026-03-03)" in err
+    assert RESUME_HINT.format(partial_of(out)) in err
+    assert not out.exists()
+    assert stored_lines(out) == [
+        HEADER,
+        {
+            "chunk": "2026-03-04..2026-03-15",
+            "records": [{"chunk": "2026-03-04..2026-03-15"}],
+            "raw": [{"from": "2026-03-04"}],
+            "notes": ["read 2026-03-04"],
+        },
+    ]
+
+
+def test_resume_reads_only_remaining_chunks(fake_mifit, monkeypatch, tmp_path, capsys):
+    expected = uninterrupted_output(monkeypatch, tmp_path)
+    out = tmp_path / "out.json"
+    assert fail_second_chunk(monkeypatch, out, ApiError("boom")) == 1
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    capsys.readouterr()
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 0
+    assert fake_mifit.instances[-1].calls == [
+        ("steps", "2026-02-01", "2026-03-03", {}),
+        ("steps", "2026-01-01", "2026-01-31", {}),
+    ]
+    assert out.read_text(encoding="utf-8") == expected
+    assert not partial_of(out).exists()
+    err = capsys.readouterr().err
+    assert f"resuming {partial_of(out)}: 1 of 3 chunk(s) already done" in err
+    assert "chunk 2/3" in err and "chunk 1/3" not in err
+
+
+def test_resume_with_every_chunk_done_sends_no_request(fake_mifit, monkeypatch, tmp_path):
+    expected = uninterrupted_output(monkeypatch, tmp_path)
+    out = tmp_path / "out.json"
+    start_partial(partial_of(out), HEADER)
+    for chunk in plan_chunks("steps", date(2026, 1, 1), date(2026, 3, 15)):
+        first = chunk.first.isoformat()
+        part = DomainResult(
+            records=[{"chunk": chunk.label}], raw=[{"from": first}], notes=[f"read {first}"]
+        )
+        append_part(partial_of(out), chunk.label, part)
+    fake_mifit.instances.clear()
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 0
+    assert fake_mifit.instances == []  # nothing is left to read, so no client is opened
+    assert out.read_text(encoding="utf-8") == expected
+    assert not partial_of(out).exists()
+
+
+def test_existing_partial_without_resume_is_refused(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    assert fail_second_chunk(monkeypatch, out, ApiError("boom")) == 1
+    before = partial_of(out).read_bytes()
+    fake_mifit.instances.clear()
+    capsys.readouterr()
+
+    rc = export_steps(out)
+
+    assert rc == 1
+    assert (
+        f"error: {partial_of(out)} holds an unfinished export; rerun with --resume to "
+        "continue it, or delete it to start over."
+    ) in capsys.readouterr().err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == before
+
+
+def test_resume_with_different_arguments_is_refused(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    assert fail_second_chunk(monkeypatch, out, ApiError("boom")) == 1
+    before = partial_of(out).read_bytes()
+    fake_mifit.instances.clear()
+    capsys.readouterr()
+
+    rc = cli.main(
+        [
+            "export",
+            "steps",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-03-20",
+            "--json",
+            str(out),
+            "--resume",
+        ]
+    )
+
+    assert rc == 1
+    assert "2026-03-15" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == before
+
+
+def test_resume_without_partial_starts_fresh(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 0
+    assert (
+        f"nothing to resume at {partial_of(out)}; starting from the first chunk"
+        in capsys.readouterr().err
+    )
+    assert len(fake_mifit.instances[0].calls) == 3
+    assert not partial_of(out).exists()
+
+
+def test_resume_is_a_no_op_for_a_range_in_one_chunk(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = cli.main(
+        [
+            "export",
+            "steps",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+            "--resume",
+        ]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [("steps", "2026-10-01", "2026-10-02", {})]
+    assert "resum" not in capsys.readouterr().err
+
+
+def test_resume_needs_json(fake_mifit, capsys):
+    rc = cli.main(["export", "steps", *RANGE, "--resume"])
+
+    assert rc == 2
+    assert "--json" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [["--long"], ["--chunk", "week"], ["--resume", "--json", "x"]],
+    ids=["long", "chunk", "resume"],
+)
+def test_full_cannot_be_combined_with_chunking_flags(fake_mifit, flags, capsys):
+    rc = cli.main(
+        ["export", "heart_rate", "--from", "2026-10-01", "--to", "2026-10-02", "--full", *flags]
+    )
+
+    assert rc == 2
+    assert "--full" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
+def test_full_heart_rate_long_range_is_one_call(fake_mifit, capsys):
+    rc = cli.main(["export", "heart_rate", "--full", "--from", "2026-01-01", "--to", "2026-07-31"])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("heart_rate", "2026-01-01", "2026-07-31", {"full": True})
+    ]
+    assert "chunk" not in capsys.readouterr().err
+
+
+def test_auth_error_mid_export_keeps_progress(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    error = AuthError("The Mi Fitness service rejected the session token.")
+
+    rc = fail_second_chunk(monkeypatch, out, error)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert (
+        "error: The Mi Fitness service rejected the session token. "
+        "(chunk 2/3 2026-02-01..2026-03-03)"
+    ) in err
+    assert "session: logged in 2026-10-14T00:00:00Z" in err
+    assert "Run `mifit login` to sign in." in err
+    assert (
+        f"Completed chunks are saved in {partial_of(out)}; after `mifit login`, "
+        "rerun the same command with --resume to continue."
+    ) in err
+    assert stored_labels(out) == [LABELS[0]]
+
+
+def test_ctrl_c_mid_export_keeps_progress(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    rc = fail_second_chunk(monkeypatch, out, KeyboardInterrupt())
+
+    assert rc == 130
+    err = capsys.readouterr().err
+    assert RESUME_HINT.format(partial_of(out)) in err
+    assert err.index("--resume") < err.index("Interrupted.")
+    assert stored_labels(out) == [LABELS[0]]
+    assert not out.exists()
+
+
+def test_network_error_mid_export_names_the_chunk(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    error = requests.ConnectionError("https://host.example/path?token=SECRET-IN-URL")
+
+    rc = fail_second_chunk(monkeypatch, out, error)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert (
+        "error: network request failed (ConnectionError) (chunk 2/3 2026-02-01..2026-03-03)."
+    ) in err
+    assert "SECRET-IN-URL" not in err
+    assert RESUME_HINT.format(partial_of(out)) in err
+
+
+def test_partial_holds_no_session_secret(fake_mifit, monkeypatch, tmp_path):
+    out = tmp_path / "out.json"
+    assert fail_second_chunk(monkeypatch, out, ApiError("boom")) == 1
+
+    text = partial_of(out).read_text(encoding="ascii")
+
+    session = make_session()
+    for secret in (SYNTH_TOKEN, SYNTH_SSECURITY, SYNTH_COOKIE, session.user_id, session.c_user_id):
+        assert secret not in text
+    assert set(stored_lines(out)[0]) == {"mifit_partial", "domain", "from", "to", "chunk"}
+
+
+def test_chunked_export_to_stdout_has_no_partial(fake_mifit, monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    rc = cli.main(["export", "steps", *RANGE])
+
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)  # stdout is the merged JSON alone
+    assert data["records"] == [{"chunk": label} for label in LABELS]
+    assert list(tmp_path.rglob("*.partial")) == []
+
+
+def test_resumed_non_finite_chunk_matches_an_uninterrupted_run(
+    fake_mifit, monkeypatch, tmp_path
+):
+    """A chunk is stored as it goes into the output (strict JSON, NaN as null with its
+    note), so a resumed chunk is the same as a freshly read one: no second note."""
+
+    def nan_echo(fail_at=None, error=None):
+        plain = echo(fail_at, error)
+
+        def read(self, start, end):
+            result = plain(self, start, end)
+            result.raw.append({"value": float("nan")})
+            return result
+
+        return read
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    monkeypatch.setattr(FakeMiFit, "steps", nan_echo())
+    assert export_steps(fresh / "out.json") == 0
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", nan_echo("2026-02-01", ApiError("boom")))
+    assert export_steps(out) == 1
+    monkeypatch.setattr(FakeMiFit, "steps", nan_echo())
+
+    assert export_steps(out, "--resume") == 0
+
+    text = out.read_text(encoding="utf-8")
+    assert text == (fresh / "out.json").read_text(encoding="utf-8")
+    data = json.loads(text, parse_constant=_reject)
+    assert [note for note in data["notes"] if "non-finite" in note] == [
+        f"{label}: Replaced 1 non-finite number(s) (NaN or Infinity) with null: "
+        "strict JSON has no such values."
+        for label in LABELS
+    ]
+
+
+@pytest.mark.parametrize(
+    "content", [b"", b'{"mifit_partial":1,"dom'], ids=["empty", "torn-header"]
+)
+def test_partial_damaged_at_its_start_says_no_data_is_lost(
+    fake_mifit, tmp_path, content, capsys
+):
+    out = tmp_path / "out.json"
+    partial_of(out).write_bytes(content)
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert f"error: {partial_of(out)} is damaged; delete it to start over" in err
+    assert "It holds no finished chunk, so deleting it loses no data." in err
+    assert fake_mifit.instances == []
+    assert partial_of(out).read_bytes() == content
+
+
+def test_damaged_partial_with_chunks_does_not_say_no_data_is_lost(
+    fake_mifit, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    start_partial(partial_of(out), HEADER)
+    with open(partial_of(out), "ab") as f:
+        f.write(b"not json\n")
+    append_part(partial_of(out), LABELS[0], DomainResult())
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "is damaged" in err
+    assert "loses no data" not in err
+
+
+def test_partial_that_cannot_be_read_is_a_clean_error(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    def unreadable(path, header, labels):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(cli, "load_partial", unreadable)
+
+    rc = export_steps(out, "--resume")
+
+    assert rc == 1
+    assert f"error: could not load {partial_of(out)} (Permission denied)." in (
+        capsys.readouterr().err
+    )
+    assert fake_mifit.instances == []
+
+
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (OSError(28, "No space left on device"), "No space left on device"),
+        (ValueError("Out of range float values are not JSON compliant"), "ValueError"),
+    ],
+    ids=["os-error", "value-error"],
+)
+def test_chunk_that_cannot_be_saved_stops_the_export(
+    fake_mifit, monkeypatch, tmp_path, error, detail, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    real_append = cli.append_part
+
+    def second_append_fails(path, label, part):
+        if label != LABELS[0]:
+            raise error
+        real_append(path, label, part)
+
+    monkeypatch.setattr(cli, "append_part", second_append_fails)
+
+    rc = export_steps(out)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert (
+        f"error: could not save chunk 2/3 2026-02-01..2026-03-03 to {partial_of(out)} "
+        f"({detail})."
+    ) in err
+    assert RESUME_HINT.format(partial_of(out)) in err
+    assert len(fake_mifit.instances[0].calls) == 2  # nothing is read past it
+    assert stored_labels(out) == [LABELS[0]]
+    assert not out.exists()
+
+
+def test_partial_that_cannot_be_created_stops_the_export(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    def cannot_create(path, header):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(cli, "start_partial", cannot_create)
+
+    rc = export_steps(out)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert (
+        f"error: could not save chunk 1/3 2026-03-04..2026-03-15 to {partial_of(out)} "
+        "(Permission denied)."
+    ) in err
+    assert "Completed chunks" not in err  # none was kept
+    assert len(fake_mifit.instances[0].calls) == 1
+    assert not out.exists()
+
+
+def test_unwritable_output_keeps_the_partial_for_resume(
+    fake_mifit, monkeypatch, tmp_path, capsys
+):
+    out = tmp_path / "out.json"
+    out.mkdir()  # a directory in the way: the output cannot be written
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    assert export_steps(out) == 1
+    err = capsys.readouterr().err
+    assert f"error: could not write {out}" in err
+    assert RESUME_HINT.format(partial_of(out)) in err
+    assert stored_labels(out) == LABELS
+
+    out.rmdir()
+    fake_mifit.instances.clear()
+    assert export_steps(out, "--resume") == 0
+    assert fake_mifit.instances == []
+    assert json.loads(out.read_text(encoding="utf-8"))["records"] == [
+        {"chunk": label} for label in LABELS
+    ]
+    assert not partial_of(out).exists()
+
+
+def test_partial_that_cannot_be_deleted_is_a_note(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    real_unlink = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name.endswith(".partial"):
+            raise PermissionError(13, "Permission denied")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+
+    rc = export_steps(out)
+
+    assert rc == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["records"]
+    assert f"note: could not delete {partial_of(out)} (Permission denied)" in (
+        capsys.readouterr().err
+    )
+
+
+def test_export_help_lists_the_chunking_flags(capsys):
+    assert cli.main(["export", "--help"]) == 0
+
+    out = capsys.readouterr().out
+    for flag in ("--long", "--chunk", "--resume"):
+        assert flag in out
 
 
 # ---------------------------------------------------------------------------

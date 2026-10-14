@@ -7,6 +7,16 @@ as JSON. ``profile`` reads the account profile (height, weight, daily step and
 calorie goals) and writes it the same way; its ``raw`` is the whole profile,
 personal details included, for the user's own eyes.
 
+A range longer than one chunk (``mifit.chunks``: a week for raw heart rate and SpO2,
+31 days for the rest, or ``--chunk``) is read chunk by chunk through one client, one
+request at a time, with progress on stderr; a range that fits in one chunk is the one
+call it always was. A range over 92 days needs ``--long``. ``heart_rate --full`` is a
+single backward read and is never chunked. With ``--json PATH``, each finished chunk
+is appended to ``PATH.partial`` (``mifit.cli.partial``), so an interrupted export
+continues with ``--resume`` instead of reading everything again; that file holds only
+the export's own data and arguments, never a credential or session field, and is
+deleted once the output is written.
+
 Nothing here prints a credential. Messages come from the SDK's own errors (which
 are written to keep secrets out) and, for network failures, from the exception's
 *type* only, because the text of a ``requests`` error contains the URL it was
@@ -35,8 +45,18 @@ from mifit import MiFit
 from mifit.auth.lifetime import describe_session, record_event
 from mifit.auth.qr import login_qr
 from mifit.auth.session import save_session
+from mifit.chunks import CHUNK_DAYS, Chunk, chunk_size_for, merge_chunks, plan_chunks
+from mifit.cli.partial import (
+    PartialError,
+    append_part,
+    export_header,
+    load_partial,
+    partial_path,
+    start_partial,
+)
 from mifit.client import to_epoch_s
 from mifit.domains.base import REGISTRY, DomainResult
+from mifit.domains.days import parse_day
 from mifit.errors import AuthError, MiFitError, NotificationRequiredError
 
 __all__ = ["main"]
@@ -47,6 +67,9 @@ _EXIT_INTERRUPTED = 130  # the shell convention for "stopped by Ctrl+C"
 
 # Domains whose MiFit method takes ``full=``; ``--full`` means nothing elsewhere.
 _FULL_DOMAINS = frozenset({"heart_rate"})
+
+# The longest range an export reads without ``--long`` (about a quarter).
+_LONG_RANGE_DAYS = 92
 
 
 def _eprint(message: str) -> None:
@@ -140,9 +163,11 @@ def _cmd_login(args: argparse.Namespace) -> int:
 
 
 def _date_arg(value: str) -> str:
-    """argparse ``type=`` for ``--from`` / ``--to``: a real ``YYYY-MM-DD`` date."""
+    """argparse ``type=`` for ``--from`` / ``--to``: a real ``YYYY-MM-DD`` date whose
+    first and last second this platform can represent (a read needs both)."""
     try:
         to_epoch_s(value)
+        to_epoch_s(value, end_of_day=True)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from None
     return value
@@ -173,29 +198,30 @@ def _plain(record: Any) -> Any:
     return record
 
 
-def _read(fetch: Callable[[Any], DomainResult]) -> DomainResult | None:
-    """Open the client and return ``fetch(client)``.
-
-    A failure is reported on stderr and gives ``None``: an ``AuthError`` with the
-    session's ages (when a client was opened) and the advice to log in, any other
-    SDK error with its message, a network failure by its type only.
-    """
-    client = None
-    try:
-        client = _open_client()
-        return fetch(client)
-    except AuthError as exc:
-        _eprint(f"error: {exc}")
+def _report(exc: MiFitError | requests.RequestException, client: Any, where: str = "") -> None:
+    """Report a failed read on stderr: an ``AuthError`` with the session's ages (when
+    a client was opened) and the advice to log in, any other SDK error with its
+    message, a network failure by its type only. ``where`` ends the error line."""
+    if isinstance(exc, requests.RequestException):
+        _eprint(f"error: network request failed ({type(exc).__name__}){where}.")
+        return
+    _eprint(f"error: {exc}{where}")
+    if isinstance(exc, AuthError):
         if client is not None:
             # Ages and the renewal state only; the session itself is never printed.
             _eprint(f"session: {describe_session(client.session)}")
         _eprint("Run `mifit login` to sign in.")
-        return None
-    except MiFitError as exc:
-        _eprint(f"error: {exc}")
-        return None
-    except requests.RequestException as exc:
-        _eprint(f"error: network request failed ({type(exc).__name__}).")
+
+
+def _read(fetch: Callable[[Any], DomainResult]) -> DomainResult | None:
+    """Open the client and return ``fetch(client)``; a failure is reported on
+    stderr (``_report``) and gives ``None``."""
+    client = None
+    try:
+        client = _open_client()
+        return fetch(client)
+    except (MiFitError, requests.RequestException) as exc:
+        _report(exc, client)
         return None
 
 
@@ -269,14 +295,185 @@ def _write_result(result: DomainResult, json_path: str | None) -> int:
     return _EXIT_OK
 
 
+def _export_usage_error(args: argparse.Namespace) -> str | None:
+    """Why these ``export`` arguments are refused before anything is read, or ``None``."""
+    # Both are validated YYYY-MM-DD strings, so text order is date order.
+    if args.start > args.end:
+        return "export: --from must not be later than --to"
+    if args.resume and args.json_path is None:
+        return "export: --resume needs --json (the progress is kept next to that file)"
+    full = args.full and args.domain in _FULL_DOMAINS
+    if full and (args.long or args.chunk or args.resume):
+        return (
+            "export: heart_rate --full is one backward read and cannot be chunked; "
+            "drop --long, --chunk and --resume"
+        )
+    days = (parse_day(args.end) - parse_day(args.start)).days + 1
+    if days > _LONG_RANGE_DAYS and not args.long and not full:  # --full ignores --from
+        return (
+            f"export: the range is {days} days long; a range over {_LONG_RANGE_DAYS} days "
+            "takes many requests and needs --long"
+        )
+    return None
+
+
+def _plan(args: argparse.Namespace) -> tuple[list[Chunk], str, bool]:
+    """The chunks of this export in reading order, its chunk size, and whether it is
+    ``heart_rate --full``: one backward read, so a single chunk, never split."""
+    first, last = parse_day(args.start), parse_day(args.end)
+    size = args.chunk or chunk_size_for(args.domain)
+    if args.full and args.domain in _FULL_DOMAINS:
+        return [Chunk(first, last)], size, True
+    return plan_chunks(args.domain, first, last, size), size, False
+
+
+def _resume_hint(partial: Path, auth: bool) -> str:
+    """How to go on with an export whose finished chunks are kept in ``partial``."""
+    login = "after `mifit login`, " if auth else ""
+    return (
+        f"Completed chunks are saved in {partial}; {login}rerun the same command "
+        "with --resume to continue."
+    )
+
+
+def _holds_no_chunk(partial: Path) -> bool:
+    """Whether ``partial`` has no complete line. Chunks are only written after the
+    header line, so such a file broke while it was being created: it holds no data."""
+    try:
+        return b"\n" not in partial.read_bytes()
+    except OSError:
+        return False
+
+
+def _load_progress(
+    partial: Path, header: dict, plan: list[Chunk], resume: bool
+) -> dict[str, DomainResult] | None:
+    """The chunks of this export already finished, by label: with ``resume``, those
+    that ``partial`` holds; else none.
+
+    Gives ``None`` after saying on stderr why the export cannot start: ``partial``
+    exists but ``resume`` was not asked for (the file is left untouched, so hours of
+    progress are never overwritten), or it cannot be loaded.
+    """
+    if not resume:
+        if partial.exists():
+            _eprint(
+                f"error: {partial} holds an unfinished export; rerun with --resume to "
+                "continue it, or delete it to start over."
+            )
+            return None
+        return {}
+    try:
+        parts = load_partial(partial, header, [chunk.label for chunk in plan])
+    except FileNotFoundError:
+        _eprint(f"nothing to resume at {partial}; starting from the first chunk")
+        return {}
+    except PartialError as exc:
+        _eprint(f"error: {exc}")
+        if _holds_no_chunk(partial):
+            _eprint("It holds no finished chunk, so deleting it loses no data.")
+        return None
+    except OSError as exc:
+        _eprint(f"error: could not load {partial} ({exc.strerror or type(exc).__name__}).")
+        return None
+    _eprint(f"resuming {partial}: {len(parts)} of {len(plan)} chunk(s) already done")
+    return parts
+
+
+class _SaveError(Exception):
+    """A finished chunk could not be written to the partial file. The message is the
+    reason only (an OS error's text or an exception's type), never the chunk's data."""
+
+
+def _save_part(
+    partial: Path, header: dict, label: str, part: DomainResult, *, create: bool
+) -> None:
+    """Append the finished chunk ``label`` to ``partial``, creating the file with
+    ``header`` first when ``create``. Raises ``_SaveError`` if it cannot be written."""
+    try:
+        if create:
+            start_partial(partial, header)
+        append_part(partial, label, part)
+        return
+    except OSError as exc:
+        reason = exc.strerror or type(exc).__name__
+    except ValueError as exc:  # a value strict JSON cannot hold; nothing was written
+        reason = type(exc).__name__
+    raise _SaveError(reason)
+
+
+def _remove_partial(partial: Path) -> None:
+    """Delete ``partial`` once the output is written; a failure is only a note."""
+    try:
+        partial.unlink(missing_ok=True)
+    except OSError as exc:
+        _eprint(
+            f"note: could not delete {partial} ({exc.strerror or type(exc).__name__}); "
+            "the output is complete, so it is no longer needed."
+        )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     if args.full and args.domain not in _FULL_DOMAINS:
         _eprint(f"note: --full only affects heart_rate; ignored for {args.domain}.")
 
-    result = _read(lambda client: _fetch(client, args.domain, args.start, args.end, args.full))
-    if result is None:
+    plan, size, full = _plan(args)
+    chunked = len(plan) > 1
+    header = export_header(args.domain, args.start, args.end, size)
+    # Progress is kept on disk only for a chunked export to a file.
+    partial = partial_path(args.json_path) if chunked and args.json_path is not None else None
+    parts = {} if partial is None else _load_progress(partial, header, plan, args.resume)
+    if parts is None:
         return _EXIT_ERROR
-    return _write_result(result, args.json_path)
+    stored = partial is not None and partial.exists()  # resumed: the file holds this export
+    if chunked:
+        days = f"{CHUNK_DAYS[size]} day{'' if CHUNK_DAYS[size] == 1 else 's'}"
+        _eprint(f"export: {len(plan)} chunks of up to {days}, read one at a time.")
+
+    todo = [(index, chunk) for index, chunk in enumerate(plan, 1) if chunk.label not in parts]
+    client = None
+    step = ""  # "<i>/<n> <label>" of the chunk being read
+    try:
+        if todo:
+            client = _open_client()  # one client, so one renewal budget, for the whole export
+        for index, chunk in todo:
+            step = f"{index}/{len(plan)} {chunk.label}"
+            if chunked:
+                start, end = chunk.first.isoformat(), chunk.last.isoformat()
+            else:  # the whole range: exactly the call an unchunked export makes
+                start, end = args.start, args.end
+            # The same strict-JSON part is stored and merged, so a resumed chunk is
+            # exactly a freshly read one.
+            part = _json_ready(_fetch(client, args.domain, start, end, full))
+            if partial is not None:
+                _save_part(partial, header, chunk.label, part, create=not stored)
+                stored = True
+            parts[chunk.label] = part
+            if chunked:
+                _eprint(f"chunk {step}: {len(part.records)} record(s)")
+    except (MiFitError, requests.RequestException) as exc:
+        _report(exc, client, f" (chunk {step})" if chunked and step else "")
+        if stored:
+            _eprint(_resume_hint(partial, auth=isinstance(exc, AuthError)))
+        return _EXIT_ERROR
+    except _SaveError as exc:
+        _eprint(f"error: could not save chunk {step} to {partial} ({exc}).")
+        if stored:
+            _eprint(_resume_hint(partial, auth=False))
+        return _EXIT_ERROR
+    except KeyboardInterrupt:
+        if stored:
+            _eprint(_resume_hint(partial, auth=False))
+        raise  # main says "Interrupted." and exits 130
+
+    result = merge_chunks([(chunk, parts[chunk.label]) for chunk in plan])
+    code = _write_result(result, args.json_path)
+    if partial is not None:
+        if code == _EXIT_OK:
+            _remove_partial(partial)
+        else:  # the output could not be written; every chunk is still in the file
+            _eprint(_resume_hint(partial, auth=False))
+    return code
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +535,24 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="heart_rate only: page back through the full history instead of one window",
     )
+    export.add_argument(
+        "--chunk",
+        choices=list(CHUNK_DAYS),
+        help="chunk size for a range longer than one chunk (default: per domain)",
+    )
+    export.add_argument(
+        "--long",
+        action="store_true",
+        help=(
+            f"allow a range over {_LONG_RANGE_DAYS} days: read in chunks, one request at a "
+            "time; can take many minutes"
+        ),
+    )
+    export.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted export from PATH.partial (needs --json)",
+    )
     export.set_defaults(handler=_cmd_export)
 
     profile = commands.add_parser(
@@ -362,9 +577,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
-        # Both are validated YYYY-MM-DD strings, so text order is date order.
-        if args.command == "export" and args.start > args.end:
-            parser.error("export: --from must not be later than --to")
+        problem = _export_usage_error(args) if args.command == "export" else None
+        if problem is not None:
+            parser.error(problem)
     except SystemExit as exc:  # --help (0) and usage errors (2): report, don't raise
         return exc.code if isinstance(exc.code, int) else (_EXIT_OK if exc.code is None else 2)
 

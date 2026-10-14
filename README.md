@@ -63,14 +63,22 @@ open it, confirm, then run `mifit login` again.
 ## Export
 
 ```bash
-mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full]
+mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [--chunk day|week|month] [--long] [--resume]
 ```
 
-- `<domain>`: `steps`, `heart_rate`, `consumption` or `sleep`.
+- `<domain>`: `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
+  `spo2`, `spo2_daily`, `steps`, `weight` or `workouts`.
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.
 - `--json PATH`: write to a file instead of standard output.
 - `--full`: `heart_rate` only; page backwards through the history instead of
   querying one time window (see [Known limitations](#known-limitations)).
+  This is a single read: it ignores `--from` and cannot be combined with
+  `--chunk`, `--long` or `--resume`.
+- `--chunk day|week|month`: the chunk size (1, 7 or 31 days) for a range
+  longer than one chunk; the default depends on the domain.
+- `--long`: allow a range over 92 days.
+- `--resume`: continue an interrupted export from `PATH.partial` (needs
+  `--json`).
 
 ```bash
 mifit export sleep --from 2026-10-01 --to 2026-10-07 --json sleep.json
@@ -81,6 +89,33 @@ The output is one JSON object with three lists:
 ```json
 { "records": [], "raw": [], "notes": [] }
 ```
+
+### Long ranges
+
+A range longer than one chunk (7 days for raw heart rate and SpO2, 31 days
+for everything else, counted from `--from`) is read chunk by chunk, one
+request at a time, with progress on standard error. A shorter range is a
+single read, as before. The chunks are merged into one output of the same
+shape; with more than one chunk, each note starts with the chunk it came
+from. Ranges over 92 days need `--long`: they take many requests and can run
+for many minutes.
+
+```bash
+mifit export heart_rate --from 2026-01-01 --to 2026-06-30 --long --json heart_rate.json
+```
+
+With `--json PATH`, progress is kept in `PATH.partial`: your exported data
+plus the export's arguments (domain, dates, chunk size), no credentials.
+Treat it like the output itself. If the export stops (a network error, an
+expired session, Ctrl+C), the finished chunks stay in that file; rerun the
+same command with `--resume` and only the missing chunks are read. The output
+is the same as an uninterrupted run's, and the partial file is deleted once
+it is written. An export to standard output is chunked the same way but
+cannot be resumed.
+
+A failed chunk stops the export; nothing is retried automatically. If one
+chunk keeps failing, you can skip it by exporting the ranges before and after
+it separately.
 
 ## Python API
 
@@ -112,6 +147,24 @@ refused the request or sent something unreadable) and
 `NotificationRequiredError` (raised by the login when Xiaomi asks for a
 security confirmation). Network failures surface as `requests` exceptions,
 and a bad date argument raises `ValueError` or `TypeError`.
+
+For a long range, `read_chunks` reads one chunk at a time (the CLI's chunk
+sizes; `size="day"`, `"week"` or `"month"` overrides them) and `merge_chunks`
+joins the parts. Its dates are `"YYYY-MM-DD"` strings only.
+
+```python
+from mifit.chunks import merge_chunks
+
+parts = []
+for chunk, part in client.read_chunks("heart_rate", "2026-01-01", "2026-06-30"):
+    print(chunk.label, len(part.records))  # each chunk is read when the loop asks for it
+    parts.append((chunk, part))
+heart = merge_chunks(parts)  # its records are those of one read of the whole range
+```
+
+`read_chunks(..., skip=labels)` passes over the chunks whose labels you
+already have, to resume. The library has no 92-day limit: a long range is
+many requests, so ask for what you need.
 
 When a request is refused with HTTP 401, the client renews the session once
 from its passToken and sends the request again. A client that uses the
@@ -157,6 +210,12 @@ client, the renewal uses a fresh `requests.Session` of its own.
   came, without this correction. `--full` (`full=True`) pages backwards from
   the end date instead; it ignores the start date and stops after 10 pages,
   saying so in `notes` when older data remains.
+- **NaN and Infinity become `null`.** JSON has no such numbers, so where the
+  service sends one, the CLI writes `null` and a note says how many it
+  replaced.
+- **A read the service breaks off says so.** When the service reports more
+  pages but sends no usable cursor to fetch them, the read stops there and
+  `notes` says that rows in the range may be missing.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** On an HTTP 401, mifit renews the session once from the
@@ -170,8 +229,9 @@ client, the renewal uses a fresh `requests.Session` of its own.
 - **Narrowly tested.** One account in the China region. Other regions are
   routed but unverified, and Xiaomi can change the protocol at any time.
 - **Be gentle with the service.** Requests are sent one at a time with about a
-  second's pause; long ranges are not split up yet, so export a few weeks at a
-  time.
+  second's pause plus random jitter. Long ranges are read in chunks, and a
+  range over 92 days needs `--long`. This lowers the risk of being
+  rate-limited, but does not remove it.
 
 ## Development
 

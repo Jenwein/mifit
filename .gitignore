@@ -11,6 +11,8 @@ reference/
 *.session.json
 secrets/
 private/
+# Unfinished `mifit export --json PATH` progress: your exported health data
+*.partial
 
 # SDD scratch workspace
 .superpowers/
