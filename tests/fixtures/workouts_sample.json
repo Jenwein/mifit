@@ -1,0 +1,32 @@
+{
+  "code": 0,
+  "message": "ok",
+  "result": {
+    "sport_records": [
+      {
+        "sid": "synthetic-sid",
+        "key": "strength_training",
+        "category": "strength",
+        "time": 1760551200,
+        "value": "{\"sport_type\":308,\"proto_type\":8,\"time\":1760551200,\"timezone\":32,\"start_time\":1760551200,\"end_time\":1760552401,\"duration\":1200,\"calories\":150,\"total_cal\":180,\"avg_hrm\":110,\"max_hrm\":140,\"min_hrm\":80,\"version\":6}",
+        "zone_name": "Asia/Shanghai",
+        "zone_offset": 28800,
+        "update_time": 1760555200,
+        "watermark": 1
+      },
+      {
+        "sid": "synthetic-sid",
+        "key": "outdoor_running",
+        "category": "running",
+        "time": 1760436000,
+        "value": "{\"sport_type\":1,\"proto_type\":22,\"time\":1760436000,\"timezone\":32,\"start_time\":1760436000,\"end_time\":1760439001,\"duration\":2700,\"distance\":6000,\"calories\":400,\"total_cal\":470,\"steps\":7000,\"avg_hrm\":150,\"max_hrm\":175,\"min_hrm\":95,\"avg_pace\":450,\"hrm_aerobic_duration\":1500,\"version\":6}",
+        "zone_name": "Asia/Shanghai",
+        "zone_offset": 28800,
+        "update_time": 1760440000,
+        "watermark": 1
+      }
+    ],
+    "has_more": false,
+    "next_key": ""
+  }
+}
