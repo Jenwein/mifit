@@ -212,6 +212,19 @@ def test_record_event_never_raises(tmp_path):
     record_event("login", make_session(), now=NOW, path=blocked_parent / "session-log.jsonl")
 
 
+def test_record_event_never_raises_without_a_home_directory(monkeypatch):
+    # ``Path.home()`` raises RuntimeError when no home directory can be found
+    # (e.g. a service account with no HOME/USERPROFILE); a read must not fail on it.
+    def no_home(cls):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", classmethod(no_home))
+    with pytest.raises(RuntimeError):
+        paths.default_session_log_path()  # the patch is in effect
+
+    record_event("unauthorized", make_session(), now=NOW)  # no exception
+
+
 # ---------------------------------------------------------------------------
 # paths
 # ---------------------------------------------------------------------------

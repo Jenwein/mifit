@@ -48,9 +48,11 @@ sign-in. Your password never passes through mifit.
 
 The session is saved to `~/.mifit/session.json` (on Windows
 `%USERPROFILE%\.mifit\session.json`). It grants access to your Mi Fitness
-account's health data (not only reading): do not share it or commit it. On
-Linux and macOS the file is readable by you only; on Windows it relies on your
-user profile's permissions.
+account's health data (not only reading). It also holds your account's
+passToken, which mifit uses to renew the session when it expires, so the file
+stays useful long after the session token itself has expired: treat it like a
+password, and do not share it or commit it. On Linux and macOS the file is
+readable by you only; on Windows it relies on your user profile's permissions.
 
 If Xiaomi asks for an extra security confirmation, `mifit login` prints a URL:
 open it, confirm, then run `mifit login` again.
@@ -101,11 +103,19 @@ Unix seconds. Each domain method returns a result with `records`, `raw` and
 `notes`; `raw(key, ...)` returns the service's rows as they came, for any key
 of the fitness-data endpoint (`data/get_fitness_data_by_time`), not the daily
 reports. Errors specific to mifit derive from `mifit.MiFitError`: `AuthError`
-(no usable session, or HTTP 401), `ApiError` (the service refused the request
-or sent something unreadable) and `NotificationRequiredError` (raised by the
-login when Xiaomi asks for a security confirmation). Network failures surface
-as `requests` exceptions, and a bad date argument raises `ValueError` or
-`TypeError`.
+(no usable session, or HTTP 401), its subclass `RenewalError` (an HTTP 401 the
+automatic renewal could not fix; log in again), `ApiError` (the service
+refused the request or sent something unreadable) and
+`NotificationRequiredError` (raised by the login when Xiaomi asks for a
+security confirmation). Network failures surface as `requests` exceptions,
+and a bad date argument raises `ValueError` or `TypeError`.
+
+When a request is refused with HTTP 401, the client renews the session once
+from its passToken and sends the request again. A client that uses the
+session saved by `mifit login` saves the renewed session back to
+`~/.mifit`. Explicit sessions (`MiFit(session)`) are renewed in memory; read
+`client.session` to keep the renewed one. `MiFit(auto_renew=False)` turns
+renewal off, so a 401 raises `AuthError` straight away.
 
 ## Two layers: `raw` and `records`
 
@@ -140,10 +150,14 @@ as `requests` exceptions, and a bad date argument raises `ValueError` or
   saying so in `notes` when older data remains.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
-- **Sessions expire.** How long a session lasts is not known yet and there is
-  no automatic renewal. When a command fails with an authorization error, run
-  `mifit login` again. (An HTTP 401 can also mean the request signature was
-  refused.)
+- **Sessions expire.** On an HTTP 401, mifit renews the session once from the
+  stored passToken and retries the request. When that fails, or the session
+  was saved before renewal existed (it has no passToken), run `mifit login`
+  again. How long sessions really last is still being observed: logins, 401s
+  and renewals are logged (event, time and ages only) to
+  `~/.mifit/session-log.jsonl`. (An HTTP 401 can also mean the request
+  signature was refused; a 401 right after a renewal is taken to mean that and
+  is not retried.)
 - **Narrowly tested.** One account in the China region. Other regions are
   routed but unverified, and Xiaomi can change the protocol at any time.
 - **Be gentle with the service.** Requests are sent one at a time with about a

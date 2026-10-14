@@ -47,14 +47,16 @@ def renew_session(session: Session, http: Any = None, *, sid: str = SID) -> Sess
     takes the passToken the server returned (rotation) or keeps the old one, and
     sets ``renewed_at`` to the current UTC time. ``session`` itself is not changed.
 
-    Raises ``RenewalError`` when the session has no passToken (before any request)
-    or the renewal fails: an HTTP status other than 2xx (3xx included), a refused
-    passToken (``.code`` keeps the account service's code), a demanded security
-    confirmation, an incomplete answer or a failed STS exchange.
+    Raises ``RenewalError`` when ``session.can_renew()`` is false (no passToken or
+    user id; before any request) or the renewal fails: an HTTP status other than
+    2xx (3xx included), a refused passToken (``.code`` keeps the account service's
+    code), a demanded security confirmation, an incomplete answer or a failed STS
+    exchange.
     """
-    if not session.pass_token:
+    if not session.can_renew():
         raise RenewalError(
-            "This session has no passToken (it was saved before automatic renewal existed)."
+            "This session has no passToken or user id to renew with (a session saved "
+            "before automatic renewal existed has no passToken)."
         )
 
     http = _http_or_default(http)

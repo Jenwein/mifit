@@ -11,7 +11,8 @@
 One call = one request: the payload is serialized to compact JSON and sent as
 the single signed/encrypted ``data`` query parameter, the response body is
 RC4-decrypted, and success is judged on the HTTP status first and the decrypted
-business ``code`` second.
+business ``code`` second. The one exception: with a ``renew`` hook, an HTTP 401
+renews the session and sends the request once more.
 """
 
 from __future__ import annotations
@@ -19,18 +20,39 @@ from __future__ import annotations
 import json
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
 from mifit.auth.session import Session
 from mifit.crypto import decrypt_response_payload, encrypt_query_params, generate_nonce
-from mifit.errors import ApiError, AuthError
+from mifit.errors import ApiError, AuthError, RenewalError
 from mifit.region import BASE_HOST, BASE_PATH, regionalize
 
 _DEFAULT_TIMEOUT_S = 30.0
+_DEFAULT_MAX_RENEWALS = 3
+"""The Mi Fitness app's own cap on 401 retries (``RETRY_MAX_NUM``)."""
 _JITTER_FRACTION = 0.5
 """Up to this fraction of ``delay_s`` is added at random to each pause."""
+
+# A bad signature also produces 401 (with business code 0), so none of these
+# claims the session has expired.
+_UNAUTHORIZED = (
+    "Request was rejected with HTTP 401 (unauthorized). The session "
+    "token may have expired or been revoked, or the request signature "
+    "may have been refused; log in again if this persists."
+)
+_SAME_TOKEN_401 = (
+    "Request was rejected with HTTP 401 (unauthorized), and renewing the session "
+    "returned the same token, so the request was not retried; log in again if "
+    "this persists."
+)
+_STILL_401 = (
+    "Request was rejected with HTTP 401 again right after the session was "
+    "renewed, so the request signature was probably refused rather than the "
+    "session; automatic renewal is now off for this client."
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +74,15 @@ class Transport:
     by default). ``delay_s`` plus a random jitter of up to half of ``delay_s`` is
     slept before every request to stay polite to the service (and to avoid a
     metronomic request pattern); set ``delay_s`` to 0 to disable both.
+
+    ``renew`` is an optional hook ``renew(session) -> Session``. When a request
+    gets HTTP 401, the transport calls it with the session in use, switches to the
+    session it returns and sends the request once more (freshly signed). That
+    happens at most once per request and at most ``max_renewals`` times per
+    transport, and never before a 401. A renewal that returns the same service
+    token is not retried, and a 401 right after a renewal is taken for a refused
+    signature, not an expired session; either one switches renewal off for this
+    transport. Without a hook, a 401 raises ``AuthError`` at once.
     """
 
     def __init__(
@@ -61,6 +92,8 @@ class Transport:
         http: Any = None,
         delay_s: float = 1.0,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
+        renew: Callable[[Session], Session] | None = None,
+        max_renewals: int = _DEFAULT_MAX_RENEWALS,
     ) -> None:
         if http is None:
             import requests  # imported lazily so an injected ``http`` needs no requests
@@ -70,6 +103,13 @@ class Transport:
         self._http = http
         self._delay_s = delay_s
         self._timeout_s = timeout_s
+        self._renew = renew
+        self._renewals_left = max_renewals
+
+    @property
+    def session(self) -> Session:
+        """The session requests are signed with; a renewal replaces it."""
+        return self._session
 
     def get_json(
         self,
@@ -81,41 +121,40 @@ class Transport:
         """GET ``endpoint_path`` with ``data_obj`` signed as the only parameter.
 
         ``sign_path`` overrides the path that goes into the signature (the URL
-        itself is unchanged). Raises ``AuthError`` on HTTP 401, ``ApiError`` on any
-        other non-2xx status, an undecryptable body, or a decrypted ``code != 0``.
+        itself is unchanged). Raises ``AuthError`` on an HTTP 401 that was not
+        renewed away (``RenewalError`` when the ``renew`` hook failed),
+        ``ApiError`` on any other non-2xx status, an undecryptable body, or a
+        decrypted ``code != 0``.
         """
-        base_url = BASE_HOST + BASE_PATH + endpoint_path
-        url = regionalize(base_url, self._session.region)
-        nonce = generate_nonce()
-        params = encrypt_query_params(
-            method="GET",
-            path=urlparse(base_url).path,
-            params={"data": json.dumps(data_obj, separators=(",", ":"))},
-            nonce=nonce,
-            ssecurity=self._session.ssecurity,
-            signature_path=sign_path,
-        )
-
-        if self._delay_s > 0:
-            time.sleep(
-                self._delay_s + random.uniform(0, _JITTER_FRACTION * self._delay_s)
-            )
-        response = self._http.get(
-            url,
-            params=params,
-            headers=self._headers(),
-            timeout=self._timeout_s,
-        )
+        response, nonce = self._send(endpoint_path, data_obj, sign_path)
+        if (
+            response.status_code == 401
+            and self._renew is not None
+            and self._renewals_left > 0
+        ):
+            self._renewals_left -= 1
+            old = self._session
+            try:
+                new = self._renew(old)
+            except RenewalError as exc:
+                raise RenewalError(
+                    "Request was rejected with HTTP 401 and the session could not "
+                    f"be renewed: {exc}",
+                    code=exc.code,
+                ) from None
+            if new.service_token == old.service_token:
+                self._renewals_left = 0
+                raise AuthError(_SAME_TOKEN_401)
+            self._session = new
+            # A fresh nonce, signed with the new ssecurity and sent with the new cookies.
+            response, nonce = self._send(endpoint_path, data_obj, sign_path)
+            if response.status_code == 401:
+                self._renewals_left = 0
+                raise AuthError(_STILL_401)
 
         status = response.status_code
         if status == 401:
-            # A bad signature also produces 401 (with business code 0), so do not
-            # claim the session has expired.
-            raise AuthError(
-                "Request was rejected with HTTP 401 (unauthorized). The session "
-                "token may have expired or been revoked, or the request signature "
-                "may have been refused; log in again if this persists."
-            )
+            raise AuthError(_UNAUTHORIZED)
         if not 200 <= status < 300:
             raise ApiError(
                 f"Request failed with HTTP {status}.", payload={"http_status": status}
@@ -218,6 +257,34 @@ class Transport:
             # although the service has more.
             truncated = max_pages is not None and pages >= max_pages
         return PagedResult(items, truncated)
+
+    def _send(
+        self, endpoint_path: str, data_obj: dict, sign_path: str | None
+    ) -> tuple[Any, str]:
+        """Sign ``data_obj`` for the current session, pause, GET; return the response and its nonce."""
+        base_url = BASE_HOST + BASE_PATH + endpoint_path
+        url = regionalize(base_url, self._session.region)
+        nonce = generate_nonce()
+        params = encrypt_query_params(
+            method="GET",
+            path=urlparse(base_url).path,
+            params={"data": json.dumps(data_obj, separators=(",", ":"))},
+            nonce=nonce,
+            ssecurity=self._session.ssecurity,
+            signature_path=sign_path,
+        )
+
+        if self._delay_s > 0:
+            time.sleep(
+                self._delay_s + random.uniform(0, _JITTER_FRACTION * self._delay_s)
+            )
+        response = self._http.get(
+            url,
+            params=params,
+            headers=self._headers(),
+            timeout=self._timeout_s,
+        )
+        return response, nonce
 
     def _headers(self) -> dict[str, str]:
         return {

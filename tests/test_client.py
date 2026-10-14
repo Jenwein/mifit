@@ -1,27 +1,38 @@
-"""MiFit facade tests. A fake ``Transport`` stands in for the network layer and the
-session store is monkeypatched, so nothing here touches the network, the real
-session file or any real health data. Every credential below is synthetic.
+"""MiFit facade tests. A fake ``Transport`` (or, for the renewal tests, a fake
+``http`` under the real one) stands in for the network, and the session store is
+monkeypatched or lives under the isolated home (conftest), so nothing here
+touches the network, the real session file or any real health data. Every
+credential below is synthetic.
 """
 
+import base64
+import dataclasses
 import json
 import subprocess
 import sys
 from datetime import datetime, time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
+import requests
 
 import mifit
 from mifit import client as client_module
+from mifit import paths
+from mifit import transport as transport_module
+from mifit.auth.renew import RENEW_URL
+from mifit.auth.session import Session, load_session, save_session
 from mifit.client import MiFit
+from mifit.crypto import rc4_crypt, signed_nonce
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
-from mifit.errors import AuthError
-from mifit.auth.session import Session
+from mifit.errors import AuthError, RenewalError
+from mifit.region import SID
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
@@ -118,7 +129,7 @@ def build(monkeypatch):
     facade constructed it and hands back the fake.
     """
 
-    def _build(payload, session=None, http=None):
+    def _build(payload, session=None, http=None, **kwargs):
         fake = FakeTransport(payload)
         args = []
 
@@ -127,7 +138,7 @@ def build(monkeypatch):
             return fake
 
         monkeypatch.setattr(client_module, "Transport", factory)
-        client = MiFit(session or make_session(), http=http)
+        client = MiFit(session or make_session(), http=http, **kwargs)
         return client, fake, args
 
     return _build
@@ -344,12 +355,26 @@ def test_transport_is_built_from_the_session_and_injected_http(build):
     session = make_session()
     http = object()
 
-    _, _, args = build(load_fixture("steps_daily_sample.json"), session=session, http=http)
+    client, _, args = build(
+        load_fixture("steps_daily_sample.json"), session=session, http=http
+    )
 
     assert len(args) == 1
     (positional, keywords) = args[0]
     assert positional == (session,)
-    assert keywords == {"http": http}
+    assert keywords == {"http": http, "renew": client._renew}
+
+
+def test_transport_gets_the_renew_hook_unless_auto_renew_is_off(build):
+    http = object()
+
+    client, _, args = build(load_fixture("steps_daily_sample.json"), http=http)
+    ((_, keywords),) = args
+    assert keywords == {"http": http, "renew": client._renew}
+
+    _, _, args = build(load_fixture("steps_daily_sample.json"), http=http, auto_renew=False)
+    ((_, keywords),) = args
+    assert keywords == {"http": http, "renew": None}
 
 
 def test_session_property_returns_the_session_in_use(build, monkeypatch):
@@ -386,7 +411,7 @@ def test_stored_session_is_loaded_when_none_passed(monkeypatch):
 
     client = MiFit()
 
-    assert seen == [((stored,), {"http": None})]
+    assert seen == [((stored,), {"http": None, "renew": client._renew})]
     assert client.steps(1759276800, 1759363199).records
 
 
@@ -446,9 +471,9 @@ def test_login_qr_stores_session_and_switches_transport(monkeypatch):
     saved = []
     login_calls = []
 
-    def factory(session, *, http=None):
+    def factory(session, *, http=None, renew=None):
         fake = FakeTransport(load_fixture("steps_daily_sample.json"))
-        fake.session = session
+        fake._session = session  # read back through ``Transport.session``
         built.append(fake)
         return fake
 
@@ -483,7 +508,7 @@ def test_login_qr_failure_keeps_the_existing_session(monkeypatch):
     built = []
     saved = []
 
-    def factory(session, *, http=None):
+    def factory(session, *, http=None, renew=None):
         fake = FakeTransport(load_fixture("steps_daily_sample.json"))
         built.append(fake)
         return fake
@@ -505,6 +530,317 @@ def test_login_qr_failure_keeps_the_existing_session(monkeypatch):
     assert len(built) == 1
     assert client.steps(1759276800, 1759363199).records
     assert len(built[0].calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# renewal on HTTP 401
+# ---------------------------------------------------------------------------
+
+SYNTH_PASS_TOKEN = "SYNTH-PASS-TOKEN-0000"
+SYNTH_DEVICE_ID = "SYNTHDEVICE00001"
+NEW_SERVICE_TOKEN = "SYNTH-RENEWED-SERVICE-TOKEN-1111"
+NEW_PASS_TOKEN = "SYNTH-RENEWED-PASS-TOKEN-1111"
+NEW_SSECURITY = base64.b64encode(b"synthetic-renewed-ssecurity").decode("ascii")
+STS_LOCATION = "https://sts.synthetic.example.com/sts?d=synthetic-renew&ticket=0"
+CLIENT_SIGN = "SYNTH-CLIENT-SIGN-0000"
+ROWS = [{"time": 1759276800, "value": "{\"steps\": 1}"}]
+
+
+def renewable_session(token="SYNTH-SERVICE-TOKEN-0000"):
+    return dataclasses.replace(
+        make_session(token=token), pass_token=SYNTH_PASS_TOKEN, device_id=SYNTH_DEVICE_ID
+    )
+
+
+class RenewalRecorder:
+    """Patches ``renew_session``, ``save_session`` and ``record_event`` on the client
+    module and records how the facade used them."""
+
+    def __init__(self, monkeypatch, *, result=None, error=None, save_error=None):
+        self.result = result
+        self.error = error
+        self.save_error = save_error
+        self.renew_calls = []
+        self.saved = []
+        self.events = []
+        monkeypatch.setattr(client_module, "renew_session", self._renew)
+        monkeypatch.setattr(client_module, "save_session", self._save)
+        monkeypatch.setattr(client_module, "record_event", self._record)
+
+    def _renew(self, session, http=None):
+        self.renew_calls.append({"session": session, "http": http})
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+    def _save(self, session, path=None):
+        if self.save_error is not None:
+            raise self.save_error
+        self.saved.append(session)
+
+    def _record(self, event, session, **kwargs):
+        self.events.append((event, session))
+
+    @property
+    def event_names(self):
+        return [event for event, _ in self.events]
+
+
+def test_renew_hook_persists_and_logs_for_a_stored_session(monkeypatch):
+    stored = renewable_session()
+    new = renewable_session(token=NEW_SERVICE_TOKEN)
+    http = object()
+    monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
+    recorder = RenewalRecorder(monkeypatch, result=new)
+    client = MiFit(http=http)
+
+    returned = client._renew(stored)
+
+    assert returned is new
+    assert recorder.renew_calls == [{"session": stored, "http": http}]
+    assert recorder.saved == [new]
+    assert recorder.event_names == ["unauthorized", "renewed"]
+    # The 401 is logged with the refused session's ages, the renewal with the new one's.
+    assert recorder.events[0][1] is stored
+    assert recorder.events[1][1] is new
+    assert client.session is new
+
+
+def test_renew_hook_does_not_write_for_an_explicit_session(monkeypatch):
+    explicit = renewable_session()
+    new = renewable_session(token=NEW_SERVICE_TOKEN)
+    recorder = RenewalRecorder(monkeypatch, result=new)
+    client = MiFit(explicit)
+
+    returned = client._renew(explicit)
+
+    assert returned is new
+    assert recorder.saved == []
+    assert recorder.events == []
+    # Renewed in memory: the caller keeps it by reading ``client.session``.
+    assert client.session is new
+
+
+def test_failed_renewal_is_logged_and_re_raised(monkeypatch):
+    stored = renewable_session()
+    error = RenewalError("Xiaomi refused the stored passToken (code 70016).", code=70016)
+    monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
+    recorder = RenewalRecorder(monkeypatch, error=error)
+    client = MiFit()
+
+    with pytest.raises(RenewalError) as excinfo:
+        client._renew(stored)
+
+    assert excinfo.value is error
+    assert recorder.event_names == ["unauthorized", "renew_failed"]
+    assert recorder.saved == []
+    assert client.session is stored
+
+
+def test_network_failure_during_renewal_becomes_a_renewal_error_without_the_url(monkeypatch):
+    # requests puts the URL it was fetching in the message; on the STS call that
+    # URL carries the one-time ticket and the clientSign.
+    stored = renewable_session()
+    error = requests.ConnectionError(
+        f"Max retries exceeded with url: {STS_LOCATION}&clientSign={CLIENT_SIGN}"
+    )
+    monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
+    recorder = RenewalRecorder(monkeypatch, error=error)
+    client = MiFit()
+
+    with pytest.raises(RenewalError) as excinfo:
+        client._renew(stored)
+
+    exc = excinfo.value
+    text = str(exc) + repr(exc)
+    assert "ConnectionError" in text
+    assert CLIENT_SIGN not in text
+    assert "sts.synthetic.example.com" not in text
+    assert exc.code is None
+    assert exc.__cause__ is None and exc.__suppress_context__
+    assert recorder.event_names == ["unauthorized", "renew_failed"]
+
+
+def test_save_failure_after_renewal_warns_and_keeps_going(monkeypatch):
+    stored = renewable_session()
+    new = dataclasses.replace(
+        renewable_session(token=NEW_SERVICE_TOKEN), pass_token=NEW_PASS_TOKEN
+    )
+    monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
+    recorder = RenewalRecorder(
+        monkeypatch, result=new, save_error=PermissionError(13, "synthetic: access denied")
+    )
+    client = MiFit()
+
+    with pytest.warns(RuntimeWarning, match="could not be saved") as caught:
+        returned = client._renew(stored)
+
+    assert returned is new
+    assert client.session is new
+    assert recorder.event_names == ["unauthorized", "renewed"]
+    (warning,) = caught
+    message = str(warning.message)
+    assert "next run will renew again" in message
+    for secret in (NEW_SERVICE_TOKEN, NEW_PASS_TOKEN, NEW_SSECURITY, SYNTH_DEVICE_ID):
+        assert secret not in message
+
+
+def test_login_qr_keeps_the_renew_hook_and_becomes_store_backed(monkeypatch):
+    explicit = make_session(token="SYNTH-EXPLICIT-TOKEN-0000")
+    logged_in = renewable_session(token="SYNTH-LOGGED-IN-TOKEN-0000")
+    renewed = renewable_session(token=NEW_SERVICE_TOKEN)
+    built = []
+
+    def factory(session, *, http=None, renew=None):
+        built.append({"session": session, "renew": renew})
+        return FakeTransport(load_fixture("steps_daily_sample.json"))
+
+    monkeypatch.setattr(client_module, "Transport", factory)
+    monkeypatch.setattr(client_module, "_login_qr", lambda http=None, on_qr=None: logged_in)
+    recorder = RenewalRecorder(monkeypatch, result=renewed)
+    client = MiFit(explicit)
+
+    client.login_qr()
+
+    assert [entry["renew"] for entry in built] == [client._renew, client._renew]
+    assert built[1]["session"] is logged_in
+    assert recorder.saved == [logged_in]
+    assert recorder.events == [("login", logged_in)]
+
+    # The client logged in itself, so it is now store-backed: a renewal is saved and logged.
+    client._renew(logged_in)
+
+    assert recorder.saved == [logged_in, renewed]
+    assert recorder.event_names == ["login", "unauthorized", "renewed"]
+
+
+def encrypt_body(payload, nonce, ssecurity):
+    """A health-API response body as the server builds it: b64(RC4(json))."""
+    key = base64.b64decode(signed_nonce(ssecurity, nonce))
+    return base64.b64encode(rc4_crypt(key, json.dumps(payload).encode("utf-8"))).decode(
+        "ascii"
+    )
+
+
+class FakeHttpResponse:
+    def __init__(self, status_code=200, text="", cookies=None):
+        self.status_code = status_code
+        self.text = text
+        self.cookies = cookies or {}
+        self.headers = {}
+
+
+LOGIN_BODY = "&&&START&&&" + json.dumps(
+    {
+        "code": 0,
+        "desc": "success",
+        "userId": 1000001,
+        "passToken": NEW_PASS_TOKEN,
+        "cUserId": "synthetic-cuser-id",
+        "ssecurity": NEW_SSECURITY,
+        "nonce": 9876543210987654321,
+        "location": STS_LOCATION,
+        "securityStatus": 0,
+    }
+)
+
+
+class RoutingHttp:
+    """Answers by URL, like the real services would.
+
+    The health API answers 401 and then 200 with ``ROWS`` encrypted under the
+    renewed ssecurity (so only a retry signed for the new session decrypts);
+    ``RENEW_URL`` answers the login JSON and the STS ``location`` sets the new
+    service-token cookie.
+    """
+
+    def __init__(self):
+        self.health_statuses = [401, 200]
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None, allow_redirects=True, cookies=None):
+        if url == RENEW_URL:
+            self.calls.append("serviceLogin")
+            return FakeHttpResponse(text=LOGIN_BODY)
+        if url == STS_LOCATION:
+            self.calls.append("sts")
+            return FakeHttpResponse(cookies={f"{SID}_serviceToken": NEW_SERVICE_TOKEN})
+        if urlparse(url).hostname.endswith("hlth.io.mi.com"):
+            self.calls.append("health")
+            status = self.health_statuses.pop(0)
+            if status != 200:
+                return FakeHttpResponse(status_code=status)
+            payload = {"code": 0, "result": {"data_list": ROWS, "has_more": False}}
+            return FakeHttpResponse(text=encrypt_body(payload, params["_nonce"], NEW_SSECURITY))
+        raise AssertionError(f"unexpected GET {url}")
+
+
+@pytest.fixture
+def no_delay(monkeypatch):
+    """The facade's transport pauses before every request; not in these tests."""
+    monkeypatch.setattr(transport_module.time, "sleep", lambda seconds: None)
+
+
+def test_end_to_end_401_is_renewed_offline(no_delay):
+    old = renewable_session()
+    http = RoutingHttp()
+    client = MiFit(old, http=http)
+
+    rows = client.raw("steps", 1, 2)
+
+    assert rows == ROWS
+    assert client.session.service_token == NEW_SERVICE_TOKEN
+    assert client.session.ssecurity == NEW_SSECURITY
+    assert client.session.pass_token == NEW_PASS_TOKEN
+    assert http.calls == ["health", "serviceLogin", "sts", "health"]
+
+
+def test_renewal_uses_its_own_http_client_and_saves_the_session(no_delay, monkeypatch):
+    """With no injected ``http``, the renewal must not run on the transport's
+    ``requests.Session``: the account and STS cookies stay out of the health
+    API's cookie jar."""
+    router = RoutingHttp()
+    clients = []
+
+    class RecordingSession:
+        """Stands in for ``requests.Session``; every instance routes to ``router``."""
+
+        def __init__(self):
+            self.calls = []
+            clients.append(self)
+
+        def get(self, url, **kwargs):
+            before = len(router.calls)
+            response = router.get(url, **kwargs)
+            self.calls.extend(router.calls[before:])
+            return response
+
+    monkeypatch.setattr(requests, "Session", RecordingSession)
+    save_session(renewable_session())  # under the isolated home (conftest)
+    client = MiFit()
+
+    assert client.raw("steps", 1, 2) == ROWS
+
+    transport_http, *renewal_clients = clients
+    assert transport_http.calls == ["health", "health"]
+    assert [call for c in renewal_clients for call in c.calls] == ["serviceLogin", "sts"]
+    # Store-backed: the renewed session replaced the stored one, and the log
+    # holds event names and ages only.
+    assert load_session().service_token == NEW_SERVICE_TOKEN
+    log = paths.default_session_log_path().read_text(encoding="utf-8")
+    assert [json.loads(line)["event"] for line in log.splitlines()] == [
+        "unauthorized",
+        "renewed",
+    ]
+    for secret in (
+        SYNTH_PASS_TOKEN,
+        NEW_PASS_TOKEN,
+        NEW_SERVICE_TOKEN,
+        NEW_SSECURITY,
+        SYNTH_DEVICE_ID,
+        STS_LOCATION,
+    ):
+        assert secret not in log
 
 
 def test_importing_client_registers_the_domains():

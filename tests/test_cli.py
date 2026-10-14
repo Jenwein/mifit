@@ -3,6 +3,7 @@ so nothing here touches the network, the real session file or any real health da
 Every credential below is synthetic.
 """
 
+import dataclasses
 import io
 import json
 import os
@@ -11,11 +12,14 @@ import sys
 import tomllib
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import requests
 
 from mifit import cli
-from mifit.auth.session import Session
+from mifit.auth.session import Session, save_session
+from mifit.paths import default_session_log_path
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
@@ -396,6 +400,53 @@ def test_export_network_error_does_not_echo_the_exception_text(fake_mifit, monke
     captured = capsys.readouterr()
     assert "SECRET-IN-URL" not in captured.out + captured.err
     assert "ConnectionError" in captured.err
+
+
+class Unauthorized:
+    """A health-API ``http`` that refuses every request with HTTP 401."""
+
+    def get(self, url, **kwargs):
+        return SimpleNamespace(status_code=401, text="")
+
+
+def test_export_renewal_network_error_does_not_echo_the_sts_url(monkeypatch, capsys):
+    """The real ``MiFit`` and ``Transport`` on the stored session (under the isolated
+    home); only the health API and the renewal's network call are faked."""
+    from mifit import client as client_module
+    from mifit import transport as transport_module
+    from mifit.client import MiFit
+
+    client_sign = "SYNTH-CLIENT-SIGN-CLI-0001"
+    sts_url = "https://sts.synthetic.example.com/sts?d=synthetic-cli&ticket=0"
+
+    def renew_fails_on_the_network(session, http=None):
+        # What requests raises when the STS call cannot connect: the URL, with its
+        # one-time ticket and clientSign, is in the message.
+        raise requests.ConnectionError(
+            f"Max retries exceeded with url: {sts_url}&clientSign={client_sign}"
+        )
+
+    monkeypatch.setattr(client_module, "renew_session", renew_fails_on_the_network)
+    monkeypatch.setattr(transport_module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(cli, "MiFit", lambda: MiFit(http=Unauthorized()))
+    save_session(dataclasses.replace(make_session(), pass_token="SYNTH-PASS-TOKEN-CLI-0001"))
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-01"])
+
+    assert rc != 0
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "could not be renewed" in captured.err
+    assert "ConnectionError" in captured.err
+    assert "Run `mifit login`" in captured.err
+    for secret in (client_sign, "sts.synthetic.example.com", "SYNTH-PASS-TOKEN-CLI-0001"):
+        assert secret not in output
+    log = default_session_log_path().read_text(encoding="utf-8")
+    assert [json.loads(line)["event"] for line in log.splitlines()] == [
+        "unauthorized",
+        "renew_failed",
+    ]
+    assert client_sign not in log and "sts.synthetic" not in log
 
 
 def test_export_unwritable_json_path_is_reported(fake_mifit, tmp_path, capsys):

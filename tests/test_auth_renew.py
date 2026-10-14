@@ -298,6 +298,16 @@ def test_session_without_pass_token_raises_before_any_request():
     assert "passToken" in str(excinfo.value)
 
 
+def test_session_without_user_id_raises_before_any_request():
+    # ``can_renew()`` is the gate: the userId cookie is as necessary as the passToken.
+    http = FakeHttp()
+
+    with pytest.raises(RenewalError):
+        renew_session(old_session(user_id=""), http)
+
+    assert http.calls == []
+
+
 def test_refused_pass_token_raises_renewal_error_with_code():
     body = safe_body({"code": 70016, "desc": "synthetic refusal"})
     http = FakeHttp(FakeResponse(text=body))

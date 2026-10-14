@@ -107,7 +107,9 @@ def record_event(
 
     The line is ``{"event", "at", "login_age_s", "token_age_s"}`` with ``at`` in
     UTC. ``path`` defaults to ``paths.default_session_log_path()``. The parent
-    directory is created owner-only (on POSIX); any ``OSError`` is swallowed.
+    directory is created owner-only (on POSIX). Any ``OSError`` is swallowed, and
+    so is the ``RuntimeError`` that ``Path.home()`` raises when there is no home
+    directory to put the default log in.
     """
     moment = _now(now)
     login_age_s, token_age_s = session_ages(session, moment)
@@ -119,10 +121,10 @@ def record_event(
             "token_age_s": token_age_s,
         }
     )
-    target = Path(path) if path is not None else default_session_log_path()
     try:
+        target = Path(path) if path is not None else default_session_log_path()
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with open(target, "a", encoding="utf-8", newline="\n") as handle:
             handle.write(line + "\n")
-    except OSError:
+    except (OSError, RuntimeError):
         pass

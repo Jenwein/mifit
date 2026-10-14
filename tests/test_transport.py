@@ -2,6 +2,7 @@
 touches the network, and all credentials/payloads are synthetic."""
 
 import base64
+import dataclasses
 import json
 import random
 from urllib.parse import urlparse
@@ -11,11 +12,13 @@ import pytest
 from mifit import transport as transport_module
 from mifit.auth.session import Session
 from mifit.crypto import encrypt_query_params, rc4_crypt, signed_nonce
-from mifit.errors import ApiError, AuthError, MiFitError
+from mifit.errors import ApiError, AuthError, MiFitError, RenewalError
 from mifit.transport import Transport
 
 SYNTH_SSECURITY = base64.b64encode(b"synthetic-secret").decode("ascii")
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0000"
+NEW_SSECURITY = base64.b64encode(b"synthetic-renewed-secret").decode("ascii")
+NEW_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-1111"
 ENDPOINT = "data/get_fitness_data_by_time"
 SIGN_PATH = "/app/v1/data/get_fitness_data_by_time"
 DATA_OBJ = {"sid": "synthetic", "start_time": 1, "end_time": 2}
@@ -34,9 +37,9 @@ def make_session(region="cn", extra_cookies=None):
     )
 
 
-def encrypt_body(payload, nonce):
+def encrypt_body(payload, nonce, ssecurity=SYNTH_SSECURITY):
     """Build a response body exactly as the server would: b64(RC4(json))."""
-    key = base64.b64decode(signed_nonce(SYNTH_SSECURITY, nonce))
+    key = base64.b64decode(signed_nonce(ssecurity, nonce))
     raw = json.dumps(payload).encode("utf-8")
     return base64.b64encode(rc4_crypt(key, raw)).decode("ascii")
 
@@ -272,3 +275,206 @@ def test_default_http_is_a_requests_session():
     requests = pytest.importorskip("requests")
     transport = Transport(make_session(), delay_s=0)
     assert isinstance(transport._http, requests.Session)
+
+
+# ---------------------------------------------------------------------------
+# renewal on HTTP 401
+# ---------------------------------------------------------------------------
+
+OK_PAYLOAD = {"code": 0, "data_list": [{"time": 1, "value": "synthetic"}]}
+UNAUTHORIZED = (401, {"code": 0}, SYNTH_SSECURITY)
+
+
+class ScriptedHttp:
+    """Answers each GET with the next ``(status, payload, ssecurity)`` step.
+
+    The body is encrypted with the request's own ``_nonce`` and the step's
+    ``ssecurity``, so it decrypts only with that request's nonce and that key.
+    """
+
+    def __init__(self, *steps):
+        self._steps = list(steps)
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(
+            {"url": url, "params": params, "headers": headers, "timeout": timeout}
+        )
+        if not self._steps:
+            raise AssertionError(f"unscripted GET {url}")
+        status, payload, ssecurity = self._steps.pop(0)
+        return FakeResponse(status, encrypt_body(payload, params["_nonce"], ssecurity))
+
+
+class RenewHook:
+    """A ``renew`` hook: records each session it gets and returns (or raises) the next answer."""
+
+    def __init__(self, *answers):
+        self._answers = list(answers)
+        self.calls = []
+
+    def __call__(self, session):
+        self.calls.append(session)
+        answer = self._answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+
+def renewed_session(token=NEW_SERVICE_TOKEN, ssecurity=NEW_SSECURITY):
+    return dataclasses.replace(
+        make_session(),
+        service_token=token,
+        ssecurity=ssecurity,
+        renewed_at="2026-10-14T05:00:00Z",
+    )
+
+
+def renewing_transport(http, hook, **kwargs):
+    return Transport(make_session(), http=http, delay_s=0, renew=hook, **kwargs)
+
+
+def test_session_property_is_the_session_in_use():
+    session = make_session()
+    assert Transport(session, http=FakeHttp(), delay_s=0).session is session
+
+
+def test_401_renews_once_and_retries_with_the_new_session():
+    new = renewed_session()
+    http = ScriptedHttp(UNAUTHORIZED, (200, OK_PAYLOAD, NEW_SSECURITY))
+    hook = RenewHook(new)
+    transport = renewing_transport(http, hook)
+    old = transport.session
+
+    result = transport.get_json(ENDPOINT, DATA_OBJ)
+
+    # The body is encrypted with the NEW ssecurity: it decrypts only if that was used.
+    assert result == OK_PAYLOAD
+    assert len(hook.calls) == 1 and hook.calls[0] is old
+    assert len(http.calls) == 2
+    first, retry = http.calls
+    assert f"serviceToken={SYNTH_SERVICE_TOKEN}" in first["headers"]["Cookie"]
+    assert f"serviceToken={NEW_SERVICE_TOKEN}" in retry["headers"]["Cookie"]
+    assert first["params"]["_nonce"] != retry["params"]["_nonce"]
+    # The retry is signed with the new ssecurity, under a fresh nonce.
+    assert retry["params"] == encrypt_query_params(
+        method="GET",
+        path=SIGN_PATH,
+        params={"data": COMPACT_DATA},
+        nonce=retry["params"]["_nonce"],
+        ssecurity=NEW_SSECURITY,
+    )
+    assert transport.session is new
+
+
+def test_401_after_renewal_raises_and_never_renews_again():
+    refused_again = (401, {"code": 0}, NEW_SSECURITY)
+    http = ScriptedHttp(UNAUTHORIZED, refused_again, refused_again)
+    hook = RenewHook(renewed_session(), renewed_session(token="SYNTH-UNUSED-TOKEN"))
+    transport = renewing_transport(http, hook)
+
+    with pytest.raises(AuthError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    message = str(excinfo.value)
+    assert "401" in message
+    assert "signature" in message
+    assert not isinstance(excinfo.value, RenewalError)
+    assert len(hook.calls) == 1
+    assert len(http.calls) == 2
+
+    # Renewal is now off for this transport: one more GET, no further renewal.
+    with pytest.raises(AuthError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    assert "401" in str(excinfo.value)
+    assert len(hook.calls) == 1
+    assert len(http.calls) == 3
+
+
+def test_renewal_that_returns_the_same_token_does_not_retry():
+    http = ScriptedHttp(UNAUTHORIZED, UNAUTHORIZED)
+    hook = RenewHook(renewed_session(token=SYNTH_SERVICE_TOKEN))
+    transport = renewing_transport(http, hook)
+    old = transport.session
+
+    with pytest.raises(AuthError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    assert "401" in str(excinfo.value)
+    assert "same token" in str(excinfo.value)
+    assert len(http.calls) == 1
+    assert transport.session is old
+
+    # Renewal is off afterwards, as after a signature 401.
+    with pytest.raises(AuthError):
+        transport.get_json(ENDPOINT, DATA_OBJ)
+    assert len(hook.calls) == 1
+    assert len(http.calls) == 2
+
+
+def test_renewal_failure_raises_renewal_error_mentioning_401():
+    http = ScriptedHttp(UNAUTHORIZED)
+    hook = RenewHook(
+        RenewalError("Xiaomi refused the stored passToken (code 70016).", code=70016)
+    )
+    transport = renewing_transport(http, hook)
+
+    with pytest.raises(RenewalError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    exc = excinfo.value
+    assert isinstance(exc, AuthError)
+    assert exc.code == 70016
+    assert "401" in str(exc)
+    assert "70016" in str(exc)
+    assert exc.__cause__ is None and exc.__suppress_context__
+    assert len(http.calls) == 1
+
+
+def test_renewals_are_capped_per_transport():
+    steps = []
+    for _ in range(4):
+        steps += [UNAUTHORIZED, (200, OK_PAYLOAD, NEW_SSECURITY)]
+    http = ScriptedHttp(*steps)
+    hook = RenewHook(*(renewed_session(token=f"SYNTH-SERVICE-TOKEN-{n}") for n in range(4)))
+    transport = renewing_transport(http, hook)
+
+    for _ in range(3):
+        assert transport.get_json(ENDPOINT, DATA_OBJ) == OK_PAYLOAD
+
+    with pytest.raises(AuthError) as excinfo:
+        transport.get_json(ENDPOINT, DATA_OBJ)
+
+    assert not isinstance(excinfo.value, RenewalError)
+    assert len(hook.calls) == 3
+    assert len(http.calls) == 7
+
+
+def test_paged_read_renews_mid_way():
+    page_1 = {
+        "code": 0,
+        "result": {"data_list": [{"n": 1}], "has_more": True, "next_key": "synthetic-cursor"},
+    }
+    page_2 = {"code": 0, "result": {"data_list": [{"n": 2}], "has_more": False}}
+    http = ScriptedHttp(
+        (200, page_1, SYNTH_SSECURITY), UNAUTHORIZED, (200, page_2, NEW_SSECURITY)
+    )
+    hook = RenewHook(renewed_session())
+    transport = renewing_transport(http, hook)
+
+    items = transport.get_paged(ENDPOINT, DATA_OBJ)
+
+    assert items == [{"n": 1}, {"n": 2}]
+    assert len(hook.calls) == 1
+    assert len(http.calls) == 3
+    # The refused page-2 request and its retry both ask for the cursor.
+    assert sent_data(http.calls[1], SYNTH_SSECURITY)["next_key"] == "synthetic-cursor"
+    assert sent_data(http.calls[2], NEW_SSECURITY)["next_key"] == "synthetic-cursor"
+
+
+def sent_data(call, ssecurity):
+    """Decrypt the ``data`` parameter of a recorded request (it is the first value
+    encrypted, so the RC4 stream starts with it)."""
+    key = base64.b64decode(signed_nonce(ssecurity, call["params"]["_nonce"]))
+    return json.loads(rc4_crypt(key, base64.b64decode(call["params"]["data"])))

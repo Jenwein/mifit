@@ -8,13 +8,19 @@ become the bounds of that *local* calendar day, or ints already in Unix seconds.
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable
 from datetime import date, datetime, time
 from typing import Any
 
+# ``load_session``, ``save_session``, ``renew_session``, ``record_event`` and
+# ``Transport`` are looked up through this module at call time, so tests can patch
+# them here and stay offline and off the real session files.
 # Importing the domain modules is what registers them in ``REGISTRY``; keep these
 # imports even if a name below stops being used.
+from mifit.auth.lifetime import record_event
 from mifit.auth.qr import login_qr as _login_qr
+from mifit.auth.renew import renew_session
 from mifit.auth.session import Session, load_session, save_session
 from mifit.domains.base import DomainResult
 from mifit.domains.consumption import fetch_consumption
@@ -22,7 +28,7 @@ from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_win
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
-from mifit.errors import AuthError
+from mifit.errors import AuthError, RenewalError
 from mifit.transport import Transport
 
 _RAW_ENDPOINT = "data/get_fitness_data_by_time"
@@ -72,9 +78,25 @@ class MiFit:
     ``session`` defaults to the one stored by an earlier login. ``http`` is any
     object ``Transport`` accepts (a ``requests.Session`` by default); inject one
     to keep a client offline. Raises ``AuthError`` when there is no usable session.
+
+    With ``auto_renew`` (the default), a request refused with HTTP 401 renews the
+    session once from its passToken and is sent again (see ``Transport`` for the
+    limits); a renewal that fails raises ``RenewalError``, an ``AuthError``. The
+    renewal runs on the injected ``http`` or, by default, on a fresh HTTP client
+    of its own, never on the one the health requests use. A client whose session
+    came from the store (``session`` omitted, or after ``login_qr``) saves the
+    renewed session there and logs the 401 and the renewal to the session log; a
+    session passed in is renewed in memory only, so read ``session`` to keep it.
     """
 
-    def __init__(self, session: Session | None = None, *, http: Any = None) -> None:
+    def __init__(
+        self,
+        session: Session | None = None,
+        *,
+        http: Any = None,
+        auto_renew: bool = True,
+    ) -> None:
+        store_backed = session is None
         if session is None:
             try:
                 session = load_session()
@@ -92,13 +114,65 @@ class MiFit:
                 "(MiFit.login_qr) and the session will be saved for next time."
             )
         self._http = http
+        self._auto_renew = auto_renew
+        self._store_backed = store_backed
         self._session = session
-        self._transport = Transport(session, http=http)
+        self._transport = self._make_transport(session)
 
     @property
     def session(self) -> Session:
-        """The login session in use (read-only; ``login_qr`` switches it)."""
+        """The login session in use (read-only; ``login_qr`` and a renewal switch it)."""
         return self._session
+
+    def _make_transport(self, session: Session) -> Transport:
+        return Transport(
+            session, http=self._http, renew=self._renew if self._auto_renew else None
+        )
+
+    def _record(self, event: str, session: Session) -> None:
+        """Log ``event`` to the session log, for a store-backed client only."""
+        if self._store_backed:
+            record_event(event, session)  # best effort: it never raises
+
+    def _renew(self, old: Session) -> Session:
+        """The transport's ``renew`` hook: trade ``old``'s passToken for a new session.
+
+        Records ``unauthorized`` and then ``renewed`` or ``renew_failed``; a
+        store-backed client also saves the new session (a save that fails only
+        warns, so the read goes on). Exceptions from the renewal are re-raised,
+        except that a network failure becomes a ``RenewalError`` naming only the
+        exception type.
+        """
+        self._record("unauthorized", old)
+        try:
+            # ``self._http`` is None unless one was injected, so by default the
+            # renewal builds its own client and its cookies never reach the
+            # transport's cookie jar.
+            new = renew_session(old, http=self._http)
+        except OSError as exc:
+            # requests' exceptions are OSErrors. Their text holds the URL being
+            # fetched, which on the STS call carries the one-time ticket and the
+            # clientSign, so only the type is kept (and the original dropped).
+            self._record("renew_failed", old)
+            raise RenewalError(
+                f"The renewal request failed on the network ({type(exc).__name__})."
+            ) from None
+        except Exception:
+            self._record("renew_failed", old)
+            raise
+        self._record("renewed", new)
+        self._session = new
+        if self._store_backed:
+            try:
+                save_session(new)
+            except OSError as exc:
+                warnings.warn(
+                    "The renewed session could not be saved "
+                    f"({exc.strerror or type(exc).__name__}); the next run will "
+                    "renew again.",
+                    RuntimeWarning,
+                )
+        return new
 
     def steps(self, start: DateArg, end: DateArg) -> DomainResult:
         """Daily step summaries from ``start`` to ``end`` (inclusive days)."""
@@ -187,8 +261,12 @@ class MiFit:
         ``on_qr(login_url, qr_payload)`` is called once the QR code exists so it
         can be shown to the user; the call then blocks until they approve it. If
         the login fails, the current session and transport are left untouched.
+        Afterwards the client is store-backed: the login is logged, and later
+        renewals are saved.
         """
         session = _login_qr(http=self._http, on_qr=on_qr)
         save_session(session)
         self._session = session
-        self._transport = Transport(session, http=self._http)
+        self._store_backed = True
+        self._transport = self._make_transport(session)
+        self._record("login", session)
