@@ -27,7 +27,7 @@
 | T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史） |
 | T2 | 会话寿命与自动续期 | 现在开始观察；实现放在 M4 之前 |
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | M4 之后，M6 之前 |
-| T4 | CI（Linux 上跑测试，含夏令时用例） | 随时，顺手做 |
+| T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
 
 主线顺序沿用设计 §4.6/§10：步数 → 睡眠 → 心率 → 运动记录 → 血氧、体重 → FDS 明细 → 其余。唯一的插入是 M2 开头的"日语义统一"（理由见 M2）。
@@ -42,7 +42,7 @@
   - `heart_rate`：原始心率点，单日区间和均值与 app 一致；`--full` 为候选全量读法。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 273 个通过、2 个跳过，全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 276 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 
@@ -55,7 +55,7 @@
 | 原始心率按时间窗查询会漏点（根因未知）；`--full` 有 10 页上限，触顶时没有提示。 | 心率完整性 | M3（限时调查）、T3 |
 | 会话多久过期、能否用 passToken 自助续期，都未验证。目前一遇 401 就提示重新扫码。 | 无人值守 / 定时使用 | T2 |
 | ~~移植自 kevinkwee/Mi-Fitness-Sync（MIT）的签名/传输逻辑没有保留署名；仓库无 LICENSE、无 README~~ → **已修（T1）**：LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README。 | — | ✅ T1 |
-| 夏令时用例在本机因缺 tzdata 被跳过。 | 测试覆盖 | T4 |
+| ~~夏令时用例在本机因缺 tzdata 被跳过。~~ → **已修（T4）**：`pip install -e ".[test]"` 装上 tzdata，Windows 本机也跑夏令时用例；CI 在 Linux 上跑全部测试，测试里禁止联网。 | — | ✅ T4 |
 | sleep 审查遗留 Minor（2026-10-14，均低概率，待用户决定是否修）：① 畸形数据（不可哈希的 state、非列表的 `segment_details`、NaN/Infinity 时间）会抛异常而非跳过并记 note；② 相同起止时间的重复原始会话以最后一条为准，无分期的那条在后可能悄悄抹掉夜间分期；③ `raw` 混入已删除记录（删除标记丢失）和加宽窗口带出的相邻会话；④ 时间完全相同的会话共用同一个 `stages` 列表对象；⑤ 当天没有睡眠会话时仍多发一次原始记录请求；⑥ 原始窗口测试只在 UTC 下；⑦ `test_extra_raw_sessions_are_ignored` 有一半断言不会失败；⑧ 原始记录请求失败会让整个 `sleep()` 失败（已取到的日汇总也丢掉）。 | sleep 健壮性 | 待定 |
 
 ---
@@ -146,8 +146,9 @@
 - 默认分块（按周或按月）+ 串行 + 带抖动的延时（设计 §3 风控默认值），全量导出需要显式开启。
 - 断点续传（中断后从上次的块继续），`--full` 等分页上限触顶时给出明确提示。
 
-### T4 CI
+### T4 CI（完成）
 - GitHub Actions 在 Linux 上跑 `pytest`（Linux 有 tzdata，夏令时用例会真正执行）。
+- **结果（2026-10-14）✅**：`.github/workflows/ci.yml`，push / pull_request 触发，无 secrets、只读权限；`tests/conftest.py` 拦截一切网络连接；README 加 CI 徽章和 "Development" 一节。
 
 ### T5 密码登录（推迟）
 - 设计里是扫码登录的备选。扫码已经稳定可用，不做；以后真有需要再说。
