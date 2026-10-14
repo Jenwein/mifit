@@ -45,9 +45,10 @@ the Xiaomi / Mi Fitness app on your phone (or open the URL) and approve the
 sign-in. Your password never passes through mifit.
 
 The session is saved to `~/.mifit/session.json` (on Windows
-`%USERPROFILE%\.mifit\session.json`). It grants read access to your health
-data: do not share it or commit it. On Linux and macOS the file is readable by
-you only; on Windows it relies on your user profile's permissions.
+`%USERPROFILE%\.mifit\session.json`). It grants access to your Mi Fitness
+account's health data (not only reading): do not share it or commit it. On
+Linux and macOS the file is readable by you only; on Windows it relies on your
+user profile's permissions.
 
 If Xiaomi asks for an extra security confirmation, `mifit login` prints a URL:
 open it, confirm, then run `mifit login` again.
@@ -90,24 +91,25 @@ energy = client.consumption("2026-10-01", "2026-10-07")
 heart = client.heart_rate("2026-10-07", "2026-10-07")      # one time window
 heart_full = client.heart_rate("2026-10-07", "2026-10-07", full=True)
 
-rows = client.raw("sleep", "2026-10-07", "2026-10-07")     # any data key, as served
+rows = client.raw("sleep", "2026-10-07", "2026-10-07")     # any fitness-data key, as served
 ```
 
 Dates are `"YYYY-MM-DD"` strings (local calendar days, inclusive) or ints of
 Unix seconds. Each domain method returns a result with `records`, `raw` and
-`notes`; `raw(key, ...)` returns the service's rows as they came. Errors
-specific to mifit derive from `mifit.MiFitError`: `AuthError` (no usable
-session, or HTTP 401), `ApiError` (the service refused the request or sent
-something unreadable) and `NotificationRequiredError` (raised by the login when
-Xiaomi asks for a security confirmation). Network failures surface as
-`requests` exceptions, and a bad date argument raises `ValueError` or
+`notes`; `raw(key, ...)` returns the service's rows as they came, for any key
+of the fitness-data endpoint (`data/get_fitness_data_by_time`), not the daily
+reports. Errors specific to mifit derive from `mifit.MiFitError`: `AuthError`
+(no usable session, or HTTP 401), `ApiError` (the service refused the request
+or sent something unreadable) and `NotificationRequiredError` (raised by the
+login when Xiaomi asks for a security confirmation). Network failures surface
+as `requests` exceptions, and a bad date argument raises `ValueError` or
 `TypeError`.
 
 ## Two layers: `raw` and `records`
 
-- **`raw`** is the service's decoded payloads (the inner `value` of each row),
-  with Xiaomi's own field names. It is not a complete dump of every row the
-  service sent.
+- **`raw`** is the service's decoded payloads (the inner `value` of each row,
+  or for consumption the response's `result` object), with Xiaomi's own field
+  names. It is not a complete dump of every row the service sent.
 - **`records`** are typed dataclasses with neutral names (`asleep_min`,
   `avg_hr_bpm`, ...). A field's meaning is established from what the app
   displays or from the app's own code before it enters this layer; a few (the

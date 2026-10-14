@@ -1,5 +1,6 @@
 # Portions of this file are adapted from Mi-Fitness-Sync
 # (https://github.com/kevinkwee/Mi-Fitness-Sync),
+# Copyright (c) 2026 Michael Elian Kevin
 # src/mi_fitness_sync/auth/client.py,
 # used under the MIT License. See THIRD_PARTY_NOTICES for the
 # upstream copyright notice and license text.

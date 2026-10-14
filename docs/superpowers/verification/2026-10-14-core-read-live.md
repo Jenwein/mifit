@@ -1,6 +1,6 @@
 # Live verification: core read path (steps, heart rate)
 
-**Status:** PENDING — awaiting user QR login (requires the user to scan with their phone; cannot be run autonomously)
+**Status:** PASS — the core read chain was verified live against the user's real account on 2026-10-14 (see section 3); one calories-semantics follow-up remains
 
 This is the **M1 gate** from the [implementation plan](../plans/2026-10-14-mifit-foundation-core-read.md) (Task 11), checked against design §8.1 and §10. It is a manual procedure, not a CI test. Run it when the user is at the computer with the Mi Fitness / Xiaomi app on their phone.
 
