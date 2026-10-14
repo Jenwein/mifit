@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, as_int, register
+from mifit.domains.base import DomainResult, as_int, as_positive_int, register
 from mifit.models.workouts import Workout
 from mifit.transport import Transport
 
@@ -118,29 +118,22 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
 
 
 def _to_workout(value: dict) -> Workout | None:
-    start = _positive(value.get("start_time"))
+    start = as_positive_int(value.get("start_time"))
     if start is None:
         return None
     zone_units = as_int(value.get("timezone"))
     sport_code = as_int(value.get("sport_type"))
     return Workout(
         start_epoch_s=start,
-        end_epoch_s=_positive(value.get("end_time")),
+        end_epoch_s=as_positive_int(value.get("end_time")),
         # ``0`` is a real offset (UTC), so it is kept; only a missing one is None.
         utc_offset_s=None if zone_units is None else zone_units * _TZ_UNIT_S,
         sport=_SPORTS.get(sport_code),
         source_sport_code=sport_code,
-        duration_s=_positive(value.get("duration")),
-        distance_m=_positive(value.get("distance")),
-        active_kcal=_positive(value.get("calories")),
-        avg_hr_bpm=_positive(value.get("avg_hrm")),
-        max_hr_bpm=_positive(value.get("max_hrm")),
-        steps=_positive(value.get("steps")),
+        duration_s=as_positive_int(value.get("duration")),
+        distance_m=as_positive_int(value.get("distance")),
+        active_kcal=as_positive_int(value.get("calories")),
+        avg_hr_bpm=as_positive_int(value.get("avg_hrm")),
+        max_hr_bpm=as_positive_int(value.get("max_hrm")),
+        steps=as_positive_int(value.get("steps")),
     )
-
-
-def _positive(raw: object) -> int | None:
-    """A reported figure as an int; ``None`` unless it is a positive number: absent,
-    ``0`` (the service's "not reported"), negative or not a number is no figure."""
-    value = as_int(raw)
-    return value if value is not None and value > 0 else None

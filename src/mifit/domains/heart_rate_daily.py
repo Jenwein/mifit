@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, as_int, register
+from mifit.domains.base import DomainResult, as_int, as_positive_int, register
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.heart_rate import HeartRateDailySummary
 from mifit.transport import Transport
@@ -104,15 +104,8 @@ def _to_record(
     return HeartRateDailySummary(
         date=day.isoformat(),
         epoch_s=epoch_s,
-        avg_bpm=_bpm(value.get("avg_hr")),
-        max_bpm=_bpm(value.get("max_hr")),
-        min_bpm=_bpm(value.get("min_hr")),
-        resting_bpm=_bpm(value.get("avg_rhr")),
+        avg_bpm=as_positive_int(value.get("avg_hr")),
+        max_bpm=as_positive_int(value.get("max_hr")),
+        min_bpm=as_positive_int(value.get("min_hr")),
+        resting_bpm=as_positive_int(value.get("avg_rhr")),
     )
-
-
-def _bpm(raw: object) -> int | None:
-    """A reported bpm as an int; ``None`` unless it is a positive number: absent,
-    ``0`` (the service's "not measured"), negative or not a number is no measurement."""
-    value = as_int(raw)
-    return value if value is not None and value > 0 else None

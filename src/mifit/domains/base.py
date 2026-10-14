@@ -1,5 +1,6 @@
 """Shared domain plumbing: the result container, a minimal name registry, and
-``as_int``, the domains' common reading of a reported whole number.
+``as_int`` / ``as_positive_int``, the domains' common readings of a reported whole
+number.
 
 A domain is a function ``fn(transport, start_epoch_s, end_epoch_s) -> DomainResult``
 registered under a short name so callers can list and dispatch domains.
@@ -52,3 +53,12 @@ def as_int(raw: object) -> int | None:
     if isinstance(raw, float) and not math.isfinite(raw):
         return None
     return int(raw)
+
+
+def as_positive_int(raw: object) -> int | None:
+    """A reported figure as an int; ``None`` unless it is a positive number.
+
+    The service reports ``0`` for a figure it did not measure, so ``0`` means "not
+    reported", like an absent, negative or non-number value (``as_int`` rules)."""
+    value = as_int(raw)
+    return value if value is not None and value > 0 else None
