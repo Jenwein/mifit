@@ -167,14 +167,15 @@ def _to_record(
             continue
         sessions.append(session)
 
+    deep, light, rem, awake = _stage_minutes(value, asleep_min)
     return SleepRecord(
         date=day.isoformat(),
         epoch_s=epoch_s,
         asleep_min=asleep_min,
-        deep_min=_minutes(value.get("sleep_deep_duration")),
-        light_min=_minutes(value.get("sleep_light_duration")),
-        rem_min=_minutes(value.get("sleep_rem_duration")),
-        awake_min=_minutes(value.get("sleep_awake_duration")),
+        deep_min=deep,
+        light_min=light,
+        rem_min=rem,
+        awake_min=awake,
         score=_measured(value.get("sleep_score")),
         avg_hr_bpm=_measured(value.get("avg_hr")),
         min_hr_bpm=_measured(value.get("min_hr")),
@@ -196,16 +197,39 @@ def _to_session(segment: object) -> SleepSession | None:
     except (KeyError, TypeError, ValueError):
         return None
     zone = _minutes(segment.get("timezone"))
+    deep, light, rem, awake = _stage_minutes(segment, asleep_min)
     return SleepSession(
         start_epoch_s=start,
         end_epoch_s=end,
         utc_offset_s=None if zone is None else zone * _TZ_UNIT_S,
         asleep_min=asleep_min,
-        deep_min=_minutes(segment.get("sleep_deep_duration")),
-        light_min=_minutes(segment.get("sleep_light_duration")),
-        rem_min=_minutes(segment.get("sleep_rem_duration")),
-        awake_min=_minutes(segment.get("sleep_awake_duration")),
+        deep_min=deep,
+        light_min=light,
+        rem_min=rem,
+        awake_min=awake,
     )
+
+
+def _stage_minutes(
+    value: dict, asleep_min: int
+) -> tuple[int | None, int | None, int | None, int | None]:
+    """Deep, light, REM and awake minutes of a day or session.
+
+    Sleep that was never staged (a nap) is reported with every stage at ``0`` although
+    ``asleep_min`` is not: those zeros mean "no breakdown", so all four are ``None``.
+    """
+    minutes = tuple(
+        _minutes(value.get(key))
+        for key in (
+            "sleep_deep_duration",
+            "sleep_light_duration",
+            "sleep_rem_duration",
+            "sleep_awake_duration",
+        )
+    )
+    if asleep_min > 0 and not any(minutes):
+        return None, None, None, None
+    return minutes
 
 
 def _minutes(raw: object) -> int | None:

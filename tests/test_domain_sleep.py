@@ -147,8 +147,41 @@ def test_zero_hr_and_spo2_become_none():
     record = record_for(result, "2025-10-15")
     assert (record.avg_hr_bpm, record.min_hr_bpm, record.max_hr_bpm) == (None, None, None)
     assert (record.avg_spo2_pct, record.min_spo2_pct, record.max_spo2_pct) == (None, None, None)
-    # A zero duration is a real value, not a missing one.
-    assert (record.asleep_min, record.deep_min, record.awake_min) == (40, 0, 0)
+    assert record.asleep_min == 40
+
+
+def test_unstaged_sleep_has_no_stage_minutes():
+    # A nap reports 0 deep/light/awake minutes although it slept: it was not staged,
+    # so its stage minutes are unknown (None), not zero.
+    _, result = fetch()
+
+    nap_a = record_for(result, "2025-10-14").sessions[1]
+    (nap_b,) = record_for(result, "2025-10-15").sessions
+    day_b = record_for(result, "2025-10-15")
+    for item in (nap_a, nap_b, day_b):
+        assert (item.deep_min, item.light_min, item.rem_min, item.awake_min) == (
+            None,
+            None,
+            None,
+            None,
+        )
+    assert (nap_a.asleep_min, nap_b.asleep_min, day_b.asleep_min) == (30, 40, 40)
+
+
+def test_staged_day_keeps_its_stage_minutes_including_zeros():
+    # Day A has a staged night: its figures stand, and a staged zero is a real zero.
+    daily = load("sleep_daily_sample.json")
+    row = daily["result"]["data_list"][1]
+    value = json.loads(row["value"])
+    value["sleep_awake_duration"] = 0
+    value["segment_details"][0]["sleep_awake_duration"] = 0
+    row["value"] = json.dumps(value)
+
+    _, result = fetch(daily)
+
+    day_a = record_for(result, "2025-10-14")
+    assert (day_a.deep_min, day_a.light_min, day_a.awake_min) == (100, 280, 0)
+    assert day_a.sessions[0].awake_min == 0
 
 
 def test_raw_keeps_decoded_daily_values():

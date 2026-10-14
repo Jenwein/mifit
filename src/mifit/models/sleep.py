@@ -29,9 +29,10 @@ class SleepSession:
 
     ``start_epoch_s``/``end_epoch_s`` are true Unix seconds; ``utc_offset_s`` is the
     UTC offset of the zone it was recorded in, for showing local clock times
-    (``None`` when unknown). ``asleep_min`` excludes time awake; the stage minutes are
-    ``None`` when the source did not report them, never zero. ``stages`` is the stage
-    timeline, empty when the source has none for this session.
+    (``None`` when unknown). ``asleep_min`` excludes time awake. The stage minutes are
+    ``None`` when the source did not report them or did not stage this session (a
+    nap), never a made-up zero. ``stages`` is the stage timeline, empty when the
+    source has none for this session.
     """
 
     start_epoch_s: int
@@ -51,8 +52,10 @@ class SleepRecord:
 
     ``date`` is the local calendar date (``YYYY-MM-DD``) and ``epoch_s`` that day's
     local midnight in Unix seconds. ``asleep_min`` is the day's total time asleep
-    across its sessions. Any figure the source did not report (or reported as a
-    meaningless ``0`` heart rate or SpO2) is ``None``, never zero.
+    across its sessions. The stage minutes cover only the staged sessions, so with a
+    nap on the day they add up to less than ``asleep_min``; they are all ``None`` when
+    no session was staged. Any figure the source did not report, or reported as a
+    meaningless ``0`` (score, heart rate, SpO2), is ``None``, never zero.
     """
 
     date: str
