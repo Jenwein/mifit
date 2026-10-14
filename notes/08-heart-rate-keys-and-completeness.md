@@ -47,7 +47,7 @@
 
 ### 2.1 线索（编写 M3 计划时的 9 次只读调用）
 
-- 窗口起点恰为某个整点 UTC 小时 H（当时是本地 08:00）：返回的第一行在 H+2h，[H, H+2h) 的行全部缺失，但不带起点的读取里都有。
+- 窗口起点恰为某个偶数整点 UTC 小时 H：返回的第一行在 H+2h，[H, H+2h) 的行全部缺失，但不带起点的读取里都有。
 - 同一窗口改 `start_time = H − 1 s`：全部都在。改 `start_time = H − 1 天`：落在 [H, end] 内的行与不带起点的读取完全一致。
 - 终点：恰在 `end_time` 的行会返回，之后的不返回。
 
@@ -105,3 +105,4 @@
 - **其他原始 key 是否同样按桶**：`resting_heart_rate`、`single_heart_rate`、`spo2` 等都没测。`MiFit.raw` 因此保持不过滤（只在 docstring 提醒）。sleep 域的原始读取本来就两侧各加一天再按会话匹配，不受影响。
 - **app 自己不用时间窗拉原始数据**：`CloudSyncLineRouter.pullFullPullFitnessData(key, endTime, nextKey)` 发 `GetFitnessDataByTime(key, start=null, end=endTime, reverse=true, nextKey)`，即 SDK 的 `fetch_heart_rate_full`；按窗口的 `pullFitnessDataByTime(start, end, nextKey, key)` 使用类的默认 `reverse`。所以 app 很可能从未踩到这个问题。
 - 3 个比较日里只有 2 天（D1、D3）的首桶有数据，真正触发了丢失；D2 只说明加宽与过滤不会多出或改动行。
+- **带 `start_time` 的多页窗口读取没有在真机上跑过**：每个探测窗口都在一页之内。不带起点的读取翻页没问题（基准读取就是 2 页）；带起点时 `next_key` 是否同样正常，以及起点桶丢失与翻页如何叠加，未验证。

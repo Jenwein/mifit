@@ -77,10 +77,10 @@ def fetch_heart_rate_full(
 ) -> DomainResult:
     """Fetch raw heart-rate samples backwards from ``end_epoch_s``, paginated.
 
-    Sends no ``start_time``, which is the candidate fuller read, and follows
-    the service's cursor for at most ``max_pages`` pages. Not registered in the
-    domain registry: its signature differs from the registry's
-    ``(transport, start_epoch_s, end_epoch_s)`` contract.
+    Pages back from the end without a start (up to the page cap): sends no
+    ``start_time`` and follows the service's cursor for at most ``max_pages``
+    pages. Not registered in the domain registry: its signature differs from
+    the registry's ``(transport, start_epoch_s, end_epoch_s)`` contract.
 
     When the page cap stops the read while the service still had older points,
     the result carries a note saying so; a read that ends on its own does not.

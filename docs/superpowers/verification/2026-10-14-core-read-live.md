@@ -51,7 +51,7 @@ Operating notes:
 
 **Heart rate (record only; not a blocker)**
 
-5. Count points in `hr.json` (windowed) and `hr_full.json` (`--full`) for the same day. Record both counts and whether they differ. This is the known incompleteness in `notes/04-mi-health-lab-cloud-breakthrough.md` §4: windowed reads can drop points.
+5. Count points in `hr.json` (windowed) and `hr_full.json` (`--full`) for the same day. Record both counts and whether they differ. This is the known incompleteness in `notes/04-mi-health-lab-cloud-breakthrough.md` §4: windowed reads can drop points (fixed 2026-10-14, see notes/08).
 6. Check `notes`. The windowed read asks the service for a day before the start and keeps only the window, so it carries no incompleteness note (notes/08). The `--full` read stops after 10 pages and says so in `notes` when older data remains. If the full count looks capped, record it.
 7. A count difference is a finding, not a failure. It does not change the steps outcome.
 

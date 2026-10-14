@@ -136,9 +136,9 @@ class MiFit:
     ) -> DomainResult:
         """Raw heart-rate samples from ``start`` to ``end``.
 
-        The default is the windowed query. With ``full=True`` the fuller read is
-        used instead: it pages backwards from ``end`` and sends no start time, so
-        ``start`` is only validated, not applied.
+        The default is the windowed query. With ``full=True`` the read instead pages
+        back from ``end`` without a start (up to the page cap), so ``start`` is
+        only validated, not applied.
         """
         start_s = to_epoch_s(start)
         end_s = to_epoch_s(end, end_of_day=True)
