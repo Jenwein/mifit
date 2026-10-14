@@ -36,3 +36,22 @@ class ApiError(MiFitError):
         self.message = message
         self.code = code
         self.payload = payload
+
+
+class NotificationRequiredError(MiFitError):
+    """The login needs a security confirmation that only the account owner can give.
+
+    Xiaomi answers a QR login with a non-zero ``securityStatus`` and a
+    ``notificationUrl`` when it wants the user to approve the sign-in on a
+    page or device of their own. Open ``notification_url`` yourself, finish the
+    confirmation, then start the login again. The URL is kept out of the message
+    so it does not end up in logs; read it from the attribute.
+    """
+
+    def __init__(self, notification_url: str) -> None:
+        super().__init__(
+            "Xiaomi requires a security confirmation before this login can finish; "
+            "open the URL in the exception's notification_url attribute, complete "
+            "the confirmation, then log in again."
+        )
+        self.notification_url = notification_url
