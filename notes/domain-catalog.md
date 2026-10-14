@@ -113,7 +113,7 @@
 
 ## 3. 原始 key
 
-前 23 行是本账号有数据的 key，后面是没有数据的 28 个健康 key，最后是 `data_collector` 和 `passion_cheer`。
+表的前部是本账号有数据或未探测的 key（见各行 `本账号` 列），后面是没有数据的健康 key，最后是 `data_collector` 和 `passion_cheer`。
 
 | key | 接口 | APK 值类 | 值字段（顶层） | 本账号 | 已核对 | B 层 |
 |---|---|---|---|---|---|---|
@@ -181,7 +181,7 @@
   - 其余 key 未知。`MiFit.raw_window` / `mifit raw` 对所有原始 key 都提前一天请求，再按外层 `time` 过滤（只会多出随后被过滤掉的行）；`MiFit.raw` 是服务端原样的回答，不修正。
 - **`本账号` 的出处**：`heart_rate`、`spo2`、`resting_heart_rate`、`weight` 取自 notes/08、notes/11（M3、M5 的探测；`resting_heart_rate` 每个本地日至多一行，`weight` 的记录为 1–10 条、最近 7 天没有）；其余有数据的 key 取自本轮的 7 天读取。`single_heart_rate`、`single_spo2`、原始 `sleep` 在本轮 latest 读取里有行，但 7 天行数没测，所以标 `未探测`。
 - **已有 B 层覆盖的**：`resting_heart_rate` 6/6 天等于同日 `heart_rate` 日汇总的 `avg_rhr`（notes/08），`heart_rate_daily` 的 `resting_bpm` 已取后者，不另建 B。
-- **没有数据的 28 个健康 key 和 `data_collector`**：latest 读取没有行，分不出是没有数据还是服务端不认识这个 key。分组：
+- **没有数据的健康 key 和 `data_collector`**：latest 读取没有行，分不出是没有数据还是服务端不认识这个 key。分组：
   - 压力、PAI、能量：`energy`、`high_stress`、`pai`；
   - 心律与房颤：`abnormal_heart_beat`、`abnormal_heart_rate`、`low_heart_rate`；
   - 体温：`single_temperature`、`temperature_characteristic`、`temperature_trend`；
@@ -209,7 +209,7 @@
 - **候选 key 的 app 对照**（M7 Task 5，收尾的真机会话）：在 app 里读几天的压力日均 / 最高 / 最低（核对 `stress_daily`）、站立小时数（`valid_stand.count`）、中高强度分钟数（`intensity.duration`）和活动卡路里（`calories`）。
   - 对上的标 `app 已核对`，以后一轮再考虑进 B。
   - `stress_daily` 哪个数对不上，就退出 B，只留在 `raw`。
-- **29 个没有数据的 key**（§3）：可能是本账号的设备或功能没有产出（体温、血压、血糖、心电、女性健康、噪音……），也可能服务端不认识。换设备、开功能或换账号时再探；有了行，要补真机字段，并把值类后的"？"去掉。
+- **其余没有数据的 key**（§3 `本账号` 列为 `无`）：可能是本账号的设备或功能没有产出（体温、血压、血糖、心电、女性健康、噪音……），也可能服务端不认识。换设备、开功能或换账号时再探；有了行，要补真机字段，并把值类后的"？"去掉。
 - **只有较早数据的 key**：`training_load`、`vo2_max`、`dynamic`、`high_heart_rate`、`grade_prediction`、`running_ability_index` 最近 7 天没有行，`vitality` 只有零星几行，含义都没法对照；有新数据（如做过运动）后再看。
 - **汇总 key**：`daily_report` 里 APK 的另外 8 个 key（`vo2_max`、`blood_pressure`、`energy`、`pai`、`blood_sugar`、`headset`、`weight`、`menstruation`）本账号 7 天没有行；`headset` 在 `daily_mark` 有行、在 `daily_report` 没有，原因未知。
 - **`stress_scale` 的单位**：四档之和 ≤ 1440，像分钟，未核实，只在 A 层。
