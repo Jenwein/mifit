@@ -1,7 +1,9 @@
 """Guard tests for the domain catalog (``notes/domain-catalog.md``).
 
-The catalog is written by hand and kept up over time. These tests hold it to two
-promises: every registered domain has a row, and nothing from the account (a Unix
+The catalog is written by hand and kept up over time. These tests hold it to four
+promises: every registered domain has a row; every B-layer name in §2 and §3 is a
+registered domain (or ``profile``, which takes no time window); the first two cells
+of each row are unique within the table; and nothing from the account (a Unix
 timestamp) slips into it. Only the Markdown tables are parsed: a table is a run of
 lines starting with ``|``, and its rows are those lines without the ``|---|``
 separator. The last cell of a row names the SDK entry (§1) or the B domain (§2, §3).
@@ -54,6 +56,23 @@ def test_every_registered_domain_is_in_the_catalog():
 
     assert REGISTRY, "importing mifit.client registers the domains"
     assert sorted(set(REGISTRY) - named) == []
+
+
+# MiFit.profile has B records but takes no time window, so it is not in REGISTRY.
+UNREGISTERED_B = {"profile"}
+
+
+def test_every_b_layer_name_in_the_catalog_is_a_domain():
+    b_tables = [table for table in _tables() if table[0][-1] == "B 层"]
+    named = {
+        name
+        for table in b_tables
+        for row in table[1:]
+        for name in re.findall(r"`([^`]+)`", row[-1])
+    }
+
+    assert "steps" in named  # the B-layer column was found
+    assert sorted(named - set(REGISTRY) - UNREGISTERED_B) == []
 
 
 def test_catalog_rows_are_unique():

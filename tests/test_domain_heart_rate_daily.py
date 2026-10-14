@@ -21,7 +21,7 @@ import pytest
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.models.heart_rate import HeartRateDailySummary
-from support import PagedFake
+from support import ABSENT, PagedFake, payload_with_rows_from
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hr_daily_sample.json"
 
@@ -32,30 +32,13 @@ END = DAY_2 + 86399
 ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 UTC = timezone.utc
 CST = timezone(timedelta(hours=8))
-ABSENT = object()  # marks a key left out of a row, as opposed to set to None
 
 
 def load_fixture():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
-def payload_with_rows(*rows):
-    """A fixture-shaped payload built from ``(outer_time, value)`` pairs.
-
-    A dict ``value`` is encoded to the JSON string the wire carries; a ``str`` is
-    used as the wire string itself, so a test can send a value that is not JSON.
-    """
-    payload = load_fixture()
-    template = payload["result"]["data_list"][0]
-    payload["result"]["data_list"] = [
-        {
-            **template,
-            "time": time,
-            "value": value if isinstance(value, str) else json.dumps(value),
-        }
-        for time, value in rows
-    ]
-    return payload
+payload_with_rows = payload_with_rows_from(load_fixture()["result"]["data_list"][0])
 
 
 def fixture_values():

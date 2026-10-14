@@ -13,7 +13,7 @@ from pathlib import Path
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.models.heart_rate import HeartRatePoint
-from support import PagedFake
+from support import ABSENT, PagedFake, payload_with_rows_from
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hr_raw_sample.json"
 
@@ -26,6 +26,9 @@ def load_fixture():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+payload_with_rows = payload_with_rows_from(load_fixture()["result"]["data_list"][0])
+
+
 def payload_with_values(*values):
     """A fixture-shaped payload whose rows carry the given value dicts."""
     payload = load_fixture()
@@ -33,29 +36,6 @@ def payload_with_values(*values):
     payload["result"]["data_list"] = [
         {**template, "value": json.dumps(value)} for value in values
     ]
-    return payload
-
-
-ABSENT = object()
-"""Stands for an outer ``time`` key that is not there at all."""
-
-
-def payload_with_rows(*rows):
-    """A fixture-shaped payload whose rows carry the given ``(outer_time, value)``.
-
-    An ``outer_time`` of ``ABSENT`` leaves the row's ``time`` key out.
-    """
-    payload = load_fixture()
-    template = {
-        k: v for k, v in payload["result"]["data_list"][0].items() if k != "time"
-    }
-    data_list = []
-    for outer_time, value in rows:
-        row = {**template, "value": json.dumps(value)}
-        if outer_time is not ABSENT:
-            row["time"] = outer_time
-        data_list.append(row)
-    payload["result"]["data_list"] = data_list
     return payload
 
 

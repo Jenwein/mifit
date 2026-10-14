@@ -8,41 +8,25 @@ object ``{key, sid, time, update_time, value, zone_name, zone_offset}`` whose
 paged read does once it has unwrapped the ``result`` envelope.
 """
 
-import json
-
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.models.spo2 import Spo2Point
-from support import PagedFake
+from support import ABSENT, PagedFake, payload_with_rows_from
 
 START = 1760371200  # 2025-10-13T16:00:00Z, a local midnight at UTC+8
 END = START + 86399
 ENDPOINT = "data/get_fitness_data_by_time"
-ABSENT = object()
-"""Stands for an outer ``time`` key that is not there at all."""
 
 
-def payload_with_rows(*rows):
-    """A decrypted-envelope payload built from ``(outer_time, value)`` pairs.
-
-    A dict ``value`` is encoded to the JSON string the wire carries; a ``str`` is
-    used as the wire string itself, so a test can send a value that is not JSON.
-    An ``outer_time`` of ``ABSENT`` leaves the row's ``time`` key out.
-    """
-    data_list = []
-    for outer_time, value in rows:
-        row = {
-            "key": "spo2",
-            "sid": "synthetic-sid",
-            "update_time": 1760500000,
-            "value": value if isinstance(value, str) else json.dumps(value),
-            "zone_name": "Asia/Shanghai",
-            "zone_offset": 28800,
-        }
-        if outer_time is not ABSENT:
-            row["time"] = outer_time
-        data_list.append(row)
-    return {"code": 0, "result": {"data_list": data_list, "has_more": False, "next_key": None}}
+payload_with_rows = payload_with_rows_from(
+    {
+        "key": "spo2",
+        "sid": "synthetic-sid",
+        "update_time": 1760500000,
+        "zone_name": "Asia/Shanghai",
+        "zone_offset": 28800,
+    }
+)
 
 
 def test_spo2_domain_is_registered():

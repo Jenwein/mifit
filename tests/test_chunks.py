@@ -442,6 +442,31 @@ def test_read_chunks_matches_single_read(windowed, domain, make_fake, list_keys)
     assert merged.notes == single.notes == []
 
 
+def test_sleep_merged_raw_is_one_block_per_chunk_in_plan_order(windowed):
+    # A chunk's sleep raw is its daily values, then the raw sessions matched to
+    # them; merge_chunks lays the chunks' blocks end to end, never regrouping.
+    client = windowed(sleep_fake())
+
+    parts = list(client.read_chunks("sleep", START, END))
+    merged = merge_chunks(parts)
+
+    plan = plan_chunks("sleep", date.fromisoformat(START), date.fromisoformat(END))
+    assert [chunk for chunk, _ in parts] == plan
+    assert len(parts) > 1
+    offset = 0
+    for chunk, part in parts:
+        assert merged.raw[offset : offset + len(part.raw)] == part.raw
+        # The daily values (they carry a total) come first, the sessions after.
+        daily = sum("total_duration" in value for value in part.raw)
+        assert 0 < daily < len(part.raw)
+        assert all("total_duration" in value for value in part.raw[:daily])
+        assert not any("total_duration" in value for value in part.raw[daily:])
+        single = client.sleep(chunk.first.isoformat(), chunk.last.isoformat())
+        assert part.raw == single.raw
+        offset += len(part.raw)
+    assert offset == len(merged.raw)
+
+
 def test_workout_detail_above_the_cap_reads_more_in_chunks(windowed):
     # Twelve runs, one a day at local noon from 02-01: one call reads the newest 10,
     # while each week chunk holds at most 7 and reads them all (chunks module docstring).

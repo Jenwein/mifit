@@ -19,7 +19,7 @@ from pathlib import Path
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.steps import fetch_steps
 from mifit.models.steps import StepRecord
-from support import PagedFake
+from support import PagedFake, payload_with_rows_from
 
 FIXTURE = Path(__file__).parent / "fixtures" / "steps_daily_sample.json"
 
@@ -37,14 +37,7 @@ def load_fixture():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
-def payload_with_rows(*rows):
-    """A fixture-shaped payload built from ``(outer_time, value_dict)`` pairs."""
-    payload = load_fixture()
-    template = payload["result"]["data_list"][0]
-    payload["result"]["data_list"] = [
-        {**template, "time": time, "value": json.dumps(value)} for time, value in rows
-    ]
-    return payload
+payload_with_rows = payload_with_rows_from(load_fixture()["result"]["data_list"][0])
 
 
 def test_parses_steps_record():

@@ -1,8 +1,12 @@
 """Tests for the domains' shared helpers: row decoding and number readings."""
 
+import typing
+from typing import Any
+
 import pytest
 
 from mifit.domains.base import (
+    DomainResult,
     ValueProblem,
     as_float,
     as_int,
@@ -290,3 +294,8 @@ def test_stalled_note_names_what_may_be_missing():
         "The service said more daily step rows followed but sent no usable cursor, "
         "so the read stopped early: some daily step rows in the range may be missing."
     )
+
+
+def test_domain_result_raw_holds_any_rows():
+    # ``raw`` keeps a row that is not an object as it came, so it is not ``list[dict]``.
+    assert typing.get_type_hints(DomainResult)["raw"] == list[Any]

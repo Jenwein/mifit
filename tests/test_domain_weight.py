@@ -9,19 +9,16 @@ list, as the real paged read does once it has unwrapped the ``result`` envelope.
 """
 
 import dataclasses
-import json
 
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.weight import fetch_weight
 from mifit.models.weight import WeightRecord
-from support import PagedFake
+from support import ABSENT, PagedFake, payload_with_rows_from
 
 T = 1600000000
 START = T - 86400
 END = T + 86400
 ENDPOINT = "data/get_fitness_data_by_time"
-ABSENT = object()
-"""Stands for a key (an outer ``time``, or a value field) that is not there at all."""
 
 
 def weight_value(**overrides):
@@ -43,27 +40,15 @@ def weight_value(**overrides):
     return {k: v for k, v in value.items() if v is not ABSENT}
 
 
-def payload_with_rows(*rows):
-    """A decrypted-envelope payload built from ``(outer_time, value)`` pairs.
-
-    A dict ``value`` is encoded to the JSON string the wire carries; a ``str`` is
-    used as the wire string itself, so a test can send a value that is not JSON.
-    An ``outer_time`` of ``ABSENT`` leaves the row's ``time`` key out.
-    """
-    data_list = []
-    for outer_time, value in rows:
-        row = {
-            "key": "weight",
-            "sid": "synthetic-sid",
-            "update_time": T + 60,
-            "value": value if isinstance(value, str) else json.dumps(value),
-            "zone_name": "Asia/Shanghai",
-            "zone_offset": 28800,
-        }
-        if outer_time is not ABSENT:
-            row["time"] = outer_time
-        data_list.append(row)
-    return {"code": 0, "result": {"data_list": data_list, "has_more": False, "next_key": None}}
+payload_with_rows = payload_with_rows_from(
+    {
+        "key": "weight",
+        "sid": "synthetic-sid",
+        "update_time": T + 60,
+        "zone_name": "Asia/Shanghai",
+        "zone_offset": 28800,
+    }
+)
 
 
 def rows_of(*values):

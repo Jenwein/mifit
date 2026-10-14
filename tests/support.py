@@ -5,6 +5,7 @@ synthetic."""
 import base64
 import copy
 import json
+from collections.abc import Callable
 from types import SimpleNamespace
 
 from mifit.auth.session import Session
@@ -12,6 +13,38 @@ from mifit.crypto import rc4_crypt, signed_nonce
 from mifit.transport import PagedResult, Transport
 
 SYNTH_SSECURITY = base64.b64encode(b"synthetic-support-secret").decode("ascii")
+
+ABSENT = object()
+"""Marks a key left out of a row or a value, as opposed to set to ``None``."""
+
+
+def payload_with_rows_from(template: dict) -> Callable[..., dict]:
+    """Bind ``template``, a wire row, and return ``payload_with_rows(*rows)``.
+
+    ``payload_with_rows`` turns ``(outer_time, value)`` pairs into a fresh
+    decrypted envelope, ``{"code": 0, "result": {"data_list": [...], ...}}``. Each
+    row is a deep copy of ``template`` without its ``time``, plus:
+
+    - ``value``: a ``str`` is used as the wire string itself, so a test can send
+      a value that is not JSON; anything else is encoded with ``json.dumps``;
+    - ``time``: ``outer_time``, except that an ``outer_time`` of ``ABSENT`` leaves
+      the key out.
+    """
+
+    def build(*rows):
+        data_list = []
+        for outer_time, value in rows:
+            row = copy.deepcopy({k: v for k, v in template.items() if k != "time"})
+            row["value"] = value if isinstance(value, str) else json.dumps(value)
+            if outer_time is not ABSENT:
+                row["time"] = outer_time
+            data_list.append(row)
+        return {
+            "code": 0,
+            "result": {"data_list": data_list, "has_more": False, "next_key": None},
+        }
+
+    return build
 
 
 def exception_chain(exc):

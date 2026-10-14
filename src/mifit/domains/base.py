@@ -15,7 +15,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 
 @dataclass
@@ -25,10 +25,14 @@ class DomainResult:
     ``records`` are the normalized, provider-neutral rows; ``raw`` is the same
     data as the service sent it (decoded but otherwise untouched); ``notes`` are
     human-readable caveats about this particular result.
+
+    Domains put one decoded ``dict`` per row in ``raw``; the generic reads in
+    ``passthrough`` keep a row that is not an object as it came, so its items are
+    typed ``Any``.
     """
 
     records: list = field(default_factory=list)
-    raw: list[dict] = field(default_factory=list)
+    raw: list[Any] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
