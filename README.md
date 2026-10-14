@@ -21,7 +21,8 @@ Python objects, so you can build on it.
 | `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` |
 
 Each domain has been checked against the app on one real account (China
-region, UTC+8). More (workouts, SpO2, weight, ...) is planned.
+region, UTC+8). More is planned: workouts, standalone SpO2 (daily and spot
+readings; sleep already carries its own SpO2 figures), weight, ...
 
 ## Install
 
@@ -94,18 +95,25 @@ rows = client.raw("sleep", "2026-10-07", "2026-10-07")     # any data key, as se
 
 Dates are `"YYYY-MM-DD"` strings (local calendar days, inclusive) or ints of
 Unix seconds. Each domain method returns a result with `records`, `raw` and
-`notes`; `raw(key, ...)` returns the service's rows as they came. Errors derive
-from `mifit.MiFitError`: `AuthError` (no usable session, or HTTP 401) and
-`ApiError` (the service refused the request or sent something unreadable).
+`notes`; `raw(key, ...)` returns the service's rows as they came. Errors
+specific to mifit derive from `mifit.MiFitError`: `AuthError` (no usable
+session, or HTTP 401), `ApiError` (the service refused the request or sent
+something unreadable) and `NotificationRequiredError` (raised by the login when
+Xiaomi asks for a security confirmation). Network failures surface as
+`requests` exceptions, and a bad date argument raises `ValueError` or
+`TypeError`.
 
 ## Two layers: `raw` and `records`
 
-- **`raw`** is the service's data, decrypted and decoded but otherwise
-  untouched: Xiaomi's own field names, nothing dropped.
+- **`raw`** is the service's decoded payloads (the inner `value` of each row),
+  with Xiaomi's own field names. It is not a complete dump of every row the
+  service sent.
 - **`records`** are typed dataclasses with neutral names (`asleep_min`,
-  `avg_hr_bpm`, ...). A field enters this layer only after its meaning has been
-  checked against the app; anything unverified stays in `raw`. A value the
-  service did not report is `None`, never a made-up `0`.
+  `avg_hr_bpm`, ...). A field's meaning is established from what the app
+  displays or from the app's own code before it enters this layer; a few (the
+  sleep score value, the REM stage) could not be checked against the app on the
+  author's account. A value the service did not report is `None`, never a
+  made-up `0`.
 - **`notes`** are caveats about that particular result: skipped rows, data
   that may be incomplete.
 
