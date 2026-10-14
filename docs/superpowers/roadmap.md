@@ -26,7 +26,7 @@
 |---|---|---|
 | T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史） |
 | T2 | 会话寿命与自动续期 | ✅ 实现完成（2026-10-14），待真机核对（需重新 `mifit login` 一次以保存 passToken） |
-| T3 | 长区间 / 全量导出：分块、节流、断点续传 | M4 之后，M6 之前 |
+| T3 | 长区间 / 全量导出：分块、节流、断点续传 | ✅ 实现完成（2026-10-14）：分块串行读取、超过 92 天需 --long、--resume 断点续传 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
 
@@ -48,7 +48,7 @@
   - `weight`：体重记录（`WeightRecord`：时刻、kg、BMI），身体成分只留在 `raw`；待真机核对。
   - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标），`raw` 是完整档案（含个人标识）；待真机核对。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
-- 测试 579 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 719 个通过、0 个跳过（装上 `test` extra），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
 
 ---
 
@@ -155,6 +155,7 @@
 ### T3 长区间 / 全量导出
 - 默认分块（按周或按月）+ 串行 + 带抖动的延时（设计 §3 风控默认值），全量导出需要显式开启。
 - 断点续传（中断后从上次的块继续），`--full` 等分页上限触顶时给出明确提示。
+- **结果（2026-10-14）✅**：`mifit.chunks` 按数据域分块（原始心率 / 血氧 7 天，其余 31 天，从 `--from` 起算），逐块串行读取，每个请求前仍是传输层的约 1 s + 抖动；一块装得下的区间仍是一次调用，与以前相同。超过 92 天需 `--long` 显式开启；`heart_rate --full` 不分块。`--json` 旁的 `<PATH>.partial` 每完成一块追加一行（只有数据域、日期、块大小和该块结果，不含凭证），中断后 `--resume` 从未完成的块继续；某块失败时已完成的块保留，不跳过也不自动重试。另：服务端说还有下一页却不给可用游标时结果带提示；CLI 输出为严格 JSON（NaN/Infinity 记为 null 并提示）。库接口 `MiFit.read_chunks` + `merge_chunks`。
 - 后续清理（backlog）：抽出共享的日报行解码器（`heart_rate_daily`、`spo2_daily`、`steps`、`workouts`、`weight`、`spo2` 都在重复同一段解码 + notes 逻辑）、共享的测试替身（各测试文件里 `FakeTransport` / `payload_with_rows` 的拷贝），以及一个 `as_positive_float` 辅助函数。
 
 ### T4 CI（完成）
