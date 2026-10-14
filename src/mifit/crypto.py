@@ -1,9 +1,10 @@
 # Portions of this file are adapted from Mi-Fitness-Sync
 # (https://github.com/kevinkwee/Mi-Fitness-Sync),
-# Copyright (c) 2026 Michael Elian Kevin
 # src/mi_fitness_sync/activity/crypto.py,
 # used under the MIT License. See THIRD_PARTY_NOTICES for the
 # upstream copyright notice and license text.
+#
+# Upstream: Copyright (c) 2026 Michael Elian Kevin
 
 """Signing and encryption primitives for the Mi Fitness cloud API.
 
