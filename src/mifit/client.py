@@ -100,10 +100,14 @@ class MiFit:
         )
 
     def consumption(self, start: DateArg, end: DateArg) -> DomainResult:
-        """Daily resting / active / intake calories from ``start`` to ``end``.
+        """Daily calorie consumption from ``start`` to ``end`` (inclusive).
 
-        These are the figures behind the app's calorie ring, one record per UTC day
-        in the window (inclusive).
+        One record per UTC day that has data. ``resting_kcal`` is resting metabolism
+        (BMR, from the profile), ``active_kcal`` is the activity calories (this equals
+        the app's activity-calorie figure), ``intake_kcal`` is food, and ``total_kcal``
+        is resting plus active. The app's calorie ring is composited on the device
+        (cloud activity plus phone-side activity), so the most recent day can read
+        lower than the app.
         """
         return fetch_consumption(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)

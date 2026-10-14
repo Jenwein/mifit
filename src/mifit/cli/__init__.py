@@ -1,7 +1,7 @@
 """Command-line interface: ``mifit login`` and ``mifit export``.
 
 ``login`` runs the QR login, shows the code in the terminal and stores the
-session. ``export`` reads one domain (steps, heart rate) for a date range and
+session. ``export`` reads one domain (steps, heart rate, consumption) for a date range and
 writes ``{records, raw, notes}`` as JSON.
 
 Nothing here prints a credential. Messages come from the SDK's own errors (which
