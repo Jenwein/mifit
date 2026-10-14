@@ -27,6 +27,7 @@ from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
 from mifit.models.steps import StepRecord
+from mifit.models.workouts import Workout
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -86,6 +87,19 @@ HR_DAY = HeartRateDailySummary(
     min_bpm=50,
     resting_bpm=None,
 )
+WORKOUT = Workout(
+    start_epoch_s=1790820000,
+    end_epoch_s=1790822701,
+    utc_offset_s=28800,
+    sport="running",
+    source_sport_code=1,
+    duration_s=2400,
+    distance_m=5000,
+    active_kcal=350,
+    avg_hr_bpm=148,
+    max_hr_bpm=170,
+    steps=6000,
+)
 
 
 def make_session():
@@ -134,6 +148,10 @@ class FakeMiFit:
     def heart_rate_daily(self, start, end):
         self.calls.append(("heart_rate_daily", start, end, {}))
         return DomainResult(records=[HR_DAY], raw=[{"avg_hr": 70}], notes=[])
+
+    def workouts(self, start, end):
+        self.calls.append(("workouts", start, end, {}))
+        return DomainResult(records=[WORKOUT], raw=[{"sport_type": 1}], notes=[])
 
     def heart_rate(self, start, end, *, full=False):
         self.calls.append(("heart_rate", start, end, {"full": full}))
@@ -249,6 +267,28 @@ def test_export_heart_rate_daily_writes_records(fake_mifit, tmp_path):
     assert fake_mifit.instances[0].calls == [("heart_rate_daily", "2026-10-01", "2026-10-02", {})]
 
 
+def test_export_workouts_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "workouts.json"
+
+    rc = cli.main(
+        [
+            "export",
+            "workouts",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-10-02",
+            "--json",
+            str(out),
+        ]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(WORKOUT)]
+    assert fake_mifit.instances[0].calls == [("workouts", "2026-10-01", "2026-10-02", {})]
+
+
 def test_export_unknown_domain_errors(fake_mifit, capsys):
     rc = cli.main(["export", "no_such_domain", "--from", "2026-10-01", "--to", "2026-10-02"])
 
@@ -301,6 +341,14 @@ def test_export_full_flag_is_ignored_for_heart_rate_daily(fake_mifit, capsys):
 
     assert rc == 0
     assert fake_mifit.instances[0].calls == [("heart_rate_daily", "2026-10-01", "2026-10-02", {})]
+    assert "--full" in capsys.readouterr().err  # said that it was ignored
+
+
+def test_export_full_flag_is_ignored_for_workouts(fake_mifit, capsys):
+    rc = cli.main(["export", "workouts", "--from", "2026-10-01", "--to", "2026-10-02", "--full"])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [("workouts", "2026-10-01", "2026-10-02", {})]
     assert "--full" in capsys.readouterr().err  # said that it was ignored
 
 

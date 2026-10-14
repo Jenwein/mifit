@@ -28,6 +28,7 @@ from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_win
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
 from mifit.domains.steps import fetch_steps
+from mifit.domains.workouts import fetch_workouts
 from mifit.errors import AuthError
 from mifit.transport import Transport
 
@@ -261,6 +262,18 @@ class MiFit:
         and resting heart rate as the app shows them.
         """
         return fetch_heart_rate_daily(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def workouts(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Workouts from ``start`` to ``end`` (inclusive days), newest first.
+
+        One record per workout that started between the start of ``start`` and the
+        end of ``end`` (local days). Each record gives the sport, start and end,
+        duration, distance, active calories, average and maximum heart rate and
+        steps; the full source report for each workout is in ``raw``.
+        """
+        return fetch_workouts(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 

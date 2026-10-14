@@ -2,7 +2,7 @@
 
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
-sleep) for a date range and writes ``{records, raw, notes}`` as JSON.
+sleep, workouts) for a date range and writes ``{records, raw, notes}`` as JSON.
 
 Nothing here prints a credential. Messages come from the SDK's own errors (which
 are written to keep secrets out) and, for network failures, from the exception's
