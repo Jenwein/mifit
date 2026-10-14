@@ -60,6 +60,26 @@ def exception_chain(exc):
     return seen
 
 
+def json_loads_recurses_on(monkeypatch, *documents: str) -> None:
+    """Make ``json.loads`` raise ``RecursionError`` for exactly these documents.
+
+    Every other call goes to the real ``json.loads``. A test of the code that handles
+    data nested too deeply to decode cannot rely on a real document: the depth at
+    which ``json.loads`` gives up depends on the Python version and the platform (from
+    3.14 on it follows the size of the C stack, so 100 000 levels raise on one machine
+    and decode on another). The stand-in raises the same exception whatever the depth,
+    so the code under test takes the same path everywhere.
+    """
+    real_loads = json.loads
+
+    def loads(s, *args, **kwargs):
+        if isinstance(s, str) and s in documents:
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_loads(s, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", loads)
+
+
 def synthetic_session() -> Session:
     """A session whose every field is synthetic, signed with ``SYNTH_SSECURITY``."""
     return Session(

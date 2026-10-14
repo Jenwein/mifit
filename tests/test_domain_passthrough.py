@@ -22,7 +22,7 @@ from mifit.domains.passthrough import (
     fetch_raw_rows,
 )
 from mifit.domains.raw_window import RAW_ENDPOINT
-from support import PagedFake, WindowFake
+from support import PagedFake, WindowFake, json_loads_recurses_on
 
 START = 1760371200  # 2025-10-13T16:00:00Z, a local midnight at UTC+8
 END = START + 86399
@@ -142,8 +142,9 @@ def test_raw_rows_keep_undecodable_value_with_note():
     assert result.notes == [UNDECODABLE_NOTE]
 
 
-def test_raw_rows_keep_a_value_nested_too_deeply_to_decode():
-    deep = "[" * 100000 + "]" * 100000  # ``json.loads`` raises RecursionError
+def test_raw_rows_keep_a_value_nested_too_deeply_to_decode(monkeypatch):
+    deep = "[" * 100 + "]" * 100
+    json_loads_recurses_on(monkeypatch, deep)  # as it does past the parser's depth limit
 
     result = fetch_raw_rows(served([raw_row(START, deep)]), "stress", START, END)
 

@@ -14,7 +14,12 @@ from mifit.auth.session import Session
 from mifit.crypto import encrypt_query_params, rc4_crypt, signed_nonce
 from mifit.errors import ApiError, AuthError, MiFitError, RenewalError
 from mifit.transport import Transport
-from support import EncryptingHttp, exception_chain, synthetic_session
+from support import (
+    EncryptingHttp,
+    exception_chain,
+    json_loads_recurses_on,
+    synthetic_session,
+)
 
 SYNTH_SSECURITY = base64.b64encode(b"synthetic-secret").decode("ascii")
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0000"
@@ -302,10 +307,11 @@ class InvalidJsonHttp(FakeHttp):
 
 
 class TooDeepJsonHttp(InvalidJsonHttp):
-    """Answers with a body that is valid JSON, nested far deeper than the parser's
-    recursion limit allows on every Python version."""
+    """Answers with a body that is valid JSON, standing in for one nested deeper than
+    the parser's recursion limit: the test makes ``json.loads`` raise
+    ``RecursionError`` for it (the real limit differs from platform to platform)."""
 
-    plaintext = b'{"code": 0, "x": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
+    plaintext = b'{"code": 0, "x": ' + b"[" * 100 + b"]" * 100 + b"}"
 
 
 def test_unparsable_body_error_has_no_chain():
@@ -317,7 +323,9 @@ def test_unparsable_body_error_has_no_chain():
     assert "SYNTH-BODY-FRAGMENT" not in str(exc)
 
 
-def test_too_deeply_nested_body_is_an_api_error():
+def test_too_deeply_nested_body_is_an_api_error(monkeypatch):
+    json_loads_recurses_on(monkeypatch, TooDeepJsonHttp.plaintext.decode("utf-8"))
+
     with pytest.raises(ApiError) as excinfo:
         make_transport(TooDeepJsonHttp()).get_json(ENDPOINT, DATA_OBJ)
 

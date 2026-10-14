@@ -15,6 +15,7 @@ from mifit.domains.base import (
     decode_value,
     stalled_note,
 )
+from support import json_loads_recurses_on
 
 ABSENT = object()
 """Stands for a ``value`` key that is not there at all."""
@@ -23,9 +24,10 @@ HUGE_INT = "1" * 5000
 """An integer literal longer than Python's 4300-digit ``int`` parsing limit, so
 ``json.loads`` raises ``ValueError`` on it."""
 
-TOO_DEEP = 1_000_000
-"""A nesting depth far beyond what ``json.loads`` accepts on any supported Python,
-so it raises ``RecursionError`` (not a ``ValueError``)."""
+NESTING = 100
+"""Levels of nesting in the values the test below makes ``json.loads`` give up on with
+a ``RecursionError`` (not a ``ValueError``). The real limit varies with the Python
+version and the platform, so no depth is deep enough everywhere."""
 
 
 @pytest.mark.parametrize(
@@ -267,8 +269,11 @@ def test_decode_value_reports_a_missing_or_undecodable_value(value):
 @pytest.mark.parametrize(
     ("opening", "closing"), [("[", "]"), ('{"a": ', "}")], ids=["arrays", "objects"]
 )
-def test_decode_value_of_a_too_deeply_nested_value_is_unreadable(opening, closing):
-    value = opening * TOO_DEEP + "1" + closing * TOO_DEEP
+def test_decode_value_of_a_too_deeply_nested_value_is_unreadable(
+    monkeypatch, opening, closing
+):
+    value = opening * NESTING + "1" + closing * NESTING
+    json_loads_recurses_on(monkeypatch, value)
 
     assert decode_value({"time": 1, "value": value}) == (None, ValueProblem.UNREADABLE)
 
