@@ -27,6 +27,7 @@ from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.domains.sleep import fetch_sleep
+from mifit.domains.spo2 import fetch_spo2_window
 from mifit.domains.spo2_daily import fetch_spo2_daily
 from mifit.domains.steps import fetch_steps
 from mifit.domains.workouts import fetch_workouts
@@ -288,6 +289,18 @@ class MiFit:
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 
+    def spo2(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Raw all-day SpO2 samples from ``start`` to ``end``.
+
+        Every sample in the window, complete at its start: the read asks the
+        service a day earlier and filters, because it would otherwise leave out the
+        first hours (notes/11). Spot checks (``single_spo2``) and low-SpO2 events
+        (``low_spo2``) are separate keys; read them with ``raw``.
+        """
+        return fetch_spo2_window(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
     def raw(self, key: str, start: DateArg, end: DateArg) -> list[dict]:
         """The service's own rows for fitness-data ``key``, undecoded and unfiltered.
 
@@ -295,8 +308,9 @@ class MiFit:
         the entry list is returned exactly as it gave it.
 
         This is the service's own answer for the window; for bucketed keys such
-        as ``heart_rate`` it omits rows of a bucket keyed at or before ``start``
-        (notes/08), so widen ``start`` and filter yourself if you need every row.
+        as ``heart_rate`` and ``spo2`` (notes/08, notes/11) it omits rows of a
+        bucket keyed at or before ``start``, so widen ``start`` and filter yourself
+        if you need every row.
         """
         return self._transport.get_paged(
             _RAW_ENDPOINT,

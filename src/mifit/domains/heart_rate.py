@@ -11,10 +11,10 @@ grouped into buckets of a few hours (2 h on the account checked), and a bucket
 keyed at or before ``start_time`` is left out whole, including its samples after
 ``start_time``. The end is exact: a sample at ``end_time`` is returned and none
 after it. A window starting at a local midnight therefore lost the day's first
-bucket. ``fetch_heart_rate_window`` asks for one day more before the start
-(``_START_MARGIN_S``, far wider than a bucket) and keeps only the rows whose
-outer ``time`` lies in the requested window, the same pattern the sleep domain
-uses.
+bucket. ``fetch_heart_rate_window`` reads through the shared
+``raw_window.fetch_raw_window``, which asks for one day more before the start
+(far wider than a bucket) and keeps only the rows whose outer ``time`` lies in
+the requested window.
 
 ``fetch_heart_rate_full`` remains for paging back without a start: it omits
 ``start_time`` and follows the service's cursor back from ``end_time``, as the
@@ -25,14 +25,12 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, as_int, register
+from mifit.domains.base import DomainResult, register
+from mifit.domains.raw_window import fetch_raw_window
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.transport import Transport
 
 _ENDPOINT = "data/get_fitness_data_by_time"
-
-_START_MARGIN_S = 86400
-"""How much earlier than the caller's start the windowed read asks the service."""
 
 
 @register("heart_rate")
@@ -42,33 +40,16 @@ def fetch_heart_rate_window(
     """Fetch raw heart-rate samples between two Unix-second timestamps, both
     inclusive.
 
-    The request starts ``_START_MARGIN_S`` early, so the service's first bucket
-    lies before the window, and only rows whose outer ``time`` is within
-    ``[start_epoch_s, end_epoch_s]`` are kept; the margin's rows are dropped
-    without a note. A row without a usable outer ``time`` is skipped with a note
-    and left out of ``raw``. A window with no rows gives an empty result, never a
-    fabricated sample.
+    The read goes through ``raw_window.fetch_raw_window``: the request starts a
+    day early, so the service's first bucket lies before the window, and only
+    rows whose outer ``time`` is within ``[start_epoch_s, end_epoch_s]`` are
+    kept; the margin's rows are dropped without a note. A row without a usable
+    outer ``time`` is skipped with a note and left out of ``raw``. A window with
+    no rows gives an empty result, never a fabricated sample.
     """
-    entries = t.get_paged(
-        _ENDPOINT,
-        {
-            "key": "heart_rate",
-            "start_time": start_epoch_s - _START_MARGIN_S,
-            "end_time": end_epoch_s,
-            "reverse": True,
-        },
-        list_key="data_list",
-    )
-    kept = []
-    notes = []
-    for entry in entries:
-        epoch_s = as_int(entry.get("time")) if isinstance(entry, dict) else None
-        if epoch_s is None:
-            notes.append("Skipped a heart-rate row without a usable time.")
-        elif start_epoch_s <= epoch_s <= end_epoch_s:
-            kept.append(entry)
+    kept, unusable = fetch_raw_window(t, "heart_rate", start_epoch_s, end_epoch_s)
     result = _build_result(kept)
-    result.notes.extend(notes)
+    result.notes.extend(["Skipped a heart-rate row without a usable time."] * unusable)
     return result
 
 

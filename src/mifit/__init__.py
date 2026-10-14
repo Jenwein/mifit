@@ -12,7 +12,7 @@ from mifit.errors import (
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
-from mifit.models.spo2 import Spo2DailySummary
+from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.workouts import Workout
 
@@ -33,4 +33,5 @@ __all__ = [
     "SleepStage",
     "Workout",
     "Spo2DailySummary",
+    "Spo2Point",
 ]

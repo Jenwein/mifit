@@ -26,7 +26,7 @@ from mifit.errors import ApiError, AuthError, NotificationRequiredError
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
-from mifit.models.spo2 import Spo2DailySummary
+from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.workouts import Workout
 
@@ -95,6 +95,7 @@ SPO2_DAY = Spo2DailySummary(
     max_spo2_pct=99,
     min_spo2_pct=None,
 )
+SPO2_POINT = Spo2Point(epoch_s=1790812860, spo2_pct=97)
 WORKOUT = Workout(
     start_epoch_s=1790820000,
     end_epoch_s=1790822701,
@@ -160,6 +161,12 @@ class FakeMiFit:
     def spo2_daily(self, start, end):
         self.calls.append(("spo2_daily", start, end, {}))
         return DomainResult(records=[SPO2_DAY], raw=[{"avg_spo2": 96}], notes=[])
+
+    def spo2(self, start, end):
+        self.calls.append(("spo2", start, end, {}))
+        return DomainResult(
+            records=[SPO2_POINT], raw=[{"time": 1790812860, "spo2": 97}], notes=[]
+        )
 
     def workouts(self, start, end):
         self.calls.append(("workouts", start, end, {}))
@@ -299,6 +306,20 @@ def test_export_spo2_daily_writes_records(fake_mifit, tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["records"] == [asdict(SPO2_DAY)]
     assert fake_mifit.instances[0].calls == [("spo2_daily", "2026-10-01", "2026-10-02", {})]
+
+
+def test_export_spo2_writes_records(fake_mifit, tmp_path):
+    out = tmp_path / "spo2.json"
+
+    rc = cli.main(
+        ["export", "spo2", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(SPO2_POINT)]
+    assert data["raw"] == [{"time": 1790812860, "spo2": 97}]
+    assert fake_mifit.instances[0].calls == [("spo2", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_workouts_writes_records(fake_mifit, tmp_path):

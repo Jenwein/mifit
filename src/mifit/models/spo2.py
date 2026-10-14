@@ -24,3 +24,15 @@ class Spo2DailySummary:
     avg_spo2_pct: int | None
     max_spo2_pct: int | None
     min_spo2_pct: int | None
+
+
+@dataclass
+class Spo2Point:
+    """One blood-oxygen sample.
+
+    ``epoch_s`` is the sample time in Unix seconds and ``spo2_pct`` the
+    saturation in percent as reported.
+    """
+
+    epoch_s: int
+    spo2_pct: int
