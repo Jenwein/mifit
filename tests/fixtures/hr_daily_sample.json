@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "result": {
+    "data_list": [
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "heart_rate",
+        "time": 1760400000,
+        "value": "{\"avg_hr\":70,\"max_hr\":130,\"min_hr\":50,\"avg_rhr\":60,\"abnormal_hr_count\":0,\"warm_up_hr_zone_duration\":20,\"fat_burning_hr_zone_duration\":3,\"aerobic_hr_zone_duration\":0,\"anaerobic_hr_zone_duration\":0,\"extreme_hr_zone_duration\":0,\"latest_hr\":{\"bpm\":75,\"type\":0,\"time\":1760486400,\"dbKey\":\"heart_rate\",\"dbTime\":1760457600,\"sid\":\"synthetic\"}}",
+        "update_time": 1760430000,
+        "watermark": 1
+      },
+      {
+        "sid": "synthetic-sid",
+        "tag": "daily_report",
+        "key": "heart_rate",
+        "time": 1760486400,
+        "value": "{\"avg_hr\":72,\"max_hr\":140,\"min_hr\":52,\"abnormal_hr_count\":1,\"warm_up_hr_zone_duration\":25,\"fat_burning_hr_zone_duration\":5,\"aerobic_hr_zone_duration\":1,\"anaerobic_hr_zone_duration\":0,\"extreme_hr_zone_duration\":0,\"latest_hr\":{\"bpm\":78,\"time\":1760572800,\"dbKey\":\"heart_rate\",\"dbTime\":1760544000,\"sid\":\"synthetic\"}}",
+        "update_time": 1760516400,
+        "watermark": 2
+      }
+    ],
+    "has_more": false,
+    "next_key": null
+  }
+}
