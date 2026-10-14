@@ -125,6 +125,16 @@ DETAIL = WorkoutDetail(
 )
 
 
+# A row as the generic reads return it: the service's outer fields, ``value`` decoded.
+ROW_DECODED = {
+    "sid": "synthetic-sid",
+    "key": "stress",
+    "time": 1790812800,
+    "tag": "days",
+    "value": {"avg_stress": 40},
+}
+
+
 def make_session():
     return Session(
         user_id="1000001",
@@ -211,6 +221,14 @@ class FakeMiFit:
     def profile(self):
         self.calls.append(("profile",))
         return DomainResult(records=[PROFILE], raw=[{"height": 175}], notes=["n1"])
+
+    def raw_window(self, key, start, end):
+        self.calls.append(("raw_window", key, start, end, {}))
+        return DomainResult(records=[], raw=[ROW_DECODED], notes=[])
+
+    def daily_report(self, key, start, end, *, tag="daily_report"):
+        self.calls.append(("daily_report", key, start, end, {"tag": tag}))
+        return DomainResult(records=[], raw=[ROW_DECODED], notes=[])
 
 
 @pytest.fixture
@@ -1827,6 +1845,157 @@ def test_profile_without_session_tells_to_log_in(fake_mifit, capsys):
     err = capsys.readouterr().err
     assert "No valid Mi Fitness login session" in err
     assert "mifit login" in err
+
+
+# ---------------------------------------------------------------------------
+# raw
+# ---------------------------------------------------------------------------
+
+
+RAW_ARGS = ["raw", "stress", "--from", "2026-10-01", "--to", "2026-10-02"]
+
+
+def test_raw_reads_the_window_and_writes_rows(fake_mifit, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    rc = cli.main([*RAW_ARGS, "--json", str(out)])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("raw_window", "stress", "2026-10-01", "2026-10-02", {})
+    ]
+    assert json.loads(out.read_text(encoding="utf-8")) == {
+        "records": [],
+        "raw": [ROW_DECODED],
+        "notes": [],
+    }
+    # The count is of the rows (``records`` is always empty here).
+    assert f"Wrote 1 row(s) to {out}." in capsys.readouterr().out
+
+
+def test_raw_daily_reads_the_daily_report(fake_mifit, tmp_path):
+    rc = cli.main([*RAW_ARGS, "--daily", "--json", str(tmp_path / "out.json")])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("daily_report", "stress", "2026-10-01", "2026-10-02", {"tag": "daily_report"})
+    ]
+
+
+def test_raw_daily_with_tag(fake_mifit, tmp_path):
+    rc = cli.main(
+        [*RAW_ARGS, "--daily", "--tag", "daily_fitness", "--json", str(tmp_path / "out.json")]
+    )
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("daily_report", "stress", "2026-10-01", "2026-10-02", {"tag": "daily_fitness"})
+    ]
+
+
+def test_raw_tag_without_daily_is_a_usage_error(fake_mifit, capsys):
+    rc = cli.main([*RAW_ARGS, "--tag", "daily_fitness"])
+
+    assert rc == 2
+    assert "--tag" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
+def test_raw_long_range_needs_long(fake_mifit, tmp_path, capsys):
+    long_args = ["raw", "stress", "--from", "2026-01-01", "--to", "2026-04-03"]  # 93 days
+
+    rc = cli.main(long_args)
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--long" in err
+    assert "92" in err
+    assert fake_mifit.instances == []
+
+    rc = cli.main([*long_args, "--long", "--json", str(tmp_path / "out.json")])
+
+    assert rc == 0
+    assert fake_mifit.instances[0].calls == [
+        ("raw_window", "stress", "2026-01-01", "2026-04-03", {})
+    ]
+
+
+def test_raw_range_of_92_days_needs_no_long(fake_mifit, tmp_path):
+    rc = cli.main(
+        ["raw", "stress", "--from", "2026-01-01", "--to", "2026-04-02"]
+        + ["--json", str(tmp_path / "out.json")]
+    )
+
+    assert rc == 0
+    assert len(fake_mifit.instances[0].calls) == 1
+
+
+def test_raw_rejects_a_reversed_range(fake_mifit, capsys):
+    rc = cli.main(["raw", "stress", "--from", "2026-10-02", "--to", "2026-10-01"])
+
+    assert rc == 2
+    assert "--from must not be later than --to" in capsys.readouterr().err
+    assert fake_mifit.instances == []
+
+
+def test_raw_to_stdout_prints_only_json(fake_mifit, monkeypatch, capsys):
+    def raw_window(self, key, start, end):
+        return DomainResult(records=[], raw=[ROW_DECODED], notes=["n1"])
+
+    monkeypatch.setattr(FakeMiFit, "raw_window", raw_window)
+
+    rc = cli.main(RAW_ARGS)
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"records": [], "raw": [ROW_DECODED], "notes": ["n1"]}
+    assert "note: n1" in captured.err
+
+
+def test_raw_output_is_strict_json(fake_mifit, monkeypatch, capsys):
+    def raw_window(self, key, start, end):
+        return DomainResult(records=[], raw=[{"time": 1790812800, "value": float("nan")}], notes=[])
+
+    monkeypatch.setattr(FakeMiFit, "raw_window", raw_window)
+
+    assert cli.main(RAW_ARGS) == 0
+    data = json.loads(capsys.readouterr().out, parse_constant=_reject)
+    assert data["raw"] == [{"time": 1790812800, "value": None}]
+
+
+def test_raw_auth_error_points_to_login(fake_mifit, monkeypatch, tmp_path, capsys):
+    def raw_window(self, key, start, end):
+        raise AuthError("The login session was refused.")
+
+    monkeypatch.setattr(FakeMiFit, "raw_window", raw_window)
+    out = tmp_path / "out.json"
+
+    rc = cli.main([*RAW_ARGS, "--json", str(out)])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "The login session was refused." in err
+    assert "mifit login" in err
+    assert not out.exists()
+
+
+def test_raw_help_lists_the_flags(capsys):
+    assert cli.main(["raw", "--help"]) == 0
+
+    out = capsys.readouterr().out
+    for flag in ("--from", "--to", "--daily", "--tag", "--json", "--long"):
+        assert flag in out
+
+
+def test_export_message_unchanged(fake_mifit, tmp_path, capsys):
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    assert capsys.readouterr().out == f"Wrote 1 record(s) to {out}.\n"
 
 
 # ---------------------------------------------------------------------------

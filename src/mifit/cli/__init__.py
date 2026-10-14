@@ -1,16 +1,22 @@
-"""Command-line interface: ``mifit login``, ``mifit export`` and ``mifit profile``.
+"""Command-line interface: ``mifit login``, ``mifit export``, ``mifit profile`` and
+``mifit raw``.
 
 ``login`` runs the QR login, shows the code in the terminal and stores the
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
 sleep, spo2, spo2 daily, weight, workouts, workout detail) for a date range and writes
 ``{records, raw, notes}`` as JSON. ``profile`` reads the account profile (height,
 weight, daily step and calorie goals) and writes it the same way; its ``raw`` is the
-whole profile, personal details included, for the user's own eyes.
+whole profile, personal details included, for the user's own eyes. ``raw`` reads one
+key of the fitness-data endpoint, any key, and writes the rows as the service sent
+them, with ``value`` decoded (``records`` is empty; see ``notes/domain-catalog.md``);
+``--daily`` reads the key's daily report instead. It is one paged read, never chunked
+and without ``--resume``.
 
 A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
 workout detail, 31 days for the rest, or ``--chunk``) is read chunk by chunk through
 one client, one request at a time, with progress on stderr; a range that fits in one
-chunk is the one call it always was. A range over 92 days needs ``--long``.
+chunk is the one call it always was. A range over 92 days needs ``--long`` (``raw``
+too).
 ``heart_rate --full`` is a single backward read and is never chunked. With ``--json
 PATH``, each finished chunk is appended to ``PATH.partial`` (``mifit.cli.partial``),
 so an interrupted export continues with ``--resume`` instead of reading everything
@@ -294,9 +300,13 @@ def _json_ready(result: DomainResult) -> DomainResult:
     return DomainResult(records=records, raw=raw, notes=notes)
 
 
-def _write_result(result: DomainResult, json_path: str | None) -> int:
+def _write_result(result: DomainResult, json_path: str | None, *, noun: str = "record") -> int:
     """Show the notes on stderr and write ``{records, raw, notes}`` as strict JSON
-    to ``json_path``, or to stdout when it is ``None``; return the exit code."""
+    to ``json_path``, or to stdout when it is ``None``; return the exit code.
+
+    The confirmation for a file counts ``noun``s: the rows of ``raw`` when ``noun`` is
+    ``"row"`` (a generic read has no records), else the ``records``.
+    """
     result = _json_ready(result)
     for note in result.notes:
         _eprint(f"note: {note}")
@@ -316,8 +326,16 @@ def _write_result(result: DomainResult, json_path: str | None) -> int:
     except OSError as exc:
         _eprint(f"error: could not write {json_path} ({exc.strerror or type(exc).__name__}).")
         return _EXIT_ERROR
-    print(f"Wrote {len(result.records)} record(s) to {json_path}.")
+    count = len(result.raw) if noun == "row" else len(result.records)
+    print(f"Wrote {count} {noun}(s) to {json_path}.")
     return _EXIT_OK
+
+
+def _long_range_message(command: str, days: int) -> str:
+    return (
+        f"{command}: the range is {days} days long; a range over {_LONG_RANGE_DAYS} days "
+        "takes many requests and needs --long"
+    )
 
 
 def _export_usage_error(args: argparse.Namespace) -> str | None:
@@ -335,10 +353,7 @@ def _export_usage_error(args: argparse.Namespace) -> str | None:
         )
     days = (parse_day(args.end) - parse_day(args.start)).days + 1
     if days > _LONG_RANGE_DAYS and not args.long and not full:  # --full ignores --from
-        return (
-            f"export: the range is {days} days long; a range over {_LONG_RANGE_DAYS} days "
-            "takes many requests and needs --long"
-        )
+        return _long_range_message("export", days)
     return None
 
 
@@ -538,6 +553,36 @@ def _cmd_profile(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# raw
+# ---------------------------------------------------------------------------
+
+
+def _raw_usage_error(args: argparse.Namespace) -> str | None:
+    """Why these ``raw`` arguments are refused before anything is read, or ``None``."""
+    if args.start > args.end:  # validated YYYY-MM-DD strings: text order is date order
+        return "raw: --from must not be later than --to"
+    if args.tag is not None and not args.daily:
+        return "raw: --tag only applies with --daily"
+    days = (parse_day(args.end) - parse_day(args.start)).days + 1
+    if days > _LONG_RANGE_DAYS and not args.long:
+        return _long_range_message("raw", days)
+    return None
+
+
+def _cmd_raw(args: argparse.Namespace) -> int:
+    result = _read(
+        lambda client: (
+            client.daily_report(args.key, args.start, args.end, tag=args.tag or "daily_report")
+            if args.daily
+            else client.raw_window(args.key, args.start, args.end)
+        )
+    )
+    if result is None:
+        return _EXIT_ERROR
+    return _write_result(result, args.json_path, noun="row")
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
@@ -614,6 +659,52 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_json_option(profile)
     profile.set_defaults(handler=_cmd_profile)
+
+    raw = commands.add_parser(
+        "raw",
+        help="read any fitness-data key as the service sends it (rows, value decoded) as JSON",
+    )
+    raw.add_argument(
+        "key",
+        metavar="KEY",
+        help="the key to read, e.g. stress (known keys: notes/domain-catalog.md)",
+    )
+    raw.add_argument(
+        "--from",
+        dest="start",
+        required=True,
+        type=_date_arg,
+        metavar="YYYY-MM-DD",
+        help="first day to read (local time)",
+    )
+    raw.add_argument(
+        "--to",
+        dest="end",
+        required=True,
+        type=_date_arg,
+        metavar="YYYY-MM-DD",
+        help="last day to read, inclusive (local time)",
+    )
+    _add_json_option(raw)
+    raw.add_argument(
+        "--daily",
+        action="store_true",
+        help="read the daily report instead of raw rows",
+    )
+    raw.add_argument(
+        "--tag",
+        metavar="TAG",
+        help="aggregated tag, with --daily; default daily_report",
+    )
+    raw.add_argument(
+        "--long",
+        action="store_true",
+        help=(
+            f"allow a range over {_LONG_RANGE_DAYS} days: one paged read, which can take "
+            "minutes"
+        ),
+    )
+    raw.set_defaults(handler=_cmd_raw)
     return parser
 
 
@@ -626,12 +717,20 @@ def _add_json_option(command: argparse.ArgumentParser) -> None:
     )
 
 
+# Commands whose arguments are checked after parsing, before anything is read.
+_USAGE_CHECKS: dict[str, Callable[[argparse.Namespace], str | None]] = {
+    "export": _export_usage_error,
+    "raw": _raw_usage_error,
+}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return the process exit code (0 on success)."""
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
-        problem = _export_usage_error(args) if args.command == "export" else None
+        check = _USAGE_CHECKS.get(args.command)
+        problem = check(args) if check is not None else None
         if problem is not None:
             parser.error(problem)
     except SystemExit as exc:  # --help (0) and usage errors (2): report, don't raise

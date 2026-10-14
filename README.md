@@ -133,6 +133,30 @@ A failed chunk stops the export; nothing is retried automatically. If one
 chunk keeps failing, you can skip it by exporting the ranges before and after
 it separately.
 
+### Any key: `mifit raw`
+
+```bash
+mifit raw <key> --from YYYY-MM-DD --to YYYY-MM-DD [--daily [--tag TAG]] [--json PATH] [--long]
+```
+
+Reads one key of the fitness-data endpoint without a domain of its own
+(`stress`, for example):
+
+- It writes `{records: [], raw, notes}`. `raw` holds the service's rows, with
+  their own fields and `value` decoded from its JSON string; `records` is
+  always empty.
+- For a raw key it asks the service a day early and keeps the rows inside your
+  window, so the first hours of the window are complete.
+- `--daily` reads the key's daily report instead, one row per local day that
+  has data; `--tag TAG` picks another aggregated tag (default `daily_report`).
+- It is one read, paged: a range over 92 days needs `--long`, and there is no
+  `--resume`.
+- The keys known so far are listed in `notes/domain-catalog.md`.
+
+```bash
+mifit raw stress --from 2026-10-01 --to 2026-10-07 --json stress.json
+```
+
 ## Python API
 
 ```python
@@ -153,7 +177,14 @@ detail = client.workout_detail("2026-10-12", "2026-10-12")  # samples and GPS tr
 no_gps = client.workout_detail("2026-10-12", "2026-10-12", track=False)
 
 rows = client.raw("sleep", "2026-10-07", "2026-10-07")     # any fitness-data key, as served
+window = client.raw_window("stress", "2026-10-07", "2026-10-07")        # a complete window
+daily = client.daily_report("valid_stand", "2026-10-01", "2026-10-07")  # daily rows
 ```
+
+`raw_window(key, ...)` is `raw` made complete: it asks a day early and keeps
+the rows of your window, with `value` decoded. `daily_report(key, ...)` returns
+the key's daily rows, one per local day that has data, with `tag=` to pick a
+tag other than `daily_report`. Both give `records=[]` and the rows in `raw`.
 
 `workout_detail` gives one `WorkoutDetail` per workout in `records`: its
 `workout` summary (the `Workout` of `workouts`), its `samples` (`WorkoutSample`,
@@ -164,13 +195,13 @@ Dates are `"YYYY-MM-DD"` strings (local calendar days, inclusive) or ints of
 Unix seconds. Each domain method returns a result with `records`, `raw` and
 `notes`; `raw(key, ...)` returns the service's rows as they came, for any key
 of the fitness-data endpoint (`data/get_fitness_data_by_time`), not the daily
-reports. Errors specific to mifit derive from `mifit.MiFitError`: `AuthError`
-(no usable session, or HTTP 401), its subclass `RenewalError` (an HTTP 401 the
-automatic renewal could not fix; log in again), `ApiError` (the service
-refused the request or sent something unreadable) and
-`NotificationRequiredError` (raised by the login when Xiaomi asks for a
-security confirmation). Network failures surface as `requests` exceptions,
-and a bad date argument raises `ValueError` or `TypeError`.
+reports (see `raw_window` for a complete window). Errors specific to mifit
+derive from `mifit.MiFitError`: `AuthError` (no usable session, or HTTP 401),
+its subclass `RenewalError` (an HTTP 401 the automatic renewal could not fix;
+log in again), `ApiError` (the service refused the request or sent something
+unreadable) and `NotificationRequiredError` (raised by the login when Xiaomi
+asks for a security confirmation). Network failures surface as `requests`
+exceptions, and a bad date argument raises `ValueError` or `TypeError`.
 
 For a long range, `read_chunks` reads one chunk at a time (the CLI's chunk
 sizes; `size="day"`, `"week"` or `"month"` overrides them) and `merge_chunks`
