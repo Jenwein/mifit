@@ -21,28 +21,10 @@ from __future__ import annotations
 
 from datetime import tzinfo
 
-from mifit.domains.base import (
-    DomainResult,
-    ValueProblem,
-    as_int,
-    as_positive_int,
-    decode_value,
-    register,
-    stalled_note,
-)
-from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
+from mifit.domains.base import DomainResult, as_positive_int, register
+from mifit.domains.daily_report import fetch_daily_summaries
 from mifit.models.heart_rate import HeartRateDailySummary
 from mifit.transport import Transport
-
-_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
-_VALUE_NOTES = {
-    ValueProblem.UNREADABLE: (
-        "Skipped a daily heart-rate row whose value is missing or not JSON."
-    ),
-    ValueProblem.NOT_AN_OBJECT: (
-        "Skipped a daily heart-rate row whose value is not an object."
-    ),
-}
 
 
 @register("heart_rate_daily")
@@ -63,56 +45,22 @@ def fetch_heart_rate_daily(
     are all missing still gives a record, with every figure ``None``. A read that
     stalled on an unusable cursor ends with a note saying days may be missing.
     """
-    start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    paged = t.get_paged_result(
-        _ENDPOINT,
-        {
-            "tag": "daily_report",
-            "key": "heart_rate",
-            "reverse": True,
-            "limit": 50,
-            "start_time": start_time,
-            "end_time": end_time,
-        },
-        list_key="data_list",
+    return fetch_daily_summaries(
+        t,
+        "heart_rate",
+        start_epoch_s,
+        end_epoch_s,
+        what="daily heart-rate",
+        summarize=_summary,
+        tz=tz,
     )
 
-    result = DomainResult()
-    for entry in paged.items:
-        value, problem = decode_value(entry)
-        if problem is not None:
-            result.notes.append(_VALUE_NOTES[problem])
-            continue
 
-        result.raw.append(value)
-        record = _to_record(entry, value, tz)
-        if record is None:
-            result.notes.append(
-                "Skipped a daily heart-rate row without a usable day timestamp."
-            )
-            continue
-        result.records.append(record)
-    if paged.stalled:
-        result.notes.append(stalled_note("daily heart-rate rows"))
-    return result
-
-
-def _to_record(
-    entry: dict, value: dict, tz: tzinfo | None
-) -> HeartRateDailySummary | None:
-    # The day key is the OUTER entry's ``time``; the decoded ``value`` carries no
-    # time of its own (``latest_hr.time`` is a shifted local clock, not the day).
-    # A bool, a string or a non-finite float is not a usable day key.
-    key = as_int(entry.get("time"))
-    if key is None:
-        return None
-    try:
-        day = report_day(key)
-        epoch_s = local_midnight(day, tz)
-    except (ValueError, OverflowError, OSError):
-        return None
+def _summary(day: str, epoch_s: int, value: dict) -> HeartRateDailySummary:
+    # The day comes from the OUTER entry's ``time``, never from the value
+    # (``latest_hr.time`` is a shifted local clock, not the day).
     return HeartRateDailySummary(
-        date=day.isoformat(),
+        date=day,
         epoch_s=epoch_s,
         avg_bpm=as_positive_int(value.get("avg_hr")),
         max_bpm=as_positive_int(value.get("max_hr")),

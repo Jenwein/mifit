@@ -22,11 +22,11 @@ from mifit.domains.base import (
     register,
     stalled_note,
 )
-from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
+from mifit.domains.daily_report import read_daily_report
+from mifit.domains.days import local_midnight, report_day
 from mifit.models.steps import StepRecord
 from mifit.transport import Transport
 
-_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 _VALUE_NOTES = {
     ValueProblem.UNREADABLE: (
         "Skipped a daily step row whose value is missing or not valid JSON."
@@ -54,19 +54,7 @@ def fetch_steps(
     ``distance``/``calories`` becomes ``None``. A read that stalled on an unusable
     cursor ends with a note saying days may be missing.
     """
-    start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    paged = t.get_paged_result(
-        _ENDPOINT,
-        {
-            "tag": "daily_report",
-            "key": "steps",
-            "reverse": True,
-            "limit": 50,
-            "start_time": start_time,
-            "end_time": end_time,
-        },
-        list_key="data_list",
-    )
+    paged = read_daily_report(t, "steps", start_epoch_s, end_epoch_s, tz=tz)
 
     result = DomainResult()
     for entry in paged.items:

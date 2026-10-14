@@ -286,3 +286,15 @@ def test_stalled_read_says_so():
     assert len(result.notes) == 2
     assert result.notes[-1] == stalled_note("daily SpO2 rows")
     assert [r.date for r in result.records] == ["2025-10-15"]
+
+
+def test_skip_notes_keep_their_wording():
+    payload = payload_with_rows((DAY_1, "not json"), (DAY_2, "[1]"), ("x", figures()))
+
+    result = fetch_spo2_daily(PagedFake(payload), START, END, tz=UTC)
+
+    assert result.notes == [
+        "Skipped a daily SpO2 row whose value is missing or not JSON.",
+        "Skipped a daily SpO2 row whose value is not an object.",
+        "Skipped a daily SpO2 row without a usable day timestamp.",
+    ]

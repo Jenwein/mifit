@@ -23,11 +23,10 @@ import json
 from datetime import tzinfo
 
 from mifit.domains.base import DomainResult, stalled_note
-from mifit.domains.days import local_day_span, report_window
+# ``AGGREGATED_ENDPOINT`` is re-exported, so importing it from here keeps working.
+from mifit.domains.daily_report import AGGREGATED_ENDPOINT, read_daily_report
 from mifit.domains.raw_window import fetch_raw_window
 from mifit.transport import Transport
-
-AGGREGATED_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 
 
 def fetch_raw_rows(
@@ -86,19 +85,7 @@ def fetch_daily_rows(
     """
     _require_text("key", key)
     _require_text("tag", tag)
-    start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    paged = t.get_paged_result(
-        AGGREGATED_ENDPOINT,
-        {
-            "tag": tag,
-            "key": key,
-            "reverse": True,
-            "limit": 50,
-            "start_time": start_time,
-            "end_time": end_time,
-        },
-        list_key="data_list",
-    )
+    paged = read_daily_report(t, key, start_epoch_s, end_epoch_s, tz=tz, tag=tag)
     rows, undecodable = _decode_rows(paged.items)
 
     result = DomainResult(raw=rows)
