@@ -11,8 +11,9 @@ first hours.
 ``fetch_raw_window`` asks for one day more before the start (``START_MARGIN_S``,
 far wider than a bucket) and keeps only the rows whose outer ``time`` lies in the
 requested window. Every domain that reads a bucketed raw key, or one that may be
-bucketed, must read it through here. ``MiFit.raw`` deliberately does not: it
-returns the service's own answer, unfiltered.
+bucketed, must read it through here; ``MiFit.raw_window`` reads any raw key through
+here. ``MiFit.raw`` deliberately does not: it returns the service's own answer,
+unfiltered.
 """
 
 from __future__ import annotations

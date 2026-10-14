@@ -363,6 +363,55 @@ def test_raw_converts_date_strings(build):
     assert datetime.fromtimestamp(sent["end_time"]) == datetime(2026, 10, 1, 23, 59, 59)
 
 
+def test_raw_window_delegates_with_local_day_bounds(build, monkeypatch):
+    client, fake, _ = build(load_fixture("hr_raw_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, key, start_epoch_s, end_epoch_s):
+        seen.append((transport, key, start_epoch_s, end_epoch_s))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_raw_rows", spy)
+
+    result = client.raw_window("stress", "2026-10-01", "2026-10-02")
+
+    assert result is sentinel
+    ((transport, key, start_s, end_s),) = seen
+    assert transport is fake
+    assert key == "stress"
+    # Local day bounds, as for ``steps``: the end date's last second keeps it inclusive.
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 2, 23, 59, 59)
+
+
+def test_daily_report_delegates_with_tag(build, monkeypatch):
+    client, fake, _ = build(load_fixture("steps_daily_sample.json"))
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, key, start_epoch_s, end_epoch_s, *, tag):
+        seen.append((transport, key, start_epoch_s, end_epoch_s, tag))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_daily_rows", spy)
+
+    assert client.daily_report("valid_stand", "2026-10-01", "2026-10-02") is sentinel
+    assert client.daily_report(
+        "goal", "2026-10-01", "2026-10-02", tag="daily_fitness"
+    ) is sentinel
+
+    (default, other) = seen
+    assert default[0] is fake
+    assert default[1] == "valid_stand"
+    assert datetime.fromtimestamp(default[2]) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(default[3]) == datetime(2026, 10, 2, 23, 59, 59)
+    assert default[4] == "daily_report"
+    assert other[1] == "goal"
+    assert other[2:4] == default[2:4]
+    assert other[4] == "daily_fitness"
+
+
 def test_transport_is_built_from_the_session_and_injected_http(build):
     session = make_session()
     http = object()

@@ -27,6 +27,7 @@ from mifit.domains.consumption import fetch_consumption
 from mifit.domains.days import local_midnight, parse_day
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
+from mifit.domains.passthrough import fetch_daily_rows, fetch_raw_rows
 from mifit.domains.profile import fetch_profile
 from mifit.domains.raw_window import RAW_ENDPOINT
 from mifit.domains.sleep import fetch_sleep
@@ -388,7 +389,8 @@ class MiFit:
         This is the service's own answer for the window; for bucketed keys such
         as ``heart_rate`` and ``spo2`` (notes/08, notes/11) it omits rows of a
         bucket keyed at or before ``start``, so widen ``start`` and filter yourself
-        if you need every row.
+        if you need every row. Use ``raw_window`` for a window that is complete at
+        its start.
 
         When the service says more rows follow but sends no usable cursor, the
         read stops there: the rows read so far are returned and a
@@ -406,6 +408,51 @@ class MiFit:
         if paged.stalled:
             warnings.warn(stalled_note(f"'{key}' rows"), RuntimeWarning, stacklevel=2)
         return paged.items
+
+    def raw_window(self, key: str, start: DateArg, end: DateArg) -> DomainResult:
+        """The service's rows for any raw fitness-data ``key``, complete at the start.
+
+        ``raw`` holds the rows whose outer ``time`` is in the window, in the service's
+        order, with the outer fields intact and ``value`` decoded from its JSON string
+        (whatever JSON type it holds; a value that is not JSON stays a string and a
+        note counts it). ``records`` is always empty: no key read here becomes a
+        record. ``notes`` count the rows skipped for lack of a usable ``time``, the
+        values left undecoded, and a read that stalled on an unusable cursor.
+
+        Unlike ``raw`` it asks the service a day early and filters, so the first hours
+        of the window are not lost (notes/08, notes/11). Rows of a daily-type key, whose
+        outer ``time`` is a UTC midnight, are filtered on that ``time`` as served.
+        ``key`` can be any raw key; see ``notes/domain-catalog.md`` for the list and
+        what each holds. Raises ``ValueError`` for an empty or non-string ``key``.
+        """
+        return fetch_raw_rows(
+            self._transport, key, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def daily_report(
+        self, key: str, start: DateArg, end: DateArg, *, tag: str = "daily_report"
+    ) -> DomainResult:
+        """The service's daily rows for ``key``, one per local day that has data.
+
+        ``raw`` holds every row the service sent for the days from ``start`` to
+        ``end`` (inclusive local days, chosen as ``steps`` chooses them), newest
+        first, with the outer fields intact (``time`` is the UTC midnight of the
+        local date) and ``value`` decoded from its JSON string. ``records`` is always
+        empty. ``notes`` count the values left undecoded and a read that stalled on
+        an unusable cursor.
+
+        ``tag`` is ``"daily_report"`` for the daily summaries; the ``goal`` key lives
+        under ``tag="daily_fitness"``. See ``notes/domain-catalog.md`` for the keys
+        and what each holds. Raises ``ValueError`` for an empty or non-string
+        ``key`` or ``tag``.
+        """
+        return fetch_daily_rows(
+            self._transport,
+            key,
+            to_epoch_s(start),
+            to_epoch_s(end, end_of_day=True),
+            tag=tag,
+        )
 
     def read_chunks(
         self,
