@@ -14,11 +14,13 @@ import pytest
 import mifit
 from mifit import client as client_module
 from mifit.client import MiFit
-from mifit.domains.base import DomainResult
+from mifit.domains.base import REGISTRY, DomainResult
+from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.steps import fetch_steps
 from mifit.errors import AuthError
 from mifit.auth.session import Session
+from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.models.steps import StepRecord
 from mifit.transport import Transport
@@ -28,6 +30,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 
 STEPS_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 FITNESS_ENDPOINT = "data/get_fitness_data_by_time"
+CONSUMPTION_ENDPOINT = "diet/user_consumption"
 
 
 def make_session(token="SYNTH-SERVICE-TOKEN-0000", user_id="1000001"):
@@ -52,6 +55,7 @@ class FakeTransport(Transport):
         # No Session/http needed: ``get_paged`` is fully replaced below.
         self._payload = payload
         self.calls = []
+        self.json_calls = []
 
     def get_paged(
         self,
@@ -71,6 +75,13 @@ class FakeTransport(Transport):
             }
         )
         return list(self._payload["result"].get(list_key) or [])
+
+    def get_json(self, endpoint_path, data_obj, *, sign_path=None):
+        """Serves the canned payload as the single-object envelope ``get_json`` returns."""
+        self.json_calls.append(
+            {"endpoint_path": endpoint_path, "data_obj": dict(data_obj)}
+        )
+        return self._payload
 
 
 def load_fixture(name):
@@ -111,7 +122,7 @@ def test_steps_delegates_to_domain(build):
             date="2025-10-14",
             steps=8000,
             distance_m=5200,
-            calories=210,
+            step_calories=210,
             epoch_s=1760400000,
         )
     ]
@@ -120,6 +131,61 @@ def test_steps_delegates_to_domain(build):
     assert fake.calls[0]["endpoint_path"] == STEPS_ENDPOINT
     assert fake.calls[0]["data_obj"]["start_time"] == 1760400000
     assert fake.calls[0]["data_obj"]["end_time"] == 1760486399
+
+
+CONSUMPTION_PAYLOAD = {
+    "code": 0,
+    "message": "success",
+    "result": {"basal": 1907.5, "exercise": 365, "intake": 0},
+}
+
+
+def test_consumption_delegates_to_domain(build):
+    client, fake, _ = build(CONSUMPTION_PAYLOAD)
+
+    result = client.consumption(1760400000, 1760486399)
+
+    assert isinstance(result, DomainResult)
+    assert result.records == [
+        ConsumptionRecord(
+            date="2025-10-14",
+            epoch_s=1760400000,
+            resting_kcal=1907.5,
+            active_kcal=365,
+            intake_kcal=0,
+            total_kcal=2272.5,
+        )
+    ]
+    # One UTC day in the window: one per-day call, at noon of that day, through
+    # the facade's own transport and not the paged one.
+    assert fake.json_calls == [
+        {"endpoint_path": CONSUMPTION_ENDPOINT, "data_obj": {"time": 1760443200}}
+    ]
+    assert fake.calls == []
+    # Same answer as calling the domain directly with the same transport.
+    assert result == fetch_consumption(fake, 1760400000, 1760486399)
+
+
+def test_consumption_converts_date_strings_to_day_bounds(build, monkeypatch):
+    client, fake, _ = build(CONSUMPTION_PAYLOAD)
+    seen = []
+    sentinel = DomainResult(notes=["sentinel"])
+
+    def spy(transport, start_epoch_s, end_epoch_s):
+        seen.append((transport, start_epoch_s, end_epoch_s))
+        return sentinel
+
+    monkeypatch.setattr(client_module, "fetch_consumption", spy)
+
+    result = client.consumption("2026-10-01", "2026-10-03")
+
+    assert result is sentinel
+    (transport, start_s, end_s) = seen[0]
+    assert transport is fake
+    # Same local-day bounds as ``steps``: first second of the first day to the last
+    # second of the last day.
+    assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
 def test_date_string_converts_to_epoch_day_bounds(build):
@@ -402,7 +468,11 @@ def test_importing_client_registers_the_domains():
         check=True,
     )
 
-    assert out.stdout.strip() == "['heart_rate', 'steps']"
+    assert out.stdout.strip() == "['consumption', 'heart_rate', 'steps']"
+
+
+def test_consumption_is_registered_once_client_is_imported():
+    assert REGISTRY["consumption"] is fetch_consumption
 
 
 def test_package_exports():
@@ -417,6 +487,7 @@ def test_package_exports():
     assert mifit.NotificationRequiredError is NotificationRequiredError
     assert mifit.StepRecord is StepRecord
     assert mifit.HeartRatePoint is HeartRatePoint
+    assert mifit.ConsumptionRecord is ConsumptionRecord
     for name in (
         "MiFit",
         "Session",
@@ -426,5 +497,6 @@ def test_package_exports():
         "NotificationRequiredError",
         "StepRecord",
         "HeartRatePoint",
+        "ConsumptionRecord",
     ):
         assert name in mifit.__all__

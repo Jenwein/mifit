@@ -8,6 +8,7 @@ from mifit.errors import (
     MiFitError,
     NotificationRequiredError,
 )
+from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.models.steps import StepRecord
 
@@ -20,4 +21,5 @@ __all__ = [
     "NotificationRequiredError",
     "StepRecord",
     "HeartRatePoint",
+    "ConsumptionRecord",
 ]

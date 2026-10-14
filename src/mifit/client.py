@@ -17,6 +17,7 @@ from typing import Any
 from mifit.auth.qr import login_qr as _login_qr
 from mifit.auth.session import Session, load_session, save_session
 from mifit.domains.base import DomainResult
+from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.steps import fetch_steps
 from mifit.errors import AuthError
@@ -95,6 +96,16 @@ class MiFit:
     def steps(self, start: DateArg, end: DateArg) -> DomainResult:
         """Daily step summaries from ``start`` to ``end`` (inclusive days)."""
         return fetch_steps(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
+    def consumption(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Daily resting / active / intake calories from ``start`` to ``end``.
+
+        These are the figures behind the app's calorie ring, one record per UTC day
+        in the window (inclusive).
+        """
+        return fetch_consumption(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 

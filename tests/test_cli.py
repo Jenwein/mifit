@@ -18,6 +18,7 @@ from mifit import cli
 from mifit.auth.session import Session
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.errors import ApiError, AuthError, NotificationRequiredError
+from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.models.steps import StepRecord
 
@@ -32,7 +33,15 @@ QR_IMAGE_URL = "https://account.xiaomi.com/synthetic/cli-qr-image?t=synthetic-qr
 NOTIFICATION_URL = "https://account.xiaomi.com/synthetic/cli-notify?t=synthetic-notify"
 
 STEP = StepRecord(
-    date="2026-10-01", steps=4321, distance_m=3100, calories=150, epoch_s=1790812800
+    date="2026-10-01", steps=4321, distance_m=3100, step_calories=150, epoch_s=1790812800
+)
+CONSUMPTION = ConsumptionRecord(
+    date="2026-10-01",
+    epoch_s=1790812800,
+    resting_kcal=1907.5,
+    active_kcal=365.0,
+    intake_kcal=0.0,
+    total_kcal=2272.5,
 )
 HEART_RATE_POINT = HeartRatePoint(epoch_s=1790812860, bpm=71, kind=None)
 
@@ -65,6 +74,14 @@ class FakeMiFit:
         self.calls.append(("steps", start, end, {}))
         return DomainResult(
             records=[STEP], raw=[{"time": 1790812800, "steps": 4321}], notes=[]
+        )
+
+    def consumption(self, start, end):
+        self.calls.append(("consumption", start, end, {}))
+        return DomainResult(
+            records=[CONSUMPTION],
+            raw=[{"basal": 1907.5, "exercise": 365, "intake": 0}],
+            notes=[],
         )
 
     def heart_rate(self, start, end, *, full=False):
@@ -130,6 +147,19 @@ def test_export_steps_writes_json(fake_mifit, tmp_path, capsys):
     assert fake_mifit.instances[0].calls == [("steps", "2026-10-01", "2026-10-02", {})]
     # A file export keeps stdout for a short summary, never the data itself.
     assert "4321" not in capsys.readouterr().out
+
+
+def test_export_consumption_dispatches_to_the_client(fake_mifit, tmp_path):
+    out = tmp_path / "consumption.json"
+
+    rc = cli.main(
+        ["export", "consumption", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["records"] == [asdict(CONSUMPTION)]
+    assert fake_mifit.instances[0].calls == [("consumption", "2026-10-01", "2026-10-02", {})]
 
 
 def test_export_unknown_domain_errors(fake_mifit, capsys):

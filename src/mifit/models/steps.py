@@ -15,11 +15,15 @@ class StepRecord:
 
     ``date`` is the ISO calendar date (``YYYY-MM-DD``) of ``epoch_s`` in UTC and
     ``epoch_s`` is the record's own timestamp in Unix seconds. ``distance_m`` (metres)
-    and ``calories`` are ``None`` when the source did not report them, never zero.
+    and ``step_calories`` are ``None`` when the source did not report them, never zero.
+
+    ``step_calories`` is the step report's own walking-calorie figure. It is NOT the
+    calorie ring the app shows (resting + active energy); that comes from the
+    consumption domain (``ConsumptionRecord``).
     """
 
     date: str
     steps: int
     distance_m: int | None
-    calories: int | None
+    step_calories: int | None
     epoch_s: int

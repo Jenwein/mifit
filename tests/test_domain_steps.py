@@ -10,6 +10,7 @@ decoded value has no ``time`` of its own. See also mi-health-lab
 ``docs/cloud-read-06.md``.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def test_parses_steps_record():
             date="2025-10-14",
             steps=8000,
             distance_m=5200,
-            calories=210,
+            step_calories=210,
             epoch_s=1760400000,
         )
     ]
@@ -143,7 +144,7 @@ def test_null_fields_stay_none():
     assert [r.steps for r in result.records] == [100, 200]
     for record in result.records:
         assert record.distance_m is None
-        assert record.calories is None
+        assert record.step_calories is None
 
 
 def test_explicit_zero_steps_is_kept():
@@ -152,7 +153,7 @@ def test_explicit_zero_steps_is_kept():
     result = fetch_steps(FakeTransport(payload), START, END)
 
     # A reported zero is data; only an absent value must not become zero.
-    assert [(r.steps, r.distance_m, r.calories) for r in result.records] == [
+    assert [(r.steps, r.distance_m, r.step_calories) for r in result.records] == [
         (0, 0, None)
     ]
 
@@ -182,6 +183,20 @@ def test_entry_without_a_usable_outer_time_is_skipped():
     assert result.records == []
     assert len(result.notes) == 2
     assert result.raw == [{"steps": 100}, {"steps": 200}]
+
+
+def test_walking_calories_land_in_step_calories_not_calories():
+    # The step report's own ``calories`` (walking calories) is exposed under the
+    # explicit name ``step_calories`` so it is not mistaken for the app's calorie
+    # ring (that figure comes from the consumption domain).
+    payload = payload_with_rows((DAY_1, {"steps": 8000, "calories": 210}))
+
+    (record,) = fetch_steps(FakeTransport(payload), START, END).records
+
+    assert record.step_calories == 210
+    assert "step_calories" in {f.name for f in dataclasses.fields(StepRecord)}
+    assert "calories" not in {f.name for f in dataclasses.fields(StepRecord)}
+    assert not hasattr(record, "calories")
 
 
 def test_steps_domain_is_registered():

@@ -72,7 +72,9 @@ def _to_record(entry: dict, value: dict) -> StepRecord | None:
         epoch_s = int(entry["time"])
         steps = int(value["steps"])
         distance_m = _optional_int(value.get("distance"))
-        calories = _optional_int(value.get("calories"))
+        # The wire key is ``calories``; the model calls it ``step_calories`` because
+        # it is only the step report's walking calories, not the app's calorie ring.
+        step_calories = _optional_int(value.get("calories"))
         # The service labels each day with its UTC midnight, so the UTC calendar
         # date is the day the record stands for.
         date = datetime.fromtimestamp(epoch_s, tz=timezone.utc).date().isoformat()
@@ -82,7 +84,7 @@ def _to_record(entry: dict, value: dict) -> StepRecord | None:
         date=date,
         steps=steps,
         distance_m=distance_m,
-        calories=calories,
+        step_calories=step_calories,
         epoch_s=epoch_s,
     )
 
