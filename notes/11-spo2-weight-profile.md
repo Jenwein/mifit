@@ -61,7 +61,7 @@
 ## 2. 体重
 
 - **key 的 APK 依据**：`FitnessPersistKey.Weight = "weight"`；`CrossYearSyncController.pullOneYearWeightIfNeed` → `pullAndSaveFitnessDataByTime(…, "weight", start, end, …)`，即与原始血氧同一个接口 `get_fitness_data_by_time`。值类 `WeightItem`，约 60 个字段（体重、BMI、体脂率/肌肉率/水分率/蛋白质率、分段脂肪/肌肉、身体得分……）。
-- **真机行数**：账号上只有一条，是几年前的手动记录。不带起点的读取与一个 6 年窗口（起点远早于它）都恰好返回这一行，`has_more=false`。
+- **真机行数**：账号上的记录为 1–10 条，最近 7 天没有；身体成分字段全为 0：是。不带起点的读取与一个起点远早于这些记录的窗口返回的行相同，`has_more=false`。
 - **形状**：外层与原始血氧相同（`{key, sid, time, update_time, value, zone_name, zone_offset}`）；外层 `time` = `value.time`，不是零点。`value` 解码后（类型同真机）：
 
   ```json

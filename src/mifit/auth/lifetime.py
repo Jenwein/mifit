@@ -6,11 +6,14 @@ that moment. The events are ``login``; ``unauthorized`` (a request got HTTP 401)
 and then how the renewal that follows ended: ``renewed``, ``renew_failed`` (the
 account service refused the stored passToken, or the exchange failed),
 ``renew_unavailable`` (the session has no passToken or user id, so nothing was
-sent) or ``renew_network_error`` (the renewal could not reach the network, so the
-passToken was never judged). Only ``renew_failed`` can bear on the passToken's
-lifetime. A 401 can also come from a refused request signature, so an
-``unauthorized`` is not always an expiry. The log holds only event names, UTC
-times and ages in seconds: never a token, a cookie, a user id or a device id.
+sent) or ``renew_network_error`` (the renewal did not complete because of a network
+failure, which can come after the passToken was accepted, so it says nothing about
+the passToken). Only ``renew_failed`` can bear on the passToken's lifetime, and only
+as an upper bound on refusals: a failed exchange after an accepted passToken is
+logged as ``renew_failed`` too. A 401 can also come from a refused request
+signature, so an ``unauthorized`` is not always an expiry. The log holds only
+event names, UTC times and ages in seconds: never a token, a cookie, a user id or
+a device id.
 Writing it is best effort and never raises, so a read-only disk can not turn a
 working request into a failure.
 

@@ -595,8 +595,8 @@ def test_renewal_failure_raises_renewal_error_mentioning_401():
 
 
 def test_network_failure_in_the_hook_propagates_and_keeps_the_renewal():
-    # The account service never judged the passToken, so the attempt is not
-    # counted: with a budget of one, the next 401 may still renew.
+    # The renewal did not complete because of a network failure, so there is no
+    # verdict to count: with a budget of one, the next 401 may still renew.
     requests = pytest.importorskip("requests")
     error = requests.ConnectionError("The session renewal request failed on the network.")
     new = renewed_session()

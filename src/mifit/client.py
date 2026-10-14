@@ -398,11 +398,12 @@ class MiFit:
         The paged read has already unwrapped the response's ``result`` envelope,
         so the entry list is returned exactly as it gave it.
 
-        This is the service's own answer for the window; for bucketed keys such
-        as ``heart_rate`` and ``spo2`` (notes/08, notes/11) it omits rows of a
-        bucket keyed at or before ``start``, so widen ``start`` and filter yourself
-        if you need every row. Use ``raw_window`` for a window that is complete at
-        its start.
+        This is the service's own answer for the window; for bucketed keys (every
+        dense raw key checked: ``heart_rate``, ``spo2``, ``stress``,
+        ``calories``; notes/08, notes/11, the domain catalog) it omits rows of a
+        bucket keyed at or before ``start``, so widen ``start`` and filter
+        yourself if you need every row. Use ``raw_window`` for a window that is
+        complete at its start.
 
         When the service says more rows follow but sends no usable cursor, the
         read stops there: the rows read so far are returned and a

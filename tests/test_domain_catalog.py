@@ -64,6 +64,7 @@ UNREGISTERED_B = {"profile"}
 
 def test_every_b_layer_name_in_the_catalog_is_a_domain():
     b_tables = [table for table in _tables() if table[0][-1] == "B 层"]
+    assert len(b_tables) == 2  # §2 and §3; a renamed header must not disable this guard
     named = {
         name
         for table in b_tables

@@ -179,7 +179,7 @@
 - **首桶丢失**（notes/08 §2.3：窗口起点所在的约 2 h 桶整组丢失）：
   - 已证实：`heart_rate`（notes/08）、`spo2`（notes/11 §1.3）、`stress`、`calories`（本轮：起点为本地零点、即偶数整点 UTC 小时的 4 h 窗口，普通读取首 2 h 为 0 行，提前一天的读取为 1–10 行，其余部分相同）。查过的 4 个密集 key 全都有。
   - 其余 key 未知。`MiFit.raw_window` / `mifit raw` 对所有原始 key 都提前一天请求，再按外层 `time` 过滤（只会多出随后被过滤掉的行）；`MiFit.raw` 是服务端原样的回答，不修正。
-- **`本账号` 的出处**：`heart_rate`、`spo2`、`resting_heart_rate`、`weight` 取自 notes/08、notes/11（M3、M5 的探测；`resting_heart_rate` 每个本地日至多一行，`weight` 只有一条几年前的记录）；其余有数据的 key 取自本轮的 7 天读取。`single_heart_rate`、`single_spo2`、原始 `sleep` 在本轮 latest 读取里有行，但 7 天行数没测，所以标 `未探测`。
+- **`本账号` 的出处**：`heart_rate`、`spo2`、`resting_heart_rate`、`weight` 取自 notes/08、notes/11（M3、M5 的探测；`resting_heart_rate` 每个本地日至多一行，`weight` 的记录为 1–10 条、最近 7 天没有）；其余有数据的 key 取自本轮的 7 天读取。`single_heart_rate`、`single_spo2`、原始 `sleep` 在本轮 latest 读取里有行，但 7 天行数没测，所以标 `未探测`。
 - **已有 B 层覆盖的**：`resting_heart_rate` 6/6 天等于同日 `heart_rate` 日汇总的 `avg_rhr`（notes/08），`heart_rate_daily` 的 `resting_bpm` 已取后者，不另建 B。
 - **没有数据的 28 个健康 key 和 `data_collector`**：latest 读取没有行，分不出是没有数据还是服务端不认识这个 key。分组：
   - 压力、PAI、能量：`energy`、`high_stress`、`pai`；
@@ -196,7 +196,7 @@
   - `steps`、`calories` 的 `calories` 有 int 也有 float。
   - `dynamic` 线上是 `type`（APK 也认 `dynamic_type`）。
   - latest 读取里的 `training_load` 没有 APK 声明的 `wtl_sum_optimal_min`、`wtl_sum_optimal_max`、`wtl_sum_overreaching`。
-  - `weight` 的 `WeightItem` 约 60 个字段；本账号身体成分全为 0（notes/11 §2）。
+  - `weight` 的 `WeightItem` 约 60 个字段；本账号身体成分字段全为 0：是（notes/11 §2）。
   - `data_collector` 只在 `health_kit_sdk.restapi` 的副本里是常量；`passion_cheer` 像运动 / 加油标签（§4），没有探测。
 - **候选**：原始 `stress` 点（1–100 的压力值；一天里与日汇总的最大、最小、均值对上）已能用 `MiFit.raw_window("stress", …)` 读，进 B 要等 app 对照。
 

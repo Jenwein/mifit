@@ -87,8 +87,8 @@
 - 只有从 `~/.mifit` 读会话（或自己登录）的客户端才写日志；显式传入的会话只在内存里续期，不写。
 - 读法：
   - serviceToken 寿命 ≈ 每次 `login`/`renewed` 之后第一条 `unauthorized` 的 `token_age_s`。这是上界：401 只在实际发请求时出现，所以 token 至少活到上一次成功请求、至多活到这次 401。
-  - `unauthorized` 后紧跟 `renewed` = 自动续期成功；紧跟 `renew_failed` = 账号服务拒绝了 passToken（或 STS 交换失败），需要 `mifit login`，此时的 `login_age_s` 是 passToken 寿命（或 deviceId 绑定问题）的线索。
-  - `renew_unavailable` = 会话本身不能续期（没有 passToken 或 user id，例如 T2 之前的旧会话），没有发任何请求，**不**说明 passToken 寿命；`renew_network_error` = 续期没能连上网（OSError），账号服务没有表态，下一次 401 会再试。这两个事件和 `renew_failed` 区分开，就是为了不把它们当成 passToken 过期。
+  - `unauthorized` 后紧跟 `renewed` = 自动续期成功；紧跟 `renew_failed` = 账号服务拒绝了 passToken（或 STS 交换失败），需要 `mifit login`，此时的 `login_age_s` 是 passToken 寿命（或 deviceId 绑定问题）的线索。`renew_failed` 的条数因此只是 passToken 被拒次数的上界。
+  - `renew_unavailable` = 会话本身不能续期（没有 passToken 或 user id，例如 T2 之前的旧会话），没有发任何请求，**不**说明 passToken 寿命；`renew_network_error` = 续期因网络故障（OSError）没有完成，下一次 401 会再试；故障可能出在 serviceLogin 已接受 passToken 之后的 STS 一步，所以它不说明 passToken 是否有效。这两个事件和 `renew_failed` 区分开，就是为了不把它们当成 passToken 过期。
   - **注意**：签名错误的 401（notes/04 §3，业务 code=0）同样会记 `unauthorized`→`renewed`，在日志上和 token 过期一模一样——续期换来新 token、重试成败都不影响这对记录已经写下。所以单独一条 `token_age_s` 不能直接当 serviceToken 寿命；要多次观测到相近的 `token_age_s` 才可信。
 
 （Task 3–5 在此追加：日志格式落地、真机续期结果、自然过期的观测。）

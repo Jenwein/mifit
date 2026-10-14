@@ -107,8 +107,9 @@ def append_part(path: Path, label: str, part: DomainResult) -> None:
     """Append the finished chunk ``label`` as one line, flushed and fsynced.
 
     ``part`` must already be plain data (records as dicts: ``cli._json_ready``).
-    Raises ``ValueError`` for a non-finite number, which strict JSON cannot hold;
-    the file is left as it was.
+    Raises ``ValueError`` for a non-finite number, which strict JSON cannot hold, or
+    ``RecursionError`` for data nested too deeply to encode; in both cases the file
+    is left as it was.
     """
     line = _dumps(
         {"chunk": label, "records": part.records, "raw": part.raw, "notes": part.notes}

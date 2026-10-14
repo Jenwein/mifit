@@ -29,14 +29,14 @@ Python objects, so you can build on it.
 | `stress_daily` | stress level per day: average, highest, lowest (time per stress band in `raw` only) | `StressDailySummary` | pending |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
 | `profile` (its own command: `mifit profile`) | height, weight, daily step and calorie goals | `UserProfile` | pending |
-| `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
+| `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data or daily-report key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
 
 "Checked against the app" means the values were compared with what the Mi
 Fitness app shows, on one real account (China region, UTC+8). "Pending" means
 implemented and tested offline, but not yet compared with the app. More is
 planned. Meanwhile, `mifit raw` (in Python `raw_window` and `daily_report`)
-returns the rows of any other key of the fitness-data endpoint,
-uninterpreted.
+returns the rows of any other key of the fitness-data or (with `--daily`)
+daily-report endpoint, uninterpreted.
 
 ## Install
 
@@ -141,8 +141,9 @@ it separately.
 mifit raw <key> --from YYYY-MM-DD --to YYYY-MM-DD [--daily [--tag TAG]] [--json PATH] [--long]
 ```
 
-Reads any key of the fitness-data endpoint as the service sends it, whether
-or not mifit also has a domain for it (`heart_rate` has one):
+Reads any key of the fitness-data or (with `--daily`) daily-report endpoint as
+the service sends it, whether or not mifit also has a domain for it
+(`heart_rate` has one):
 
 - It writes `{records: [], raw, notes}`. `raw` holds the service's rows, with
   their own fields and `value` decoded from its JSON string; `records` is
@@ -223,8 +224,11 @@ heart = merge_chunks(parts)  # its records are those of one read of the whole ra
 
 `read_chunks(..., skip=labels)` passes over the chunks whose labels you
 already have, to resume, and `options=` gives keyword arguments to every
-chunk's call, such as `{"track": False}` for `workout_detail`. The library has
-no 92-day limit: a long range is many requests, so ask for what you need.
+chunk's call, such as `{"track": False}` for `workout_detail`.
+`options={"full": True}` is refused with `ValueError`: a full read pages back
+from each chunk's end, so every chunk would read the same samples again; call
+`heart_rate(..., full=True)` once instead. The library has no 92-day limit: a
+long range is many requests, so ask for what you need.
 
 When a request is refused with HTTP 401, the client renews the session once
 from its passToken and sends the request again. A client that uses the
@@ -245,6 +249,9 @@ client, the renewal uses a fresh `requests.Session` of its own.
   or for consumption the response's `result` object; for `workout_detail`,
   each workout's decoded summary and files as stored values), with Xiaomi's
   own field names. It is not a complete dump of every row the service sent.
+  The generic reads are the exception: for `raw_window`, `daily_report` and
+  `mifit raw`, `raw` holds each whole row the service sent for your window,
+  its outer fields included and its `value` decoded.
 - **`records`** are typed dataclasses with neutral names (`asleep_min`,
   `avg_hr_bpm`, ...). A field's meaning is established from what the app
   displays or from the app's own code before it enters this layer. One, the
@@ -264,13 +271,16 @@ client, the renewal uses a fresh `requests.Session` of its own.
   activity with phone-side activity, so `consumption` for the latest day can
   read lower than the ring. `step_calories` in `steps` is the step report's
   walking-calorie figure, not the ring.
-- **Raw heart-rate windows are corrected by the SDK.** The windowed
-  heart-rate read asks the service for a day before the start and keeps only
-  the requested window, because the service drops samples at a window's start
-  (notes/08). `raw("heart_rate", ...)` returns the service's answer as it
-  came, without this correction. `--full` (`full=True`) pages backwards from
-  the end date instead; it ignores the start date and stops after 10 pages,
-  saying so in `notes` when older data remains.
+- **Raw windows are corrected by the SDK.** The service drops the samples at
+  the start of a raw-data window (the first bucket); every dense raw key
+  checked does this: `heart_rate`, `spo2`, `stress` and `calories` (notes/08,
+  notes/11, `notes/domain-catalog.md`). The `heart_rate`, `spo2` and `weight`
+  reads, `raw_window` and `mifit raw` ask the service for a day before the
+  start and keep only the requested window. `raw(key, ...)` returns the
+  service's answer as it came, for any key, without this correction: use
+  `raw_window` for a complete window. `--full` (`full=True`) pages backwards
+  from the end date instead; it ignores the start date and stops after 10
+  pages, saying so in `notes` when older data remains.
 - **NaN and Infinity become `null`.** JSON has no such numbers, so where the
   service sends one, the CLI writes `null` and a note says how many it
   replaced.
