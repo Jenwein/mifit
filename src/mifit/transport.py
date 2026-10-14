@@ -58,13 +58,19 @@ _STILL_401 = (
 
 @dataclass(frozen=True)
 class PagedResult:
-    """The items of a cursor-paginated pull and whether a page cap cut it short."""
+    """The items of a cursor-paginated pull and how it ended early, if it did:
+    cut short by a page cap, or stalled on an unusable cursor."""
 
     items: list[dict]
     truncated: bool
     """``True`` when ``max_pages`` stopped the pull although the service had more
     pages: the last page pointed at a fresh cursor, so another request would have
     been sent. ``False`` for every other way a pull ends."""
+    stalled: bool = False
+    """``True`` when the cursor guard ended the pull: a page reported a truthy
+    ``has_more`` but its ``next_key`` was missing or empty, or equal to the cursor
+    that request was sent with. The service had more, but there was no cursor to
+    ask for it with. Never true together with ``truncated``."""
 
 
 class Transport:
@@ -235,7 +241,7 @@ class Transport:
         the items of the page that tripped it are kept.
 
         Use ``get_paged_result`` to also learn whether ``max_pages`` cut the pull
-        short.
+        short (``truncated``) or the guard ended it (``stalled``).
         """
         return self.get_paged_result(
             endpoint_path,
@@ -254,7 +260,7 @@ class Transport:
         sign_path: str | None = None,
         max_pages: int | None = None,
     ) -> PagedResult:
-        """``get_paged`` that also reports whether ``max_pages`` cut the pull short.
+        """``get_paged`` that also reports whether the pull ended early, and how.
 
         Same arguments and stopping rules as ``get_paged``. ``truncated`` is true
         only when the loop ended because ``max_pages`` pages were fetched while the
@@ -263,11 +269,17 @@ class Transport:
         request would have been sent. It is false when the service ran out of
         pages, when the repeated/missing-cursor guard ended the pull, when there
         is no cap, and when ``max_pages`` is 0 or less.
+
+        ``stalled`` is true exactly when that guard ended the pull: a page reported
+        a truthy ``has_more`` but its ``next_key`` was missing or empty, or equal
+        to the cursor that request was sent with (on the capped page too). The two
+        are never both true.
         """
         items: list[dict] = []
         request = dict(data_obj)
         pages = 0
         truncated = False
+        stalled = False
         while max_pages is None or pages < max_pages:
             payload = self.get_json(endpoint_path, request, sign_path=sign_path)
             pages += 1
@@ -282,12 +294,14 @@ class Transport:
                 break
             next_key = body.get("next_key")
             if not next_key or next_key == request.get("next_key"):
+                # The service has more but gave no cursor to ask for it with.
+                stalled = True
                 break
             request = {**data_obj, "next_key": next_key}
             # Reaching the cap here, with a fresh cursor in hand, ends the loop
             # although the service has more.
             truncated = max_pages is not None and pages >= max_pages
-        return PagedResult(items, truncated)
+        return PagedResult(items, truncated, stalled)
 
     def _send(
         self,

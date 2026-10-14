@@ -1,76 +1,25 @@
-"""Heart-rate domain tests. A fake ``Transport`` serves a synthetic payload;
-nothing here touches the network and no real health data is used.
+"""Heart-rate domain tests. ``PagedFake`` serves a synthetic payload; nothing
+here touches the network and no real health data is used.
 
 The fixture follows the same decrypted envelope as the steps fixture: rows live
 under ``result.data_list`` and carry their payload as a JSON string in ``value``
-(``{"time", "bpm", "type"}``). The fake replaces ``get_paged`` (which already
-unwraps ``result``) and returns the inner entry list.
+(``{"time", "bpm", "type"}``). ``PagedFake`` serves the inner entry list, as the
+real paged read does once it has unwrapped ``result``.
 """
 
 import json
 from pathlib import Path
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.models.heart_rate import HeartRatePoint
-from mifit.transport import PagedResult, Transport
+from support import PagedFake
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hr_raw_sample.json"
 
 START = 1759248000
 END = 1759334399
 ENDPOINT = "data/get_fitness_data_by_time"
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
-
-    ``get_paged_result`` (what the full read uses) serves the same rows through
-    ``get_paged``, so it records the call identically, and reports ``truncated``.
-    """
-
-    def __init__(self, payload, truncated=False):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self._truncated = truncated
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-                "max_pages": max_pages,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
-
-    def get_paged_result(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        items = self.get_paged(
-            endpoint_path,
-            data_obj,
-            list_key=list_key,
-            sign_path=sign_path,
-            max_pages=max_pages,
-        )
-        return PagedResult(items, self._truncated)
 
 
 def load_fixture():
@@ -111,7 +60,7 @@ def payload_with_rows(*rows):
 
 
 def test_parses_hr_point():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     result = fetch_heart_rate_window(transport, START, END)
 
@@ -123,7 +72,7 @@ def test_parses_hr_point():
 
 
 def test_window_result_has_no_incompleteness_note():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     result = fetch_heart_rate_window(transport, START, END)
 
@@ -132,7 +81,7 @@ def test_window_result_has_no_incompleteness_note():
 
 
 def test_window_asks_a_day_before_start():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     fetch_heart_rate_window(transport, START, END)
 
@@ -157,7 +106,7 @@ def test_window_drops_rows_outside_the_asked_window():
         (START - 1, {"time": START - 1, "bpm": 63, "type": 0}),
     )
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert result.records == [HeartRatePoint(epoch_s=START + 600, bpm=62, kind=0)]
     assert result.raw == [{"time": START + 600, "bpm": 62, "type": 0}]
@@ -171,7 +120,7 @@ def test_window_keeps_rows_at_both_bounds():
         (START, {"time": START, "bpm": 65, "type": 0}),
     )
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert result.records == [
         HeartRatePoint(epoch_s=END, bpm=64, kind=0),
@@ -186,7 +135,7 @@ def test_row_without_usable_time_is_skipped_with_note():
         ("x", {"time": START + 1200, "bpm": 67, "type": 0}),
     )
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert result.records == []
     assert result.raw == []
@@ -195,7 +144,7 @@ def test_row_without_usable_time_is_skipped_with_note():
 
 
 def test_full_read_omits_start_time():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     result = fetch_heart_rate_full(transport, END, max_pages=7)
 
@@ -210,7 +159,7 @@ def test_full_read_omits_start_time():
 
 
 def test_full_read_defaults_to_ten_pages():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     fetch_heart_rate_full(transport, END)
 
@@ -224,7 +173,7 @@ def test_kind_is_kept_raw_and_missing_type_is_none():
         {"time": 1759248720, "bpm": 72},  # type absent
     )
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert [(p.epoch_s, p.bpm, p.kind) for p in result.records] == [
         (1759248600, 70, 3),
@@ -237,7 +186,7 @@ def test_empty_window_yields_no_records():
     payload = load_fixture()
     payload["result"]["data_list"] = []
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     # No fabricated points for a window the service returned nothing for.
     assert result.records == []
@@ -252,7 +201,7 @@ def test_entry_without_bpm_is_skipped_not_zeroed():
         {"time": 1759248720, "bpm": 65, "type": None},
     )
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert [p.bpm for p in result.records] == [65]
     assert len([n for n in result.notes if "skipped" in n.lower()]) == 2
@@ -274,7 +223,7 @@ def test_unparseable_value_is_skipped_with_note():
         template,
     ]
 
-    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+    result = fetch_heart_rate_window(PagedFake(payload), START, END)
 
     assert [p.bpm for p in result.records] == [72]
     assert len([n for n in result.notes if "skipped" in n.lower()]) == 3
@@ -282,7 +231,7 @@ def test_unparseable_value_is_skipped_with_note():
 
 
 def test_capped_full_read_says_so():
-    transport = FakeTransport(load_fixture(), truncated=True)
+    transport = PagedFake(load_fixture(), truncated=True)
 
     result = fetch_heart_rate_full(transport, END)
 
@@ -293,7 +242,7 @@ def test_capped_full_read_says_so():
 
 
 def test_capped_full_read_names_the_cap_it_was_given():
-    transport = FakeTransport(load_fixture(), truncated=True)
+    transport = PagedFake(load_fixture(), truncated=True)
 
     result = fetch_heart_rate_full(transport, END, max_pages=3)
 
@@ -302,7 +251,7 @@ def test_capped_full_read_names_the_cap_it_was_given():
 
 
 def test_uncapped_full_read_has_no_cap_note():
-    transport = FakeTransport(load_fixture(), truncated=False)
+    transport = PagedFake(load_fixture(), truncated=False)
 
     result = fetch_heart_rate_full(transport, END)
 
@@ -318,3 +267,24 @@ def test_full_read_is_not_registered_under_the_window_contract():
     # full read takes (transport, end_epoch_s, max_pages), so registering it
     # would mis-dispatch the end time as the page cap.
     assert fetch_heart_rate_full not in REGISTRY.values()
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows(
+        (ABSENT, {"time": START + 600, "bpm": 66, "type": 0}),
+        (START + 1200, {"time": START + 1200, "bpm": 67, "type": 0}),
+    )
+
+    result = fetch_heart_rate_window(PagedFake(payload, stalled=True), START, END)
+
+    # After the unusable row's note, and the rows that were read are still returned.
+    assert len(result.notes) == 2
+    assert result.notes[-1] == stalled_note("heart-rate rows")
+    assert result.records == [HeartRatePoint(epoch_s=START + 1200, bpm=67, kind=0)]
+
+
+def test_stalled_full_read_says_so():
+    result = fetch_heart_rate_full(PagedFake(load_fixture(), stalled=True), END)
+
+    assert result.notes == [stalled_note("heart-rate rows")]
+    assert result.records == [HeartRatePoint(epoch_s=1759248600, bpm=72, kind=None)]

@@ -1,5 +1,5 @@
-"""Daily heart-rate summary domain tests. A fake ``Transport`` serves a synthetic
-payload; nothing here touches the network and no real health data is used.
+"""Daily heart-rate summary domain tests. ``PagedFake`` serves a synthetic payload;
+nothing here touches the network and no real health data is used.
 
 The fixture follows the live-verified shape of the decrypted envelope: rows live
 under ``result.data_list`` (with ``has_more``/``next_key`` beside them). Each row
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
 from mifit.models.heart_rate import HeartRateDailySummary
-from mifit.transport import Transport
+from support import PagedFake
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hr_daily_sample.json"
 
@@ -33,37 +33,6 @@ ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 UTC = timezone.utc
 CST = timezone(timedelta(hours=8))
 ABSENT = object()  # marks a key left out of a row, as opposed to set to None
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
-
-    The fake reads ``result.data_list`` (the real envelope) and returns the outer
-    row objects, as the real ``get_paged`` does.
-    """
-
-    def __init__(self, payload):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
 
 
 def load_fixture():
@@ -105,7 +74,7 @@ def test_heart_rate_daily_domain_is_registered():
 
 
 def test_requests_daily_report_heart_rate_for_the_window():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     fetch_heart_rate_daily(transport, START, END, tz=UTC)
 
@@ -123,12 +92,13 @@ def test_requests_daily_report_heart_rate_for_the_window():
                 "end_time": DAY_2,
             },
             "list_key": "data_list",
+            "max_pages": None,
         }
     ]
 
 
 def test_maps_day_figures():
-    result = fetch_heart_rate_daily(FakeTransport(load_fixture()), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(load_fixture()), START, END, tz=UTC)
 
     assert result.records[0] == HeartRateDailySummary(
         date="2025-10-14",
@@ -142,7 +112,7 @@ def test_maps_day_figures():
 
 
 def test_second_day_without_resting_figure_keeps_the_rest():
-    result = fetch_heart_rate_daily(FakeTransport(load_fixture()), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(load_fixture()), START, END, tz=UTC)
 
     assert result.records[1] == HeartRateDailySummary(
         date="2025-10-15",
@@ -160,7 +130,7 @@ def test_epoch_is_the_local_midnight_of_the_report_date():
     start = DAY_1 - 28800
     end = DAY_2 - 28800 + 86399
 
-    result = fetch_heart_rate_daily(FakeTransport(load_fixture()), start, end, tz=CST)
+    result = fetch_heart_rate_daily(PagedFake(load_fixture()), start, end, tz=CST)
 
     assert result.records[0].date == "2025-10-14"
     assert result.records[0].epoch_s == DAY_1 - 28800
@@ -175,7 +145,7 @@ def test_missing_or_zero_figures_become_none():
     )
 
     result = fetch_heart_rate_daily(
-        FakeTransport(payload), START, DAY_1 + 3 * 86400, tz=UTC
+        PagedFake(payload), START, DAY_1 + 3 * 86400, tz=UTC
     )
 
     assert [
@@ -195,7 +165,7 @@ def test_non_numeric_figures_become_none():
         (DAY_2, figures(avg_hr=True, max_hr=[70], min_hr={"bpm": 50}, avg_rhr="x")),
     )
 
-    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(payload), START, END, tz=UTC)
 
     assert [
         (r.avg_bpm, r.max_bpm, r.min_bpm, r.resting_bpm) for r in result.records
@@ -212,7 +182,7 @@ def test_negative_figures_become_none():
     )
 
     (record,) = fetch_heart_rate_daily(
-        FakeTransport(payload), START, END, tz=UTC
+        PagedFake(payload), START, END, tz=UTC
     ).records
 
     assert (record.avg_bpm, record.max_bpm, record.min_bpm, record.resting_bpm) == (
@@ -229,7 +199,7 @@ def test_float_figures_are_truncated_and_non_finite_become_none():
     )
 
     (record,) = fetch_heart_rate_daily(
-        FakeTransport(payload), START, END, tz=UTC
+        PagedFake(payload), START, END, tz=UTC
     ).records
 
     assert (record.avg_bpm, record.max_bpm, record.min_bpm, record.resting_bpm) == (
@@ -243,7 +213,7 @@ def test_float_figures_are_truncated_and_non_finite_become_none():
 def test_row_with_every_figure_missing_still_gives_a_record():
     payload = payload_with_rows((DAY_1, {"abnormal_hr_count": 0}))
 
-    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(payload), START, END, tz=UTC)
 
     assert result.records == [
         HeartRateDailySummary(
@@ -259,7 +229,7 @@ def test_row_with_every_figure_missing_still_gives_a_record():
 
 
 def test_raw_keeps_decoded_values_untouched():
-    result = fetch_heart_rate_daily(FakeTransport(load_fixture()), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(load_fixture()), START, END, tz=UTC)
 
     # Zones, abnormal_hr_count and latest_hr stay in raw as the service sent them.
     assert result.raw == fixture_values()
@@ -280,7 +250,7 @@ def test_row_with_bad_value_is_skipped_with_note(bad_value):
     else:
         row["value"] = bad_value
 
-    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(payload), START, END, tz=UTC)
 
     assert result.records == []
     assert len(result.notes) == 1
@@ -300,7 +270,7 @@ def test_row_without_usable_day_is_skipped_with_note(bad_time):
     else:
         row["time"] = bad_time
 
-    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(payload), START, END, tz=UTC)
 
     assert result.records == []
     assert len(result.notes) == 1
@@ -323,8 +293,19 @@ def test_empty_window_yields_no_records_and_no_notes():
     payload = load_fixture()
     payload["result"]["data_list"] = []
 
-    result = fetch_heart_rate_daily(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_heart_rate_daily(PagedFake(payload), START, END, tz=UTC)
 
     assert result.records == []
     assert result.raw == []
     assert result.notes == []
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows((None, figures()), (DAY_2, figures()))
+
+    result = fetch_heart_rate_daily(PagedFake(payload, stalled=True), START, END, tz=UTC)
+
+    # After the row's own note, and the rows that were read are still returned.
+    assert len(result.notes) == 2
+    assert result.notes[-1] == stalled_note("daily heart-rate rows")
+    assert [r.date for r in result.records] == ["2025-10-15"]

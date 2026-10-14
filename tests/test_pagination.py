@@ -4,7 +4,7 @@ and all payloads are synthetic."""
 
 import copy
 
-from mifit.transport import Transport
+from mifit.transport import PagedResult, Transport
 
 ENDPOINT = "data/get_fitness_data_by_time"
 SIGN_PATH = "/app/v1/data/get_fitness_data_by_time"
@@ -335,3 +335,69 @@ def test_get_paged_returns_the_result_items():
 
     assert items == [{"n": 1}, {"n": 2}]
     assert isinstance(items, list)
+
+
+A = [{"n": 1}]
+B = [{"n": 2}]
+
+
+def test_result_reports_a_stall_when_the_cursor_repeats():
+    # Page 2 says there is more but echoes the cursor it was sent with: the guard
+    # ends the pull, and the result says so.
+    transport = ScriptedTransport(
+        [
+            page(A, has_more=True, next_key="k1"),
+            page(B, has_more=True, next_key="k1"),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST)
+
+    assert result.stalled is True
+    assert result.truncated is False
+    assert result.items == A + B
+    assert len(transport.calls) == 2
+
+
+def test_result_reports_a_stall_when_the_cursor_is_missing():
+    transport = ScriptedTransport([page(A, has_more=True)])
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST)
+
+    assert result.stalled is True
+    assert result.items == A
+    assert len(transport.calls) == 1
+
+
+def test_result_not_stalled_when_the_service_ends():
+    transport = ScriptedTransport(
+        [
+            page(A, has_more=True, next_key="k1"),
+            page(B, has_more=False),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST)
+
+    assert result.stalled is False
+    assert result.items == A + B
+
+
+def test_stall_on_the_capped_page_is_not_truncation():
+    # The cap is reached on the page that trips the guard: no fresh cursor was in
+    # hand, so the pull stalled rather than being cut short.
+    transport = ScriptedTransport(
+        [
+            page(A, has_more=True, next_key="k1"),
+            page(B, has_more=True, next_key="k1"),
+        ]
+    )
+
+    result = transport.get_paged_result(ENDPOINT, BASE_REQUEST, max_pages=2)
+
+    assert result.stalled is True
+    assert result.truncated is False
+
+
+def test_paged_result_defaults_to_not_stalled():
+    assert PagedResult([], False).stalled is False

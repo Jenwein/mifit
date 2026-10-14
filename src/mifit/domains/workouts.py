@@ -14,7 +14,8 @@ the caller's start is kept.
 
 Records come newest first, as the service sends them. A row marked deleted is
 ignored. The read follows the service's cursor for at most ``_MAX_PAGES`` pages,
-and when that cap cuts it short the result carries a note saying so.
+and when that cap cuts it short the result carries a note saying so; so does a read
+that stalls on an unusable cursor.
 
 ``_SPORTS`` covers only the sport types verified so far and is the place to add
 more: one entry here plus one line in the sport-type test (notes/10 §4). A type
@@ -33,7 +34,13 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, as_int, as_positive_int, register
+from mifit.domains.base import (
+    DomainResult,
+    as_int,
+    as_positive_int,
+    register,
+    stalled_note,
+)
 from mifit.models.workouts import Workout
 from mifit.transport import Transport
 
@@ -114,6 +121,8 @@ def fetch_workouts(t: Transport, start_epoch_s: int, end_epoch_s: int) -> Domain
             f"Workout list stopped at its {_MAX_PAGES}-page cap while the service had "
             "more: the oldest workouts in the range are missing; ask for a shorter range."
         )
+    if paged.stalled:
+        result.notes.append(stalled_note("workout rows"))
     return result
 
 

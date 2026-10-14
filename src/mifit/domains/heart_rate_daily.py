@@ -22,7 +22,13 @@ from __future__ import annotations
 import json
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, as_int, as_positive_int, register
+from mifit.domains.base import (
+    DomainResult,
+    as_int,
+    as_positive_int,
+    register,
+    stalled_note,
+)
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.heart_rate import HeartRateDailySummary
 from mifit.transport import Transport
@@ -45,10 +51,11 @@ def fetch_heart_rate_daily(
     whose outer ``time`` is missing or unusable is skipped with a note (its decoded
     value is still kept in ``raw``). A figure that is absent, ``0``, negative or not
     a number becomes ``None``: ``0`` bpm means "not measured". A row whose figures
-    are all missing still gives a record, with every figure ``None``.
+    are all missing still gives a record, with every figure ``None``. A read that
+    stalled on an unusable cursor ends with a note saying days may be missing.
     """
     start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    entries = t.get_paged(
+    paged = t.get_paged_result(
         _ENDPOINT,
         {
             "tag": "daily_report",
@@ -62,7 +69,7 @@ def fetch_heart_rate_daily(
     )
 
     result = DomainResult()
-    for entry in entries:
+    for entry in paged.items:
         try:
             value = json.loads(entry["value"])
         except (KeyError, TypeError, ValueError):
@@ -84,6 +91,8 @@ def fetch_heart_rate_daily(
             )
             continue
         result.records.append(record)
+    if paged.stalled:
+        result.notes.append(stalled_note("daily heart-rate rows"))
     return result
 
 

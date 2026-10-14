@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, as_float, as_int, register
+from mifit.domains.base import DomainResult, as_float, as_int, register, stalled_note
 from mifit.domains.raw_window import fetch_raw_window
 from mifit.models.weight import WeightRecord
 from mifit.transport import Transport
@@ -38,9 +38,10 @@ def fetch_weight(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainRe
     ``weight`` is absent, ``0``, negative or not a number gives no record (a note
     says so) but its decoded value stays in ``raw``. The BMI is ``None`` unless it
     is a positive number. A range with no rows gives an empty result, never a
-    fabricated record.
+    fabricated record. A read that stalled on an unusable cursor ends with a note
+    saying records may be missing.
     """
-    kept, unusable = fetch_raw_window(t, "weight", start_epoch_s, end_epoch_s)
+    kept, unusable, stalled = fetch_raw_window(t, "weight", start_epoch_s, end_epoch_s)
     result = DomainResult()
     for entry in kept:
         try:
@@ -68,4 +69,6 @@ def fetch_weight(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainRe
             WeightRecord(epoch_s=epoch_s, weight_kg=weight_kg, bmi=bmi)
         )
     result.notes.extend(["Skipped a weight row without a usable time."] * unusable)
+    if stalled:
+        result.notes.append(stalled_note("weight rows"))
     return result

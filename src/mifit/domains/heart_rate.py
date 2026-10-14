@@ -25,12 +25,14 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, register
+from mifit.domains.base import DomainResult, register, stalled_note
 from mifit.domains.raw_window import RAW_ENDPOINT, fetch_raw_window
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.transport import Transport
 
 _ENDPOINT = RAW_ENDPOINT
+_WHAT = "heart-rate rows"
+"""What a stalled read (window or full) may have missed, for ``stalled_note``."""
 
 
 @register("heart_rate")
@@ -45,11 +47,16 @@ def fetch_heart_rate_window(
     rows whose outer ``time`` is within ``[start_epoch_s, end_epoch_s]`` are
     kept; the margin's rows are dropped without a note. A row without a usable
     outer ``time`` is skipped with a note and left out of ``raw``. A window with
-    no rows gives an empty result, never a fabricated sample.
+    no rows gives an empty result, never a fabricated sample. A read that stalled
+    on an unusable cursor ends with a note saying rows may be missing.
     """
-    kept, unusable = fetch_raw_window(t, "heart_rate", start_epoch_s, end_epoch_s)
+    kept, unusable, stalled = fetch_raw_window(
+        t, "heart_rate", start_epoch_s, end_epoch_s
+    )
     result = _build_result(kept)
     result.notes.extend(["Skipped a heart-rate row without a usable time."] * unusable)
+    if stalled:
+        result.notes.append(stalled_note(_WHAT))
     return result
 
 
@@ -65,6 +72,7 @@ def fetch_heart_rate_full(
 
     When the page cap stops the read while the service still had older points,
     the result carries a note saying so; a read that ends on its own does not.
+    A read that stalled on an unusable cursor ends with a note saying so too.
     """
     paged = t.get_paged_result(
         _ENDPOINT,
@@ -83,6 +91,8 @@ def fetch_heart_rate_full(
             "service still had older points: points before the earliest one "
             "returned are missing."
         )
+    if paged.stalled:
+        result.notes.append(stalled_note(_WHAT))
     return result
 
 

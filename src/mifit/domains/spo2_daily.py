@@ -22,7 +22,13 @@ from __future__ import annotations
 import json
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, as_int, as_positive_int, register
+from mifit.domains.base import (
+    DomainResult,
+    as_int,
+    as_positive_int,
+    register,
+    stalled_note,
+)
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.spo2 import Spo2DailySummary
 from mifit.transport import Transport
@@ -45,10 +51,12 @@ def fetch_spo2_daily(
     whose outer ``time`` is missing or unusable is skipped with a note (its decoded
     value is still kept in ``raw``). A figure that is absent, ``0``, negative or not
     a number becomes ``None``: ``0`` is treated as "not measured". A row whose
-    figures are all missing still gives a record, with every figure ``None``.
+    figures are all missing still gives a record, with every figure ``None``. A
+    read that stalled on an unusable cursor ends with a note saying days may be
+    missing.
     """
     start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    entries = t.get_paged(
+    paged = t.get_paged_result(
         _ENDPOINT,
         {
             "tag": "daily_report",
@@ -62,7 +70,7 @@ def fetch_spo2_daily(
     )
 
     result = DomainResult()
-    for entry in entries:
+    for entry in paged.items:
         try:
             value = json.loads(entry["value"])
         except (KeyError, TypeError, ValueError):
@@ -78,6 +86,8 @@ def fetch_spo2_daily(
             result.notes.append("Skipped a daily SpO2 row without a usable day timestamp.")
             continue
         result.records.append(record)
+    if paged.stalled:
+        result.notes.append(stalled_note("daily SpO2 rows"))
     return result
 
 

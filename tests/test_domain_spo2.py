@@ -1,52 +1,25 @@
-"""Raw SpO2 domain tests. A fake ``Transport`` serves synthetic rows; nothing here
+"""Raw SpO2 domain tests. ``PagedFake`` serves synthetic rows; nothing here
 touches the network and no real health data is used.
 
 Rows follow the live-verified shape of raw ``spo2`` (notes/11 §1.2): the outer
 object ``{key, sid, time, update_time, value, zone_name, zone_offset}`` whose
 ``time`` is the sample's instant, and a ``value`` JSON string holding
-``{"time", "spo2"}``. The fake replaces ``get_paged`` (which already unwraps the
-``result`` envelope) and returns the inner entry list.
+``{"time", "spo2"}``. ``PagedFake`` serves the inner entry list, as the real
+paged read does once it has unwrapped the ``result`` envelope.
 """
 
 import json
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.spo2 import fetch_spo2_window
 from mifit.models.spo2 import Spo2Point
-from mifit.transport import Transport
+from support import PagedFake
 
 START = 1760371200  # 2025-10-13T16:00:00Z, a local midnight at UTC+8
 END = START + 86399
 ENDPOINT = "data/get_fitness_data_by_time"
 ABSENT = object()
 """Stands for an outer ``time`` key that is not there at all."""
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call."""
-
-    def __init__(self, payload):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
 
 
 def payload_with_rows(*rows):
@@ -77,7 +50,7 @@ def test_spo2_domain_is_registered():
 
 
 def test_spo2_window_asks_a_day_before_start():
-    transport = FakeTransport(payload_with_rows())
+    transport = PagedFake(payload_with_rows())
 
     fetch_spo2_window(transport, START, END)
 
@@ -101,7 +74,7 @@ def test_spo2_window_keeps_rows_at_both_bounds():
         (START, {"time": START, "spo2": 97}),
     )
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     assert result.records == [Spo2Point(END, 98), Spo2Point(START, 97)]
     # The A-faithful side: the untouched, twice-decoded value dicts.
@@ -116,7 +89,7 @@ def test_spo2_window_drops_rows_outside_the_asked_window():
         (START - 1, {"time": START - 1, "spo2": 94}),
     )
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     assert result.records == [Spo2Point(epoch_s=START + 600, spo2_pct=96)]
     assert result.raw == [{"time": START + 600, "spo2": 96}]
@@ -132,7 +105,7 @@ def test_spo2_without_usable_value_is_skipped_with_note():
     ]
     payload = payload_with_rows(*((value["time"], value) for value in values))
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     # No 0 % or string-parsed point is fabricated.
     assert result.records == []
@@ -149,7 +122,7 @@ def test_spo2_bad_value_and_bad_time_are_noted():
         (START + 1800, {"time": START + 1800, "spo2": 96}),
     )
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     assert result.records == [Spo2Point(epoch_s=START + 1800, spo2_pct=96)]
     assert result.raw == [{"time": START + 1800, "spo2": 96}]
@@ -162,7 +135,7 @@ def test_spo2_bad_value_and_bad_time_are_noted():
 def test_spo2_value_that_is_not_an_object_is_noted():
     payload = payload_with_rows((START + 600, "[97]"), (ABSENT, {"spo2": 97}))
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     assert result.records == []
     assert result.raw == []
@@ -178,7 +151,7 @@ def test_spo2_point_is_timed_by_the_outer_time():
     value = {"time": START + 605, "spo2": 97}
     payload = payload_with_rows((START + 600, value))
 
-    result = fetch_spo2_window(FakeTransport(payload), START, END)
+    result = fetch_spo2_window(PagedFake(payload), START, END)
 
     assert result.records == [Spo2Point(epoch_s=START + 600, spo2_pct=97)]
     assert result.raw == [value]
@@ -186,9 +159,25 @@ def test_spo2_point_is_timed_by_the_outer_time():
 
 
 def test_spo2_empty_window_yields_no_records_and_no_notes():
-    result = fetch_spo2_window(FakeTransport(payload_with_rows()), START, END)
+    result = fetch_spo2_window(PagedFake(payload_with_rows()), START, END)
 
     # No fabricated points for a window the service returned nothing for.
     assert result.records == []
     assert result.raw == []
     assert result.notes == []
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows(
+        (ABSENT, {"spo2": 97}),
+        (START + 600, {"time": START + 600, "spo2": 96}),
+    )
+
+    result = fetch_spo2_window(PagedFake(payload, stalled=True), START, END)
+
+    # After the unusable row's note, and the rows that were read are still returned.
+    assert result.notes == [
+        "Skipped an SpO2 row without a usable time.",
+        stalled_note("SpO2 rows"),
+    ]
+    assert result.records == [Spo2Point(epoch_s=START + 600, spo2_pct=96)]

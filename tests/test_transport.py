@@ -14,7 +14,7 @@ from mifit.auth.session import Session
 from mifit.crypto import encrypt_query_params, rc4_crypt, signed_nonce
 from mifit.errors import ApiError, AuthError, MiFitError, RenewalError
 from mifit.transport import Transport
-from support import exception_chain
+from support import EncryptingHttp, exception_chain, synthetic_session
 
 SYNTH_SSECURITY = base64.b64encode(b"synthetic-secret").decode("ascii")
 SYNTH_SERVICE_TOKEN = "SYNTH-SERVICE-TOKEN-0000"
@@ -326,6 +326,32 @@ def test_delay_is_applied_before_the_request(monkeypatch):
     http.get = recording_get
     Transport(make_session(), http=http, delay_s=1.5).get_json(ENDPOINT, DATA_OBJ)
     assert events == [("sleep", 1.5), ("get", None)]
+
+
+def test_every_page_is_paced(monkeypatch):
+    # A paged read sends one request per page, and each one waits its pause first.
+    events = []
+    monkeypatch.setattr(
+        transport_module.time, "sleep", lambda seconds: events.append(("sleep", seconds))
+    )
+    monkeypatch.setattr(random, "uniform", lambda low, high: 0.0)
+    http = EncryptingHttp(
+        [
+            {
+                "code": 0,
+                "result": {"data_list": [{"n": 1}], "has_more": True, "next_key": "k1"},
+            },
+            {"code": 0, "result": {"data_list": [{"n": 2}], "has_more": False}},
+        ],
+        events=events,
+    )
+
+    items = Transport(synthetic_session(), http=http, delay_s=1.0).get_paged(
+        ENDPOINT, DATA_OBJ
+    )
+
+    assert items == [{"n": 1}, {"n": 2}]
+    assert events == [("sleep", 1.0), ("get", None)] * 2
 
 
 def test_delay_has_bounded_jitter(monkeypatch):

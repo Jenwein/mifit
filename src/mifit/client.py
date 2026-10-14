@@ -22,7 +22,7 @@ from mifit.auth.lifetime import record_event
 from mifit.auth.qr import login_qr as _login_qr
 from mifit.auth.renew import renew_session
 from mifit.auth.session import Session, load_session, save_session
-from mifit.domains.base import DomainResult
+from mifit.domains.base import DomainResult, stalled_note
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.heart_rate import fetch_heart_rate_full, fetch_heart_rate_window
 from mifit.domains.heart_rate_daily import fetch_heart_rate_daily
@@ -331,15 +331,19 @@ class MiFit:
     def raw(self, key: str, start: DateArg, end: DateArg) -> list[dict]:
         """The service's own rows for fitness-data ``key``, undecoded and unfiltered.
 
-        ``get_paged`` has already unwrapped the response's ``result`` envelope, so
-        the entry list is returned exactly as it gave it.
+        The paged read has already unwrapped the response's ``result`` envelope,
+        so the entry list is returned exactly as it gave it.
 
         This is the service's own answer for the window; for bucketed keys such
         as ``heart_rate`` and ``spo2`` (notes/08, notes/11) it omits rows of a
         bucket keyed at or before ``start``, so widen ``start`` and filter yourself
         if you need every row.
+
+        When the service says more rows follow but sends no usable cursor, the
+        read stops there: the rows read so far are returned and a
+        ``RuntimeWarning`` says some may be missing.
         """
-        return self._transport.get_paged(
+        paged = self._transport.get_paged_result(
             _RAW_ENDPOINT,
             {
                 "key": key,
@@ -348,6 +352,9 @@ class MiFit:
                 "reverse": True,
             },
         )
+        if paged.stalled:
+            warnings.warn(stalled_note(f"'{key}' rows"), RuntimeWarning, stacklevel=2)
+        return paged.items
 
     def login_qr(self, on_qr: Callable[[str, str], None] | None = None) -> None:
         """Log in again by QR code, save the new session and switch to it.

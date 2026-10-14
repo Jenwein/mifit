@@ -1,47 +1,30 @@
-"""Shared raw-window read tests. A fake ``Transport`` serves synthetic rows;
-nothing here touches the network and no real health data is used.
+"""Shared raw-window read tests. ``PagedFake`` serves synthetic rows; nothing here
+touches the network and no real health data is used.
 
 ``fetch_raw_window`` asks the fitness-data endpoint for a day more before the
 start (the service drops the bucket keyed at or before ``start_time``, notes/08
 §2.3, notes/11 §1.3) and keeps only the rows whose outer ``time`` lies in the
-caller's window. The fake replaces ``get_paged`` (which already unwraps the
-``result`` envelope) and returns the given entries as they are.
+caller's window. ``PagedFake`` serves the given entries as they are, as the real
+paged read does once it has unwrapped the ``result`` envelope.
 """
 
-from mifit.domains.raw_window import RAW_ENDPOINT, START_MARGIN_S, fetch_raw_window
-from mifit.transport import Transport
+from unittest import mock
+
+from mifit.domains.raw_window import (
+    RAW_ENDPOINT,
+    START_MARGIN_S,
+    RawWindow,
+    fetch_raw_window,
+)
+from support import PagedFake
 
 START = 1760371200  # 2025-10-13T16:00:00Z, a local midnight at UTC+8
 END = START + 86399
 
 
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the given entries and records the call."""
-
-    def __init__(self, entries):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._entries = entries
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-                "sign_path": sign_path,
-                "max_pages": max_pages,
-            }
-        )
-        return list(self._entries)
+def served(entries, **options):
+    """A ``PagedFake`` whose paged read serves ``entries`` as they are."""
+    return PagedFake({"result": {"data_list": entries}}, **options)
 
 
 def row(outer_time):
@@ -58,9 +41,12 @@ def row(outer_time):
 
 
 def test_raw_window_asks_a_day_before_start():
-    transport = FakeTransport([])
+    transport = served([])
 
-    fetch_raw_window(transport, "weight", START, END)
+    with mock.patch.object(
+        transport, "get_paged_result", wraps=transport.get_paged_result
+    ) as spy:
+        fetch_raw_window(transport, "weight", START, END)
 
     assert RAW_ENDPOINT == "data/get_fitness_data_by_time"
     assert START_MARGIN_S == 86400
@@ -68,7 +54,7 @@ def test_raw_window_asks_a_day_before_start():
     call = transport.calls[0]
     assert call["endpoint_path"] == RAW_ENDPOINT
     assert call["list_key"] == "data_list"
-    assert call["sign_path"] is None
+    assert spy.call_args.kwargs.get("sign_path") is None
     assert call["max_pages"] is None
     assert call["data_obj"] == {
         "key": "weight",
@@ -81,9 +67,9 @@ def test_raw_window_asks_a_day_before_start():
 def test_raw_window_keeps_bounds_and_drops_the_rest():
     before, at_start, at_end, after = row(START - 1), row(START), row(END), row(END + 1)
     # Newest first, as the service sends with ``reverse``.
-    transport = FakeTransport([after, at_end, at_start, before])
+    transport = served([after, at_end, at_start, before])
 
-    kept, unusable = fetch_raw_window(transport, "weight", START, END)
+    kept, unusable, stalled = fetch_raw_window(transport, "weight", START, END)
 
     assert len(kept) == 2
     assert kept[0] is at_end
@@ -92,13 +78,23 @@ def test_raw_window_keeps_bounds_and_drops_the_rest():
     assert kept[1] == row(START)
     # The margin and the rows after the end are the SDK's own doing: not counted.
     assert unusable == 0
+    assert stalled is False
 
 
 def test_raw_window_counts_rows_without_usable_time():
     no_time = {k: v for k, v in row(START).items() if k != "time"}
     entries = [no_time, row("x"), row(True), ["not", "a", "row"]]
 
-    kept, unusable = fetch_raw_window(FakeTransport(entries), "weight", START, END)
+    kept, unusable, _ = fetch_raw_window(served(entries), "weight", START, END)
 
     assert kept == []
     assert unusable == 4
+
+
+def test_raw_window_reports_a_stalled_read():
+    window = fetch_raw_window(served([row(START)], stalled=True), "weight", START, END)
+
+    assert isinstance(window, RawWindow)
+    assert window.kept == [row(START)]
+    assert window.unusable == 0
+    assert window.stalled is True

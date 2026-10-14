@@ -1,20 +1,20 @@
-"""Weight domain tests. A fake ``Transport`` serves synthetic rows; nothing here
+"""Weight domain tests. ``PagedFake`` serves synthetic rows; nothing here
 touches the network and no real health data is used.
 
 Rows follow the live-verified shape of raw ``weight`` (notes/11 §2): the outer
 object ``{key, sid, time, update_time, value, zone_name, zone_offset}`` whose
 ``time`` is the record's instant, and a ``value`` JSON string holding the weight,
-the BMI and an all-zero body composition. The fake replaces ``get_paged`` (which
-already unwraps the ``result`` envelope) and returns the inner entry list.
+the BMI and an all-zero body composition. ``PagedFake`` serves the inner entry
+list, as the real paged read does once it has unwrapped the ``result`` envelope.
 """
 
 import dataclasses
 import json
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.weight import fetch_weight
 from mifit.models.weight import WeightRecord
-from mifit.transport import Transport
+from support import PagedFake
 
 T = 1600000000
 START = T - 86400
@@ -41,33 +41,6 @@ def weight_value(**overrides):
     }
     value.update(overrides)
     return {k: v for k, v in value.items() if v is not ABSENT}
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call."""
-
-    def __init__(self, payload):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
 
 
 def payload_with_rows(*rows):
@@ -103,7 +76,7 @@ def test_weight_domain_is_registered():
 
 
 def test_weight_asks_a_day_before_start():
-    transport = FakeTransport(payload_with_rows())
+    transport = PagedFake(payload_with_rows())
 
     fetch_weight(transport, START, END)
 
@@ -122,7 +95,7 @@ def test_weight_asks_a_day_before_start():
 def test_maps_weight_and_bmi():
     payload = payload_with_rows((T, weight_value()))
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     assert result.records == [WeightRecord(epoch_s=T, weight_kg=70.5, bmi=23.0)]
     # The A-faithful side: the untouched, twice-decoded value dict.
@@ -133,7 +106,7 @@ def test_maps_weight_and_bmi():
 def test_int_weight_becomes_float():
     payload = payload_with_rows((T, weight_value(weight=70)))
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     (record,) = result.records
     assert record.weight_kg == 70.0
@@ -147,7 +120,7 @@ def test_row_without_usable_weight_is_skipped_with_note():
         weight_value(time=T + 180, weight="70"),
     ]
 
-    result = fetch_weight(FakeTransport(rows_of(*values)), START, END)
+    result = fetch_weight(PagedFake(rows_of(*values)), START, END)
 
     # No 0 kg or string-parsed record is fabricated.
     assert result.records == []
@@ -165,7 +138,7 @@ def test_negative_bool_or_non_finite_weight_is_skipped():
         weight_value(time=T + 180, weight=float("inf")),
     ]
 
-    result = fetch_weight(FakeTransport(rows_of(*values)), START, END)
+    result = fetch_weight(PagedFake(rows_of(*values)), START, END)
 
     assert result.records == []
     assert len(result.notes) == 3
@@ -180,7 +153,7 @@ def test_oversized_integer_figures_do_not_abort_the_read():
         weight_value(time=T + 180),
     ]
 
-    result = fetch_weight(FakeTransport(rows_of(*values)), START, END)
+    result = fetch_weight(PagedFake(rows_of(*values)), START, END)
 
     # The unusable weight is skipped with a note, the unusable BMI is None, and the
     # good row after them is still read.
@@ -200,7 +173,7 @@ def test_missing_or_zero_bmi_becomes_none():
         weight_value(time=T + 240, bmi=-1.0),
     ]
 
-    result = fetch_weight(FakeTransport(rows_of(*values)), START, END)
+    result = fetch_weight(PagedFake(rows_of(*values)), START, END)
 
     # The weight is real, so each row keeps its record; only the BMI is None.
     assert [r.weight_kg for r in result.records] == [70.5] * 4
@@ -211,7 +184,7 @@ def test_missing_or_zero_bmi_becomes_none():
 def test_composition_stays_out_of_the_record():
     payload = payload_with_rows((T, weight_value()))
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     # Body composition is unverified (all zero on the account checked): A only.
     assert {f.name for f in dataclasses.fields(WeightRecord)} == {
@@ -228,7 +201,7 @@ def test_rows_outside_the_window_are_dropped():
         (END + 1, weight_value(time=END + 1)),
     )
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     assert result.records == []
     assert result.raw == []
@@ -242,7 +215,7 @@ def test_rows_at_both_bounds_are_kept():
         (START, weight_value(time=START, weight=70.0)),
     )
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     assert [(r.epoch_s, r.weight_kg) for r in result.records] == [(END, 71.0), (START, 70.0)]
 
@@ -250,7 +223,7 @@ def test_rows_at_both_bounds_are_kept():
 def test_record_is_timed_by_the_outer_time():
     payload = payload_with_rows((T, weight_value(time=T + 5)))
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     assert [r.epoch_s for r in result.records] == [T]
 
@@ -263,7 +236,7 @@ def test_bad_value_and_bad_time_are_noted():
         (T + 240, weight_value(time=T + 240)),
     )
 
-    result = fetch_weight(FakeTransport(payload), START, END)
+    result = fetch_weight(PagedFake(payload), START, END)
 
     assert result.records == [WeightRecord(epoch_s=T + 240, weight_kg=70.5, bmi=23.0)]
     assert result.raw == [weight_value(time=T + 240)]
@@ -275,9 +248,22 @@ def test_bad_value_and_bad_time_are_noted():
 
 
 def test_empty_range_yields_no_records_and_no_notes():
-    result = fetch_weight(FakeTransport(payload_with_rows()), START, END)
+    result = fetch_weight(PagedFake(payload_with_rows()), START, END)
 
     # No fabricated record for a range the service returned nothing for.
     assert result.records == []
     assert result.raw == []
     assert result.notes == []
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows(("x", weight_value(time=T + 60)), (T, weight_value()))
+
+    result = fetch_weight(PagedFake(payload, stalled=True), START, END)
+
+    # After the unusable row's note, and the records that were read are still returned.
+    assert result.notes == [
+        "Skipped a weight row without a usable time.",
+        stalled_note("weight rows"),
+    ]
+    assert result.records == [WeightRecord(epoch_s=T, weight_kg=70.5, bmi=23.0)]

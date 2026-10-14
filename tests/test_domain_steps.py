@@ -1,4 +1,4 @@
-"""Steps domain tests. A fake ``Transport`` serves a synthetic payload; nothing
+"""Steps domain tests. ``PagedFake`` serves a synthetic payload; nothing
 here touches the network and no real health data is used.
 
 The fixture follows the live-verified shape of the decrypted envelope: rows live
@@ -16,10 +16,10 @@ import json
 from datetime import timedelta, timezone
 from pathlib import Path
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.steps import fetch_steps
 from mifit.models.steps import StepRecord
-from mifit.transport import Transport
+from support import PagedFake
 
 FIXTURE = Path(__file__).parent / "fixtures" / "steps_daily_sample.json"
 
@@ -31,37 +31,6 @@ ENDPOINT = "data/get_aggregated_fitness_data_by_time"
 UTC = timezone.utc
 CST = timezone(timedelta(hours=8))
 EST = timezone(timedelta(hours=-5))
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
-
-    The fake reads ``result.data_list`` (the real envelope) and returns the outer
-    row objects, as the real ``get_paged`` does.
-    """
-
-    def __init__(self, payload):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
 
 
 def load_fixture():
@@ -79,7 +48,7 @@ def payload_with_rows(*rows):
 
 
 def test_parses_steps_record():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     result = fetch_steps(transport, START, END, tz=UTC)
 
@@ -101,13 +70,13 @@ def test_timestamp_comes_from_the_outer_entry():
     # The decoded value carries no ``time``; the day is the outer entry's.
     payload = payload_with_rows((DAY_2, {"steps": 1}))
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     assert [(r.epoch_s, r.date) for r in result.records] == [(DAY_2, "2025-10-15")]
 
 
 def test_requests_daily_report_steps_for_the_window():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     fetch_steps(transport, START, END, tz=UTC)
 
@@ -125,6 +94,7 @@ def test_requests_daily_report_steps_for_the_window():
                 "end_time": DAY_2,
             },
             "list_key": "data_list",
+            "max_pages": None,
         }
     ]
 
@@ -132,7 +102,7 @@ def test_requests_daily_report_steps_for_the_window():
 def test_window_east_of_utc_selects_the_local_days():
     # Local 2025-10-15 00:00 .. 2025-10-16 23:59:59 at UTC+8 asks for the reports
     # keyed 2025-10-15 and 2025-10-16.
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
     start = DAY_1 + 16 * 3600
     end = DAY_2 + 16 * 3600 + 86399
 
@@ -146,7 +116,7 @@ def test_window_west_of_utc_selects_the_local_day():
     # Regression: local 2025-10-14 at UTC-5 is 05:00Z..04:59:59Z next day. Sent as
     # is, that window would skip the 2025-10-14 report (keyed 00:00Z) and pick up
     # 2025-10-15's instead.
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
     start = DAY_1 + 5 * 3600
 
     fetch_steps(transport, start, start + 86399, tz=EST)
@@ -160,7 +130,7 @@ def test_epoch_s_is_the_local_midnight_of_the_date():
     # starts at 2025-10-14T16:00Z at UTC+8.
     payload = payload_with_rows((DAY_2, {"steps": 1}))
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=CST)
+    result = fetch_steps(PagedFake(payload), START, END, tz=CST)
 
     assert [(r.date, r.epoch_s) for r in result.records] == [
         ("2025-10-15", DAY_1 + 16 * 3600)
@@ -171,7 +141,7 @@ def test_empty_day_yields_no_records():
     payload = load_fixture()
     payload["result"]["data_list"] = []
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     # No fabricated zero for a day the service returned nothing for.
     assert result.records == []
@@ -184,7 +154,7 @@ def test_null_fields_stay_none():
         (DAY_2, {"steps": 200, "distance": None, "calories": None}),
     )
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     assert [r.steps for r in result.records] == [100, 200]
     for record in result.records:
@@ -195,7 +165,7 @@ def test_null_fields_stay_none():
 def test_explicit_zero_steps_is_kept():
     payload = payload_with_rows((DAY_1, {"steps": 0, "distance": 0}))
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     # A reported zero is data; only an absent value must not become zero.
     assert [(r.steps, r.distance_m, r.step_calories) for r in result.records] == [
@@ -209,7 +179,7 @@ def test_entry_without_steps_is_skipped_not_zeroed():
         (DAY_2, {"steps": 200}),
     )
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     assert [r.steps for r in result.records] == [200]
     assert len(result.notes) == 1
@@ -223,7 +193,7 @@ def test_entry_without_a_usable_outer_time_is_skipped():
     del rows[0]["time"]
     rows[1]["time"] = None
 
-    result = fetch_steps(FakeTransport(payload), START, END, tz=UTC)
+    result = fetch_steps(PagedFake(payload), START, END, tz=UTC)
 
     assert result.records == []
     assert len(result.notes) == 2
@@ -236,7 +206,7 @@ def test_walking_calories_land_in_step_calories_not_calories():
     # ring (that figure comes from the consumption domain).
     payload = payload_with_rows((DAY_1, {"steps": 8000, "calories": 210}))
 
-    (record,) = fetch_steps(FakeTransport(payload), START, END, tz=UTC).records
+    (record,) = fetch_steps(PagedFake(payload), START, END, tz=UTC).records
 
     assert record.step_calories == 210
     assert "step_calories" in {f.name for f in dataclasses.fields(StepRecord)}
@@ -246,3 +216,14 @@ def test_walking_calories_land_in_step_calories_not_calories():
 
 def test_steps_domain_is_registered():
     assert REGISTRY["steps"] is fetch_steps
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows((DAY_1, {"distance": 5200}), (DAY_2, {"steps": 200}))
+
+    result = fetch_steps(PagedFake(payload, stalled=True), START, END, tz=UTC)
+
+    # After the row's own note, and the rows that were read are still returned.
+    assert len(result.notes) == 2
+    assert result.notes[-1] == stalled_note("daily step rows")
+    assert [r.steps for r in result.records] == [200]

@@ -2,7 +2,7 @@
 
 import pytest
 
-from mifit.domains.base import as_float, as_int, as_positive_int
+from mifit.domains.base import as_float, as_int, as_positive_int, stalled_note
 
 
 @pytest.mark.parametrize(
@@ -139,3 +139,10 @@ def test_as_float(raw, expected):
 )
 def test_as_float_rejects_everything_else(raw):
     assert as_float(raw) is None
+
+
+def test_stalled_note_names_what_may_be_missing():
+    assert stalled_note("daily step rows") == (
+        "The service said more daily step rows followed but sent no usable cursor, "
+        "so the read stopped early: some daily step rows in the range may be missing."
+    )

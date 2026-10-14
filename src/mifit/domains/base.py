@@ -1,6 +1,6 @@
-"""Shared domain plumbing: the result container, a minimal name registry, and
+"""Shared domain plumbing: the result container, a minimal name registry,
 ``as_int`` / ``as_positive_int`` / ``as_float``, the domains' common readings of a
-reported number.
+reported number, and ``stalled_note``, the caveat for a paged read that stalled.
 
 A domain is a function ``fn(transport, start_epoch_s, end_epoch_s) -> DomainResult``
 registered under a short name so callers can list and dispatch domains.
@@ -43,6 +43,16 @@ def register(name: str) -> Callable[[DomainFn], DomainFn]:
         return fn
 
     return decorator
+
+
+def stalled_note(what: str) -> str:
+    """The note for a paged read of ``what`` (e.g. ``"daily step rows"``) that
+    stalled: the service reported more pages but sent no usable cursor
+    (``PagedResult.stalled``)."""
+    return (
+        f"The service said more {what} followed but sent no usable cursor, so the "
+        f"read stopped early: some {what} in the range may be missing."
+    )
 
 
 def _finite_number(raw: object) -> int | float | None:

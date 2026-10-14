@@ -19,7 +19,13 @@ from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, as_int, as_positive_int, register
+from mifit.domains.base import (
+    DomainResult,
+    as_int,
+    as_positive_int,
+    register,
+    stalled_note,
+)
 from mifit.domains.raw_window import fetch_raw_window
 from mifit.models.spo2 import Spo2Point
 from mifit.transport import Transport
@@ -37,9 +43,10 @@ def fetch_spo2_window(
     a JSON object, is skipped with a note and left out of ``raw``. A row whose
     ``spo2`` is absent, ``0``, negative or not a number gives no point (a note
     says so) but its decoded value stays in ``raw``. A window with no rows gives
-    an empty result, never a fabricated sample.
+    an empty result, never a fabricated sample. A read that stalled on an
+    unusable cursor ends with a note saying rows may be missing.
     """
-    kept, unusable = fetch_raw_window(t, "spo2", start_epoch_s, end_epoch_s)
+    kept, unusable, stalled = fetch_raw_window(t, "spo2", start_epoch_s, end_epoch_s)
     result = DomainResult()
     for entry in kept:
         try:
@@ -62,4 +69,6 @@ def fetch_spo2_window(
         epoch_s = as_int(entry["time"])
         result.records.append(Spo2Point(epoch_s=epoch_s, spo2_pct=spo2_pct))
     result.notes.extend(["Skipped an SpO2 row without a usable time."] * unusable)
+    if stalled:
+        result.notes.append(stalled_note("SpO2 rows"))
     return result

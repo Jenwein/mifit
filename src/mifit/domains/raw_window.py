@@ -17,6 +17,8 @@ returns the service's own answer, unfiltered.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from mifit.domains.base import as_int
 from mifit.transport import Transport
 
@@ -26,21 +28,34 @@ START_MARGIN_S = 86400
 """How much earlier than the caller's start the windowed read asks the service."""
 
 
+class RawWindow(NamedTuple):
+    """What ``fetch_raw_window`` read."""
+
+    kept: list[dict]
+    """The entries whose outer ``time`` is in the window, in the service's order
+    and untouched (their ``value`` is still the wire's JSON string)."""
+    unusable: int
+    """How many entries are not objects or have no usable outer ``time``."""
+    stalled: bool
+    """Whether the paged read stalled on an unusable cursor
+    (``PagedResult.stalled``), so rows in the window may be missing."""
+
+
 def fetch_raw_window(
     t: Transport, key: str, start_epoch_s: int, end_epoch_s: int
-) -> tuple[list[dict], int]:
+) -> RawWindow:
     """Read raw ``key`` rows between two Unix-second timestamps, both inclusive.
 
     Sends one paged request starting ``START_MARGIN_S`` early, so the service's
-    first bucket lies before the window, and returns ``(kept, unusable)``:
-    ``kept`` is the entries whose outer ``time`` is within
-    ``[start_epoch_s, end_epoch_s]``, in the service's order and untouched (their
-    ``value`` is still the wire's JSON string); ``unusable`` counts the entries
-    that are not objects or have no usable outer ``time``, so the caller can note
-    them. The margin's rows, and any after the end, are dropped without being
-    counted.
+    first bucket lies before the window, and returns
+    ``RawWindow(kept, unusable, stalled)``: ``kept`` is the entries whose outer
+    ``time`` is within ``[start_epoch_s, end_epoch_s]``, in the service's order
+    and untouched (their ``value`` is still the wire's JSON string); ``unusable``
+    counts the entries that are not objects or have no usable outer ``time``, and
+    ``stalled`` says whether the read stalled, so the caller can note both. The
+    margin's rows, and any after the end, are dropped without being counted.
     """
-    entries = t.get_paged(
+    paged = t.get_paged_result(
         RAW_ENDPOINT,
         {
             "key": key,
@@ -52,10 +67,10 @@ def fetch_raw_window(
     )
     kept = []
     unusable = 0
-    for entry in entries:
+    for entry in paged.items:
         epoch_s = as_int(entry.get("time")) if isinstance(entry, dict) else None
         if epoch_s is None:
             unusable += 1
         elif start_epoch_s <= epoch_s <= end_epoch_s:
             kept.append(entry)
-    return kept, unusable
+    return RawWindow(kept, unusable, paged.stalled)

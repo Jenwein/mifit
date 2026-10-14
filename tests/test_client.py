@@ -1,4 +1,4 @@
-"""MiFit facade tests. A fake ``Transport`` (or, for the renewal tests, a fake
+"""MiFit facade tests. ``PagedFake`` (or, for the renewal tests, a fake
 ``http`` under the real one) stands in for the network, and the session store is
 monkeypatched or lives under the isolated home (conftest), so nothing here
 touches the network, the real session file or any real health data. Every
@@ -10,6 +10,7 @@ import dataclasses
 import json
 import subprocess
 import sys
+import warnings
 from datetime import datetime, time
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,8 +47,7 @@ from mifit.models.spo2 import Spo2DailySummary, Spo2Point
 from mifit.models.steps import StepRecord
 from mifit.models.weight import WeightRecord
 from mifit.models.workouts import Workout
-from mifit.transport import PagedResult, Transport
-from support import exception_chain
+from support import PagedFake, exception_chain
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -68,79 +68,21 @@ def make_session(token="SYNTH-SERVICE-TOKEN-0000", user_id="1000001"):
     )
 
 
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
-
-    Like the real ``get_paged`` it returns the inner entry list, not the
-    ``{code, result}`` envelope.
-    """
-
-    def __init__(self, payload):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self.calls = []
-        self.json_calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-                "max_pages": max_pages,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
-
-    def get_paged_result(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        """What the full heart-rate read calls: the same rows, never truncated."""
-        items = self.get_paged(
-            endpoint_path,
-            data_obj,
-            list_key=list_key,
-            sign_path=sign_path,
-            max_pages=max_pages,
-        )
-        return PagedResult(items, False)
-
-    def get_json(self, endpoint_path, data_obj, *, sign_path=None):
-        """Serves the canned payload as the single-object envelope ``get_json`` returns."""
-        self.json_calls.append(
-            {"endpoint_path": endpoint_path, "data_obj": dict(data_obj)}
-        )
-        return self._payload
-
-
 def load_fixture(name):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
 @pytest.fixture
 def build(monkeypatch):
-    """Return ``build(payload) -> (MiFit, FakeTransport, transport_args)``.
+    """Return ``build(payload) -> (MiFit, PagedFake, transport_args)``.
 
     ``mifit.client.Transport`` is replaced by a factory that records how the
-    facade constructed it and hands back the fake.
+    facade constructed it and hands back the fake. ``stalled`` is passed to the
+    fake; every other keyword goes to ``MiFit``.
     """
 
-    def _build(payload, session=None, http=None, **kwargs):
-        fake = FakeTransport(payload)
+    def _build(payload, session=None, http=None, *, stalled=False, **kwargs):
+        fake = PagedFake(payload, stalled=stalled)
         args = []
 
         def factory(*a, **kw):
@@ -351,6 +293,32 @@ def test_raw_passes_entries_through_unwrapped(build):
     ]
 
 
+def test_raw_warns_when_the_read_stalls(build):
+    payload = load_fixture("hr_raw_sample.json")
+    client, _, _ = build(payload, stalled=True)
+
+    with pytest.warns(RuntimeWarning, match="no usable cursor") as caught:
+        entries = client.raw("heart_rate", 1759248000, 1759334399)
+
+    # The rows that were read are still returned, and the warning names the key
+    # and points at the caller.
+    assert entries == payload["result"]["data_list"]
+    (warning,) = caught
+    assert "'heart_rate' rows" in str(warning.message)
+    assert warning.filename == __file__
+
+
+def test_raw_does_not_warn_on_a_complete_read(build):
+    payload = load_fixture("hr_raw_sample.json")
+    client, _, _ = build(payload)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        entries = client.raw("heart_rate", 1759248000, 1759334399)
+
+    assert entries == payload["result"]["data_list"]
+
+
 def test_raw_converts_date_strings(build):
     client, fake, _ = build(load_fixture("hr_raw_sample.json"))
 
@@ -412,7 +380,7 @@ def test_no_session_raises_AuthError(monkeypatch):
 
 def test_stored_session_is_loaded_when_none_passed(monkeypatch):
     stored = make_session()
-    fake = FakeTransport(load_fixture("steps_daily_sample.json"))
+    fake = PagedFake(load_fixture("steps_daily_sample.json"))
     seen = []
     monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
     monkeypatch.setattr(
@@ -496,7 +464,7 @@ def test_login_qr_stores_session_and_switches_transport(monkeypatch):
     login_calls = []
 
     def factory(session, *, http=None, renew=None):
-        fake = FakeTransport(load_fixture("steps_daily_sample.json"))
+        fake = PagedFake(load_fixture("steps_daily_sample.json"))
         fake._session = session  # read back through ``Transport.session``
         built.append(fake)
         return fake
@@ -533,7 +501,7 @@ def test_login_qr_failure_keeps_the_existing_session(monkeypatch):
     saved = []
 
     def factory(session, *, http=None, renew=None):
-        fake = FakeTransport(load_fixture("steps_daily_sample.json"))
+        fake = PagedFake(load_fixture("steps_daily_sample.json"))
         built.append(fake)
         return fake
 
@@ -781,7 +749,7 @@ def test_login_qr_keeps_the_renew_hook_and_becomes_store_backed(monkeypatch):
 
     def factory(session, *, http=None, renew=None):
         built.append({"session": session, "renew": renew})
-        return FakeTransport(load_fixture("steps_daily_sample.json"))
+        return PagedFake(load_fixture("steps_daily_sample.json"))
 
     monkeypatch.setattr(client_module, "Transport", factory)
     monkeypatch.setattr(client_module, "_login_qr", lambda http=None, on_qr=None: logged_in)

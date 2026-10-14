@@ -1,4 +1,4 @@
-"""Sleep domain tests. A fake ``Transport`` serves synthetic payloads; nothing here
+"""Sleep domain tests. ``PagedFake`` serves synthetic payloads; nothing here
 touches the network and no real health data is used.
 
 The fixtures follow the live-verified shapes (plan 2026-10-14-mifit-sleep-domain):
@@ -18,12 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.days import local_midnight
 from mifit.domains.sleep import fetch_sleep
 from mifit.errors import ApiError, AuthError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
-from mifit.transport import Transport
+from support import PagedFake
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DAILY_ENDPOINT = "data/get_aggregated_fitness_data_by_time"
@@ -62,32 +62,22 @@ def load(name):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
-class FakeTransport(Transport):
-    """Serves canned rows per endpoint from ``get_paged`` and records each call."""
-
-    def __init__(self, daily=None, raw=None, raw_error: Exception | None = None):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._raw_error = raw_error
-        self._rows = {
-            DAILY_ENDPOINT: list((daily or {"result": {}})["result"].get("data_list") or []),
-            RAW_ENDPOINT: list((raw or {"result": {}})["result"].get("data_list") or []),
-        }
-        self.calls = []
-
-    def get_paged(
-        self, endpoint_path, data_obj, *, list_key="data_list", sign_path=None, max_pages=None
-    ):
-        self.calls.append({"endpoint_path": endpoint_path, "data_obj": dict(data_obj)})
-        if endpoint_path == RAW_ENDPOINT and self._raw_error is not None:
-            raise self._raw_error
-        return list(self._rows.get(endpoint_path, []))
+def sleep_fake(daily, raw, raw_error=None, **options):
+    """A ``PagedFake`` serving ``daily`` and ``raw`` from their endpoints; the raw
+    read raises ``raw_error`` when one is given."""
+    return PagedFake(
+        by_endpoint={DAILY_ENDPOINT: daily, RAW_ENDPOINT: raw},
+        errors={RAW_ENDPOINT: raw_error} if raw_error else None,
+        **options,
+    )
 
 
-def fetch(daily=None, raw=None, raw_error=None):
-    transport = FakeTransport(
+def fetch(daily=None, raw=None, raw_error=None, **options):
+    transport = sleep_fake(
         daily or load("sleep_daily_sample.json"),
         raw or load("sleep_raw_sample.json"),
         raw_error,
+        **options,
     )
     return transport, fetch_sleep(transport, START, END, tz=UTC)
 
@@ -150,6 +140,8 @@ def test_requests_daily_report_sleep_for_the_window():
             "start_time": DAY_A - 86400,
             "end_time": DAY_B,
         },
+        "list_key": "data_list",
+        "max_pages": None,
     }
 
 
@@ -270,6 +262,8 @@ def test_requests_raw_sessions_for_the_widened_window():
             "end_time": DAY_B + 2 * 86400,
             "reverse": True,
         },
+        "list_key": "data_list",
+        "max_pages": None,
     }
 
 
@@ -548,7 +542,7 @@ def test_raw_window_follows_the_requested_zone():
     est = timezone(timedelta(hours=-5))
     start = DAY_A + 5 * 3600  # 2025-10-14 00:00 at -05:00
     end = start + 2 * 86400 - 1
-    transport = FakeTransport(load("sleep_daily_sample.json"), load("sleep_raw_sample.json"))
+    transport = sleep_fake(load("sleep_daily_sample.json"), load("sleep_raw_sample.json"))
 
     fetch_sleep(transport, start, end, tz=est)
 
@@ -560,3 +554,26 @@ def test_raw_window_follows_the_requested_zone():
     )
     assert raw_call["data_obj"]["start_time"] == DAY_A + 5 * 3600 - 86400
     assert raw_call["data_obj"]["end_time"] == DAY_A + 5 * 3600 + 3 * 86400
+
+
+def test_stalled_daily_read_says_so():
+    daily = load("sleep_daily_sample.json")
+    daily["result"]["data_list"][0]["value"] = "{not json"
+
+    _, result = fetch(daily, stalled=True, stalled_endpoints={DAILY_ENDPOINT})
+
+    # After the daily row's own note; the day that was read keeps its stages.
+    assert len(result.notes) == 2
+    assert result.notes[-1] == stalled_note("daily sleep rows")
+    assert night_of(result).stages == NIGHT_STAGES
+
+
+def test_stalled_raw_read_says_so():
+    raw = raw_without(lambda v: v["bedtime"] == NIGHT_BED)
+
+    _, result = fetch(raw=raw, stalled=True, stalled_endpoints={RAW_ENDPOINT})
+
+    # After the note of the session whose timeline was not found.
+    assert len(result.notes) == 2
+    assert "2025-10-14" in result.notes[0]
+    assert result.notes[-1] == stalled_note("sleep stage rows")

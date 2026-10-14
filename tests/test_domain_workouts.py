@@ -1,5 +1,5 @@
-"""Workouts domain tests. A fake ``Transport`` serves a synthetic payload; nothing
-here touches the network and no real health data is used.
+"""Workouts domain tests. ``PagedFake`` serves a synthetic payload; nothing here
+touches the network and no real health data is used.
 
 The fixture follows the live-verified shape of the decrypted envelope: rows live
 under ``result.sport_records`` (with ``has_more``/``next_key`` beside them), newest
@@ -13,10 +13,10 @@ import dataclasses
 import json
 from pathlib import Path
 
-from mifit.domains.base import REGISTRY
+from mifit.domains.base import REGISTRY, stalled_note
 from mifit.domains.workouts import fetch_workouts
 from mifit.models.workouts import Workout
-from mifit.transport import PagedResult, Transport
+from support import PagedFake
 
 FIXTURE = Path(__file__).parent / "fixtures" / "workouts_sample.json"
 
@@ -32,57 +32,6 @@ NOTE_NO_TIME = "Skipped a workout row without a usable time."
 NOTE_NOT_JSON = "Skipped a workout row whose value is missing or not JSON."
 NOTE_NOT_OBJECT = "Skipped a workout row whose value is not an object."
 NOTE_NO_START = "Skipped a workout without a usable start time."
-
-
-class FakeTransport(Transport):
-    """Replaces ``get_paged`` with the rows of a canned payload and records the call.
-
-    ``get_paged_result`` (what the workouts read uses) serves the same rows through
-    ``get_paged``, so it records the call identically, and reports ``truncated``.
-    """
-
-    def __init__(self, payload, truncated=False):
-        # No Session/http needed: ``get_paged`` is fully replaced below.
-        self._payload = payload
-        self._truncated = truncated
-        self.calls = []
-
-    def get_paged(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        self.calls.append(
-            {
-                "endpoint_path": endpoint_path,
-                "data_obj": dict(data_obj),
-                "list_key": list_key,
-                "max_pages": max_pages,
-            }
-        )
-        return list(self._payload["result"].get(list_key) or [])
-
-    def get_paged_result(
-        self,
-        endpoint_path,
-        data_obj,
-        *,
-        list_key="data_list",
-        sign_path=None,
-        max_pages=None,
-    ):
-        items = self.get_paged(
-            endpoint_path,
-            data_obj,
-            list_key=list_key,
-            sign_path=sign_path,
-            max_pages=max_pages,
-        )
-        return PagedResult(items, self._truncated)
 
 
 def load_fixture():
@@ -128,8 +77,9 @@ def payload_with_rows(*rows):
     return payload
 
 
-def fetch(payload, *, truncated=False):
-    return fetch_workouts(FakeTransport(payload, truncated), START, END)
+def fetch(payload, **options):
+    """``fetch_workouts`` over ``PagedFake(payload, **options)`` for the test window."""
+    return fetch_workouts(PagedFake(payload, **options), START, END)
 
 
 def expected_run(**changes):
@@ -157,7 +107,7 @@ def test_workouts_domain_is_registered():
 
 
 def test_requests_from_a_second_before_start():
-    transport = FakeTransport(load_fixture())
+    transport = PagedFake(load_fixture())
 
     fetch_workouts(transport, START, END)
 
@@ -458,3 +408,13 @@ def test_empty_window_yields_no_records_and_no_notes():
     assert result.records == []
     assert result.raw == []
     assert result.notes == []
+
+
+def test_stalled_read_says_so():
+    payload = payload_with_rows(row(ABSENT, run_value()), row(RUN_START, run_value()))
+
+    result = fetch(payload, stalled=True)
+
+    # After the row's own note, and the workouts that were read are still returned.
+    assert result.notes == [NOTE_NO_TIME, stalled_note("workout rows")]
+    assert result.records == [expected_run()]

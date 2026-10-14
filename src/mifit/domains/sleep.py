@@ -15,7 +15,8 @@ times the first in service order is used, unless it has no stages and a later on
 Each matched daily session gets its own copy of the stages. The raw read is widened by
 a day on each side and filtered by that match, so its window bounds never decide a
 day. It is skipped when no day has a session, and if it fails with an ``ApiError``
-the days stand without stages and one note says so.
+the days stand without stages and one note says so. A read (daily or raw) that stalls
+on an unusable cursor gets a note after its own notes.
 
 ``DomainResult.raw`` holds the decoded daily values in service order, then the decoded
 value of each raw session that matched a daily session, once each, in the order they
@@ -34,7 +35,7 @@ import json
 from datetime import date, timedelta, tzinfo
 from typing import NamedTuple
 
-from mifit.domains.base import DomainResult, as_int, register
+from mifit.domains.base import DomainResult, as_int, register, stalled_note
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.errors import ApiError
 from mifit.models.sleep import SleepRecord, SleepSession, SleepStage
@@ -72,10 +73,12 @@ def fetch_sleep(
     with a note, never fabricated. The raw read for stage timelines is skipped when no
     day has a session. If it fails with an ``ApiError`` the days stand without stages
     and one note says so; any other failure, such as an ``AuthError``, propagates.
+    A read that stalled on an unusable cursor gets a note after its own notes: the
+    daily read's after the day notes, the raw read's after the stage notes.
     """
     first, last = local_day_span(start_epoch_s, end_epoch_s, tz)
     start_time, end_time = report_window(first, last)
-    rows = t.get_paged(
+    daily = t.get_paged_result(
         _DAILY_ENDPOINT,
         {
             "tag": "daily_report",
@@ -89,7 +92,7 @@ def fetch_sleep(
     )
 
     result = DomainResult()
-    for row in rows:
+    for row in daily.items:
         try:
             value = json.loads(row["value"])
         except (KeyError, TypeError, ValueError):
@@ -107,6 +110,8 @@ def fetch_sleep(
             )
             continue
         result.records.append(record)
+    if daily.stalled:
+        result.notes.append(stalled_note("daily sleep rows"))
 
     _attach_stages(t, first, last, tz, result)
     return result
@@ -118,7 +123,7 @@ def _attach_stages(
     if not any(record.sessions for record in result.records):
         return
     try:
-        rows = t.get_paged(
+        raw_read = t.get_paged_result(
             _RAW_ENDPOINT,
             {
                 "key": "sleep",
@@ -137,7 +142,7 @@ def _attach_stages(
         return
 
     timelines: dict[tuple[int, int], _RawSession] = {}
-    for row in rows:
+    for row in raw_read.items:
         try:
             value = json.loads(row["value"])
         except (KeyError, TypeError, ValueError):
@@ -177,6 +182,8 @@ def _attach_stages(
             )
 
     result.raw.extend(raw.value for key, raw in timelines.items() if key in matched)
+    if raw_read.stalled:
+        result.notes.append(stalled_note("sleep stage rows"))
 
 
 def _to_stages(items: object) -> tuple[list[SleepStage], int]:

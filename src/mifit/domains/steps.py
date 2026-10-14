@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, register
+from mifit.domains.base import DomainResult, register, stalled_note
 from mifit.domains.days import local_day_span, local_midnight, report_day, report_window
 from mifit.models.steps import StepRecord
 from mifit.transport import Transport
@@ -38,10 +38,11 @@ def fetch_steps(
     A window with no rows gives an empty result, never a fabricated zero. A row
     whose outer ``time`` or whose value's ``steps`` is missing or unusable is
     skipped with a note (its decoded value is still kept in ``raw``); an absent
-    ``distance``/``calories`` becomes ``None``.
+    ``distance``/``calories`` becomes ``None``. A read that stalled on an unusable
+    cursor ends with a note saying days may be missing.
     """
     start_time, end_time = report_window(*local_day_span(start_epoch_s, end_epoch_s, tz))
-    entries = t.get_paged(
+    paged = t.get_paged_result(
         _ENDPOINT,
         {
             "tag": "daily_report",
@@ -55,7 +56,7 @@ def fetch_steps(
     )
 
     result = DomainResult()
-    for entry in entries:
+    for entry in paged.items:
         try:
             value = json.loads(entry["value"])
         except (KeyError, TypeError, ValueError):
@@ -75,6 +76,8 @@ def fetch_steps(
             )
             continue
         result.records.append(record)
+    if paged.stalled:
+        result.notes.append(stalled_note("daily step rows"))
     return result
 
 
