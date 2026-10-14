@@ -13,6 +13,14 @@ The chain, as the app runs it for one workout of the list read:
 4. ``cipher`` turns a download body into the plain file with the key.
 5. ``binary`` and ``layouts`` read the plain file's header and fields.
 
+Low-level use, for the plain bytes of a file: ``urls.request_urls(t, sid, refs)``
+sends one signed request for the ``FileRef`` list ``refs`` and gives a map from
+``ids.server_key(ref)`` to an ``FdsEntry``; ``download.FdsDownloader().fetch(entry.url)``
+gives that file's encoded body; ``cipher.decrypt_body(body, entry.key_b64)`` gives the
+plain file. An entry whose ``key_b64`` is ``None`` names a file the service does not
+have: do not download it. Nothing is cached or written to disk, and a link expires
+about 30 minutes after the request.
+
 Safety rules for every module here:
 
 * Never output the presigned URL, ``obj_key``, ``obj_name``, ``expires_time``, the

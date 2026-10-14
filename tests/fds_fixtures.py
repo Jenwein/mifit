@@ -9,13 +9,19 @@ Likewise, the file builders pack every byte by hand from the spec's tables
 (§4.6 header, §4.7 record segments and points, §4.8 GPS points) and never import
 ``mifit.fds.layouts``: a wrong entry in the decoder's tables then fails a test
 instead of round-tripping silently.
+
+The fakes at the end play the service's side of a download: ``FakeFdsService``
+answers the link request and serves the object store, ``FdsTransport`` routes the
+link request to it, and ``StoreHttp`` stands in for the downloader's ``http``.
 """
 
 import base64
+import copy
 import struct
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from support import PagedFake
 
 SYNTH_SID = "1000000006"
 SYNTH_KEY = bytes(range(16))
@@ -247,3 +253,165 @@ def record_file(ts, tz15, proto, version, flags, *segments) -> bytes:
 def gps_file(ts, tz15, proto, *points, flags=b"\xff", version=2) -> bytes:
     """A plain GPS file: header, validity flags, points."""
     return header_bytes(ts, tz15, version, proto) + flags + b"".join(points)
+
+
+# --- Links and the object store (spec §4.3, §4.4) ---------------------------------
+
+EXPIRES = 1711111111
+URL_MARK = "SYNTH-SIGNATURE"
+
+ABSENT = object()
+"""In an ``entry_overrides`` dict, removes that field from the answered entry."""
+
+
+def store_url(n: int) -> str:
+    """The ``n``-th presigned link a ``FakeFdsService`` answers; ``URL_MARK`` marks
+    its signature, so a test can look for the link in any output."""
+    return (
+        f"https://cnbj1.fds.api.xiaomi.com/synthetic-bucket/{n}"
+        f"?GalaxyAccessKeyId=SYNTH-ACCESS&Expires={EXPIRES}&Signature={URL_MARK}-{n}"
+    )
+
+
+class FakeFdsService:
+    """The service's side of a download: the ``gen_download_url`` answer and the
+    object store behind its links.
+
+    ``files`` maps a server key to a **plain** file. ``answer`` gives every requested
+    item an entry with a fresh link, and an ``obj_key`` only when the file exists
+    (as live). ``entry_overrides[server_key]`` is applied last: a dict is merged into
+    the entry (a field set to ``ABSENT`` is removed), anything else replaces it.
+
+    ``fetch`` has the ``FdsDownloader`` interface: it records the link in
+    ``fetched`` and returns the file encrypted under ``key`` as a download body, or
+    raises ``fetch_errors[server_key]``. A link it never answered raises
+    ``KeyError``, and so does one whose file does not exist.
+    """
+
+    def __init__(
+        self,
+        files=None,
+        *,
+        key=SYNTH_KEY,
+        entry_overrides=None,
+        fetch_errors=None,
+    ):
+        self.files = dict(files or {})
+        self.key = key
+        self.entry_overrides = dict(entry_overrides or {})
+        self.fetch_errors = dict(fetch_errors or {})
+        self.fetched = []
+        self._server_keys = {}  # link -> server key, for every link answered
+
+    def answer(self, data_obj):
+        result = {}
+        for item in data_obj["items"]:
+            server_key = f"{item['suffix']}_{item['timestamp']}"
+            n = len(self._server_keys) + 1
+            url = store_url(n)
+            self._server_keys[url] = server_key
+            entry = {
+                "url": url,
+                "obj_name": f"SYNTH-OBJ-NAME-{n}",
+                "method": "GET",
+                "expires_time": EXPIRES,
+            }
+            if server_key in self.files:
+                entry["obj_key"] = b64url(self.key)
+            override = self.entry_overrides.get(server_key)
+            if isinstance(override, dict):
+                entry.update(override)
+                entry = {k: v for k, v in entry.items() if v is not ABSENT}
+            elif override is not None:
+                entry = override
+            result[server_key] = entry
+        return result
+
+    def fetch(self, url):
+        server_key = self._server_keys[url]
+        self.fetched.append(url)
+        error = self.fetch_errors.get(server_key)
+        if error is not None:
+            raise error
+        return encrypt_body(self.files[server_key], self.key)
+
+
+class FdsTransport(PagedFake):
+    """A ``Transport`` that serves ``rows`` as the sport list (``sport_records``)
+    and answers every ``get_json`` as a ``gen_download_url`` request, from
+    ``service``.
+
+    Each ``get_json`` is recorded in ``link_calls``; ``link_errors`` maps a 0-based
+    call index to the exception that call raises instead of answering.
+    """
+
+    def __init__(self, rows, service, *, link_errors=None):
+        super().__init__({"code": 0, "result": {"sport_records": list(rows)}})
+        self.service = service
+        self._link_errors = dict(link_errors or {})
+        self.link_calls = []
+
+    def get_json(self, endpoint_path, data_obj=None, *, sign_path=None, base_path=None):
+        index = len(self.link_calls)
+        self.link_calls.append(
+            {
+                "endpoint_path": endpoint_path,
+                "data_obj": copy.deepcopy(data_obj),
+                "sign_path": sign_path,
+                "base_path": base_path,
+            }
+        )
+        error = self._link_errors.get(index)
+        if error is not None:
+            raise error
+        return {"code": 0, "message": "ok", "result": self.service.answer(data_obj)}
+
+
+class StoreResponse:
+    """A streamed object-store response: ``iter_content`` hands out ``chunks`` (and
+    counts them in ``served``), then raises ``iter_error`` if there is one."""
+
+    def __init__(self, status, chunks, iter_error):
+        self.status_code = status
+        self.headers = {"Content-Type": "application/octet-stream"}
+        self._chunks = list(chunks)
+        self._iter_error = iter_error
+        self.chunk_sizes = []
+        self.served = 0
+        self.closed = False
+
+    def iter_content(self, chunk_size=1):
+        self.chunk_sizes.append(chunk_size)
+        for chunk in self._chunks:
+            self.served += 1
+            yield chunk
+        if self._iter_error is not None:
+            raise self._iter_error
+
+    def close(self):
+        self.closed = True
+
+
+class StoreHttp:
+    """A fake ``http`` for ``FdsDownloader``: each ``get`` records ``(url, kwargs)``
+    in ``calls``, appends ``("get", url)`` to ``events`` (when given), then raises
+    ``error`` or returns a ``StoreResponse`` (also kept in ``responses``)."""
+
+    def __init__(self, *, status=200, chunks=(b"body",), error=None, iter_error=None, events=None):
+        self._status = status
+        self._chunks = chunks
+        self._error = error
+        self._iter_error = iter_error
+        self._events = events
+        self.calls = []
+        self.responses = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        if self._events is not None:
+            self._events.append(("get", url))
+        if self._error is not None:
+            raise self._error
+        response = StoreResponse(self._status, self._chunks, self._iter_error)
+        self.responses.append(response)
+        return response
