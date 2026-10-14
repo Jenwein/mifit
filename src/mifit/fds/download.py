@@ -6,14 +6,18 @@ nothing of the session:
 
 * Each download is exactly ``http.get(url, timeout=timeout_s,
   allow_redirects=False, stream=True)``: no header, cookie or credential of its
-  own. By default ``http`` is the ``requests`` module, whose ``get`` opens a fresh
-  session per call, so no cookie jar carries anything from one download to the next.
+  own. The default ``http`` opens a fresh ``requests.Session`` per download (no
+  cookie jar carries anything from one download to the next) and switches off its
+  ``netrc`` lookup, which would otherwise send ``Authorization: Basic`` from a
+  ``~/.netrc`` or ``~/_netrc`` entry; proxy and CA-bundle settings from the
+  environment still apply.
 * The link is checked before any request: ``https`` only, no user name or password,
   and a host under one of ``host_suffixes`` (``.fds.api.xiaomi.com``). A link with
   whitespace, a control character, a backslash or a non-ASCII character is refused
-  too, and so is a host name outside ``[a-z0-9.-]``: URL parsers disagree on such
-  links (``requests`` ends the host at a backslash, ``urlsplit`` does not), and the
-  host that was checked must be the host connected to.
+  too, and so is a host name that is not dot-separated labels of 1 to 63 characters
+  from ``[a-z0-9-]`` (253 at most in all): URL parsers disagree on such links
+  (``requests`` ends the host at a backslash, ``urlsplit`` does not), and the host
+  that was checked must be the host connected to.
 * A redirect is never followed, and only HTTP 200 counts.
 * The body is streamed and abandoned once it exceeds ``max_bytes`` (16 MiB; a live
   body is about 110 KB at most).
@@ -23,8 +27,9 @@ nothing of the session:
 Every failure raises ``FdsUnavailable``, whose message is a fixed fragment a note
 can embed: ``"HTTP 404"``, ``"network error (ConnectTimeout)"``, ``"unexpected host
 <host>"``. It never quotes the link. A network error's own message does (every
-``requests`` error is an ``OSError`` that names the URL), so its replacement is
-raised outside the ``except`` block and keeps no ``__context__``.
+``requests`` error is an ``OSError`` that names the URL; a ``ValueError`` from URL
+or host-name parsing in the HTTP stack may too), so its replacement is raised outside
+the ``except`` block and keeps no ``__context__``.
 """
 
 from __future__ import annotations
@@ -48,7 +53,9 @@ _MIB = 1024 * 1024
 
 # Printable ASCII without space and backslash: the characters every parser reads alike.
 _LINK_CHARS = re.compile(r"[!-\[\]-~]+")
-_HOST_CHARS = re.compile(r"[a-z0-9.-]+")
+# Dot-separated labels of 1..63 characters: no empty label, no trailing dot.
+_HOST = re.compile(r"(?:[a-z0-9-]{1,63}\.)+[a-z0-9-]{1,63}")
+_MAX_HOST_LENGTH = 253
 
 _MALFORMED = "malformed link"
 _NOT_HTTPS = "not an https link"
@@ -64,12 +71,67 @@ def _size(n: int) -> str:
     return f"{n // _MIB} MiB" if n and n % _MIB == 0 else f"{n} bytes"
 
 
+def _no_netrc(request: Any) -> Any:
+    """A no-op ``auth`` for a ``requests.Session``. Any truthy session ``auth`` stops
+    ``requests`` from looking the host up in a ``netrc`` file; this one adds nothing."""
+    return request
+
+
+class _SessionResponse:
+    """A streamed response whose ``close`` also closes the session it came from, so
+    the session lives until the body has been read."""
+
+    def __init__(self, response: Any, session: Any) -> None:
+        self._response = response
+        self._session = session
+
+    @property
+    def status_code(self) -> int:
+        return self._response.status_code
+
+    @property
+    def headers(self) -> Any:
+        return self._response.headers
+
+    def iter_content(self, chunk_size: int) -> Any:
+        return self._response.iter_content(chunk_size)
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        finally:
+            self._session.close()
+
+
+class _FreshSessionHttp:
+    """The default ``http``: each ``get`` opens a new ``requests.Session`` with no
+    cookies and no ``netrc`` credentials (environment proxies and CA bundle still
+    apply) and closes it with the response."""
+
+    def __init__(self) -> None:
+        import requests  # imported lazily so an injected ``http`` needs no requests
+
+        self._requests = requests
+
+    def get(self, url: str, **kwargs: Any) -> _SessionResponse:
+        session = self._requests.Session()
+        session.auth = _no_netrc
+        try:
+            response = session.get(url, **kwargs)
+        except BaseException:
+            session.close()
+            raise
+        return _SessionResponse(response, session)
+
+
 class FdsDownloader:
-    """Fetches presigned FDS links with ``http`` (the ``requests`` module by default).
+    """Fetches presigned FDS links with ``http``.
 
     ``http`` is any object with ``.get(url, timeout=..., allow_redirects=...,
     stream=...)`` returning a response with ``.status_code``, ``.iter_content(size)``
     and ``.close()``. It never sees the session: the links carry their own signature.
+    By default it is a fresh ``requests.Session`` per download, with no cookies and
+    no ``netrc`` credentials.
 
     ``host_suffixes`` lists the accepted host-name endings, each starting with a dot
     (``TypeError`` for a single string, ``ValueError`` for a suffix without its dot).
@@ -91,11 +153,7 @@ class FdsDownloader:
         suffixes = tuple(s.lower() for s in host_suffixes)
         if not all(len(s) > 1 and s.startswith(".") for s in suffixes):
             raise ValueError("Each host suffix must start with a dot, like '.fds.api.xiaomi.com'.")
-        if http is None:
-            import requests  # imported lazily so an injected ``http`` needs no requests
-
-            http = requests
-        self._http = http
+        self._http = _FreshSessionHttp() if http is None else http
         self._delay_s = delay_s
         self._timeout_s = timeout_s
         self._max_bytes = max_bytes
@@ -107,7 +165,8 @@ class FdsDownloader:
         Refuses a link that is not ``https``, carries a user name or password, or
         names a host outside ``host_suffixes`` (no request, no pause). Otherwise
         pauses, sends one GET, and fails on a redirect, any status but 200, a body
-        over ``max_bytes`` or a network error.
+        over ``max_bytes``, a network error (``OSError``) or a ``ValueError`` from
+        the HTTP stack (a URL or host name it cannot parse).
         """
         refusal = self._refusal(url)
         if refusal is not None:
@@ -117,8 +176,8 @@ class FdsDownloader:
         failure: str | None = None
         try:
             return self._get(url)
-        except OSError as exc:
-            # Raised after the block: the original names the URL.
+        except (OSError, ValueError) as exc:
+            # Raised after the block: the original may name the URL.
             failure = f"network error ({type(exc).__name__})"
         raise FdsUnavailable(failure)
 
@@ -137,7 +196,7 @@ class FdsDownloader:
             return _NOT_HTTPS
         if has_user:
             return _USER_NAME
-        if host is None or _HOST_CHARS.fullmatch(host) is None:
+        if host is None or len(host) > _MAX_HOST_LENGTH or _HOST.fullmatch(host) is None:
             return _MALFORMED
         if not host.endswith(self._host_suffixes):
             return f"unexpected host {host}"

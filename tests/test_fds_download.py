@@ -38,9 +38,89 @@ def test_timeout_is_configurable():
     assert http.calls == [(URL, {"timeout": 5.0, "allow_redirects": False, "stream": True})]
 
 
-def test_default_http_is_the_requests_module():
-    # The module's ``get`` opens a fresh session per call: no cookie jar is shared.
-    assert FdsDownloader()._http is requests
+class _SentResponse:
+    """What the patched ``requests.Session.send`` answers; logs its use to ``events``."""
+
+    def __init__(self, events):
+        self._events = events
+        self.status_code = 200
+        self.headers = {}
+
+    def iter_content(self, chunk_size):
+        self._events.append("iter")
+        yield b"body"
+
+    def close(self):
+        self._events.append("response-close")
+
+
+@pytest.fixture
+def real_session(monkeypatch, tmp_path):
+    """The default ``http`` over real ``requests.Session`` objects, with ``send``
+    patched to capture the prepared request (nothing reaches the network), a netrc
+    file whose ``default`` entry matches every host, and no proxy lookup for the
+    store's hosts (so no registry or network access on any platform)."""
+    netrc = tmp_path / "netrc"
+    netrc.write_text("default login synthetic-user password synthetic-pass\n", newline="\n")
+    monkeypatch.setenv("NETRC", str(netrc))
+    monkeypatch.setenv("no_proxy", "fds.api.xiaomi.com")
+    monkeypatch.setenv("NO_PROXY", "fds.api.xiaomi.com")
+    sent = []
+    events = []
+
+    def send(session, request, **kwargs):
+        sent.append((request, kwargs))
+        events.append("send")
+        return _SentResponse(events)
+
+    def close(session):
+        events.append("session-close")
+
+    monkeypatch.setattr(requests.Session, "send", send)
+    monkeypatch.setattr(requests.Session, "close", close)
+    return sent, events
+
+
+def test_default_http_sends_no_netrc_credentials_and_no_cookie(real_session):
+    sent, _ = real_session
+    # The control: a plain session does pick the netrc entry up for this host.
+    control = requests.Session().prepare_request(requests.Request("GET", URL))
+    assert control.headers["Authorization"].startswith("Basic ")
+
+    body = FdsDownloader(delay_s=0).fetch(URL)
+
+    assert body == b"body"
+    ((request, kwargs),) = sent
+    assert request.url == URL
+    assert "Authorization" not in request.headers
+    assert "Cookie" not in request.headers
+    assert kwargs["allow_redirects"] is False
+    assert kwargs["stream"] is True
+    assert kwargs["timeout"] == 30.0
+
+
+def test_default_http_keeps_its_session_until_the_body_is_read(real_session):
+    _, events = real_session
+
+    FdsDownloader(delay_s=0).fetch(URL)
+
+    assert events == ["send", "iter", "response-close", "session-close"]
+
+
+def test_default_http_closes_its_session_when_the_request_fails(real_session, monkeypatch):
+    _, events = real_session
+
+    def send(session, request, **kwargs):
+        events.append("send")
+        raise requests.ConnectionError(f"failed {URL}")
+
+    monkeypatch.setattr(requests.Session, "send", send)
+
+    with pytest.raises(FdsUnavailable) as excinfo:
+        FdsDownloader(delay_s=0).fetch(URL)
+
+    assert str(excinfo.value) == "network error (ConnectionError)"
+    assert events == ["send", "session-close"]
 
 
 def test_defaults():
@@ -123,6 +203,14 @@ def test_cap_message_names_the_default_size():
         ("https://[::1/a", "malformed link"),
         ("https://[::1]/a", "malformed link"),
         ("https://cnbj1.fds.api.xiaomi.com:99999/a", "malformed link"),
+        # Host names urllib3 or IDNA would reject with a ValueError, after the pause.
+        ("https://a..fds.api.xiaomi.com/x", "malformed link"),
+        ("https://.fds.api.xiaomi.com/x", "malformed link"),
+        ("https://" + "a" * 64 + ".fds.api.xiaomi.com/x", "malformed link"),
+        ("https://" + ".".join(["a" * 60] * 4) + ".fds.api.xiaomi.com/x", "malformed link"),
+        ("https://cnbj1.fds.api.xiaomi.com./a", "malformed link"),
+        # U+2100 folds to "a/c" under NFKC.
+        ("https://evil.example℀.fds.api.xiaomi.com/a", "malformed link"),
         ("https:///a", "malformed link"),
         ("", "malformed link"),
     ],
@@ -191,8 +279,11 @@ def test_host_suffix_without_its_dot_is_refused(suffix):
         ("get", requests.exceptions.ConnectTimeout(f"timed out {URL}")),
         ("iter", requests.exceptions.ChunkedEncodingError(f"broke {URL}")),
         ("get", OSError(f"plain {URL}")),
+        # urllib3's LocationParseError and IDNA's UnicodeError are ValueErrors.
+        ("get", ValueError(f"cannot parse {URL}")),
+        ("get", UnicodeError(f"label too long in {URL}")),
     ],
-    ids=["get", "timeout", "iter_content", "oserror"],
+    ids=["get", "timeout", "iter_content", "oserror", "valueerror", "unicodeerror"],
 )
 def test_network_error_message_has_no_url_and_no_chain(where, error):
     http = StoreHttp(error=error) if where == "get" else StoreHttp(iter_error=error)
