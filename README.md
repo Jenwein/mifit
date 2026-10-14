@@ -131,11 +131,13 @@ as `requests` exceptions, and a bad date argument raises `ValueError` or
   activity with phone-side activity, so `consumption` for the latest day can
   read lower than the ring. `step_calories` in `steps` is the step report's
   walking-calorie figure, not the ring.
-- **Raw heart rate may be incomplete.** A windowed heart-rate query can
-  silently miss samples (cause unknown); every such result carries a note.
-  `--full` (`full=True`) pages backwards from the end date instead; it ignores
-  the start date and stops after 10 pages, saying so in `notes` when older
-  data remains.
+- **Raw heart-rate windows are corrected by the SDK.** The windowed
+  heart-rate read asks the service for a day before the start and keeps only
+  the requested window, because the service drops samples at a window's start
+  (notes/08). `raw("heart_rate", ...)` returns the service's answer as it
+  came, without this correction. `--full` (`full=True`) pages backwards from
+  the end date instead; it ignores the start date and stops after 10 pages,
+  saying so in `notes` when older data remains.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** How long a session lasts is not known yet and there is

@@ -87,6 +87,29 @@ def payload_with_values(*values):
     return payload
 
 
+ABSENT = object()
+"""Stands for an outer ``time`` key that is not there at all."""
+
+
+def payload_with_rows(*rows):
+    """A fixture-shaped payload whose rows carry the given ``(outer_time, value)``.
+
+    An ``outer_time`` of ``ABSENT`` leaves the row's ``time`` key out.
+    """
+    payload = load_fixture()
+    template = {
+        k: v for k, v in payload["result"]["data_list"][0].items() if k != "time"
+    }
+    data_list = []
+    for outer_time, value in rows:
+        row = {**template, "value": json.dumps(value)}
+        if outer_time is not ABSENT:
+            row["time"] = outer_time
+        data_list.append(row)
+    payload["result"]["data_list"] = data_list
+    return payload
+
+
 def test_parses_hr_point():
     transport = FakeTransport(load_fixture())
 
@@ -99,17 +122,16 @@ def test_parses_hr_point():
     assert result.raw == [{"time": 1759248600, "bpm": 72, "type": None}]
 
 
-def test_window_result_flags_possible_incompleteness():
+def test_window_result_has_no_incompleteness_note():
     transport = FakeTransport(load_fixture())
 
     result = fetch_heart_rate_window(transport, START, END)
 
-    assert result.notes
-    assert all(isinstance(note, str) and note.strip() for note in result.notes)
-    assert any("incomplete" in note.lower() for note in result.notes)
+    # The read asks a day early and filters, so a clean window carries no caveat.
+    assert result.notes == []
 
 
-def test_window_requests_heart_rate_for_the_window():
+def test_window_asks_a_day_before_start():
     transport = FakeTransport(load_fixture())
 
     fetch_heart_rate_window(transport, START, END)
@@ -118,12 +140,58 @@ def test_window_requests_heart_rate_for_the_window():
     call = transport.calls[0]
     assert call["endpoint_path"] == ENDPOINT
     assert call["list_key"] == "data_list"
+    # The service drops a bucket keyed at or before start_time (notes/08), so
+    # the request starts a day early and the rows are filtered afterwards.
     assert call["data_obj"] == {
         "key": "heart_rate",
-        "start_time": START,
+        "start_time": START - 86400,
         "end_time": END,
         "reverse": True,
     }
+
+
+def test_window_drops_rows_outside_the_asked_window():
+    payload = payload_with_rows(
+        (END + 1, {"time": END + 1, "bpm": 61, "type": 0}),
+        (START + 600, {"time": START + 600, "bpm": 62, "type": 0}),
+        (START - 1, {"time": START - 1, "bpm": 63, "type": 0}),
+    )
+
+    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+
+    assert result.records == [HeartRatePoint(epoch_s=START + 600, bpm=62, kind=0)]
+    assert result.raw == [{"time": START + 600, "bpm": 62, "type": 0}]
+    # The day-early margin is the SDK's own doing: its rows go without a note.
+    assert result.notes == []
+
+
+def test_window_keeps_rows_at_both_bounds():
+    payload = payload_with_rows(
+        (END, {"time": END, "bpm": 64, "type": 0}),
+        (START, {"time": START, "bpm": 65, "type": 0}),
+    )
+
+    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+
+    assert result.records == [
+        HeartRatePoint(epoch_s=END, bpm=64, kind=0),
+        HeartRatePoint(epoch_s=START, bpm=65, kind=0),
+    ]
+    assert result.notes == []
+
+
+def test_row_without_usable_time_is_skipped_with_note():
+    payload = payload_with_rows(
+        (ABSENT, {"time": START + 600, "bpm": 66, "type": 0}),
+        ("x", {"time": START + 1200, "bpm": 67, "type": 0}),
+    )
+
+    result = fetch_heart_rate_window(FakeTransport(payload), START, END)
+
+    assert result.records == []
+    assert result.raw == []
+    assert len(result.notes) == 2
+    assert all("usable time" in note for note in result.notes)
 
 
 def test_full_read_omits_start_time():
@@ -174,8 +242,7 @@ def test_empty_window_yields_no_records():
     # No fabricated points for a window the service returned nothing for.
     assert result.records == []
     assert result.raw == []
-    # An empty windowed answer is exactly where incompleteness matters.
-    assert result.notes
+    assert result.notes == []
 
 
 def test_entry_without_bpm_is_skipped_not_zeroed():
@@ -188,7 +255,6 @@ def test_entry_without_bpm_is_skipped_not_zeroed():
     result = fetch_heart_rate_window(FakeTransport(payload), START, END)
 
     assert [p.bpm for p in result.records] == [65]
-    # Two skip notes beside the incompleteness note.
     assert len([n for n in result.notes if "skipped" in n.lower()]) == 2
     # The untouched values of the skipped rows are still preserved in ``raw``.
     assert result.raw == [

@@ -289,7 +289,8 @@ def test_heart_rate_window_delegates_to_domain(build):
     assert result.records and isinstance(result.records[0], HeartRatePoint)
     sent = fake.calls[0]
     assert sent["endpoint_path"] == FITNESS_ENDPOINT
-    assert sent["data_obj"]["start_time"] == 1759248000
+    # The domain asks a day before the start and filters (notes/08).
+    assert sent["data_obj"]["start_time"] == 1759248000 - 86400
     assert sent["data_obj"]["end_time"] == 1759334399
 
 

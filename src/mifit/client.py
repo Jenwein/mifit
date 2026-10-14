@@ -136,10 +136,9 @@ class MiFit:
     ) -> DomainResult:
         """Raw heart-rate samples from ``start`` to ``end``.
 
-        The default is the windowed query, whose result is flagged as possibly
-        incomplete. With ``full=True`` the fuller read is used instead: it pages
-        backwards from ``end`` and sends no start time, so ``start`` is only
-        validated, not applied.
+        The default is the windowed query. With ``full=True`` the fuller read is
+        used instead: it pages backwards from ``end`` and sends no start time, so
+        ``start`` is only validated, not applied.
         """
         start_s = to_epoch_s(start)
         end_s = to_epoch_s(end, end_of_day=True)
@@ -162,6 +161,10 @@ class MiFit:
 
         ``get_paged`` has already unwrapped the response's ``result`` envelope, so
         the entry list is returned exactly as it gave it.
+
+        This is the service's own answer for the window; for bucketed keys such
+        as ``heart_rate`` it omits rows of a bucket keyed at or before ``start``
+        (notes/08), so widen ``start`` and filter yourself if you need every row.
         """
         return self._transport.get_paged(
             _RAW_ENDPOINT,

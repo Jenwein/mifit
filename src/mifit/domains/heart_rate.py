@@ -6,51 +6,69 @@ dicts go to ``DomainResult.raw`` untouched; ``records`` holds the normalized
 ``HeartRatePoint`` view of them. ``bpm`` is the wire value as is: the x5 factor
 seen in app logs is a logging artifact and is not applied here.
 
-Two reads are offered. ``fetch_heart_rate_window`` is the plain windowed query,
-which can silently drop points, so every result carries a note saying so.
-``fetch_heart_rate_full`` omits ``start_time`` and pages back from ``end_time``;
-it is the candidate fuller read.
+The service answers a time window bucket by bucket (notes/08). Samples are
+grouped into buckets of a few hours (2 h on the account checked), and a bucket
+keyed at or before ``start_time`` is left out whole, including its samples after
+``start_time``. The end is exact: a sample at ``end_time`` is returned and none
+after it. A window starting at a local midnight therefore lost the day's first
+bucket. ``fetch_heart_rate_window`` asks for one day more before the start
+(``_START_MARGIN_S``, far wider than a bucket) and keeps only the rows whose
+outer ``time`` lies in the requested window, the same pattern the sleep domain
+uses.
+
+``fetch_heart_rate_full`` remains for paging back without a start: it omits
+``start_time`` and follows the service's cursor back from ``end_time``, as the
+app's own full pull does.
 """
 
 from __future__ import annotations
 
 import json
 
-from mifit.domains.base import DomainResult, register
+from mifit.domains.base import DomainResult, as_int, register
 from mifit.models.heart_rate import HeartRatePoint
 from mifit.transport import Transport
 
 _ENDPOINT = "data/get_fitness_data_by_time"
 
-_WINDOW_INCOMPLETE_NOTE = (
-    "Windowed heart-rate query: this result MAY BE INCOMPLETE. The service can "
-    "drop points from a start/end window and the cause is unknown; compare with "
-    "fetch_heart_rate_full before treating it as the full record."
-)
+_START_MARGIN_S = 86400
+"""How much earlier than the caller's start the windowed read asks the service."""
 
 
 @register("heart_rate")
 def fetch_heart_rate_window(
     t: Transport, start_epoch_s: int, end_epoch_s: int
 ) -> DomainResult:
-    """Fetch raw heart-rate samples between two Unix-second timestamps.
+    """Fetch raw heart-rate samples between two Unix-second timestamps, both
+    inclusive.
 
-    The result always carries a note that a windowed query may be incomplete,
-    including when it is empty. A window with no rows gives an empty result,
-    never a fabricated sample.
+    The request starts ``_START_MARGIN_S`` early, so the service's first bucket
+    lies before the window, and only rows whose outer ``time`` is within
+    ``[start_epoch_s, end_epoch_s]`` are kept; the margin's rows are dropped
+    without a note. A row without a usable outer ``time`` is skipped with a note
+    and left out of ``raw``. A window with no rows gives an empty result, never a
+    fabricated sample.
     """
     entries = t.get_paged(
         _ENDPOINT,
         {
             "key": "heart_rate",
-            "start_time": start_epoch_s,
+            "start_time": start_epoch_s - _START_MARGIN_S,
             "end_time": end_epoch_s,
             "reverse": True,
         },
         list_key="data_list",
     )
-    result = _build_result(entries)
-    result.notes.insert(0, _WINDOW_INCOMPLETE_NOTE)
+    kept = []
+    notes = []
+    for entry in entries:
+        epoch_s = as_int(entry.get("time")) if isinstance(entry, dict) else None
+        if epoch_s is None:
+            notes.append("Skipped a heart-rate row without a usable time.")
+        elif start_epoch_s <= epoch_s <= end_epoch_s:
+            kept.append(entry)
+    result = _build_result(kept)
+    result.notes.extend(notes)
     return result
 
 
