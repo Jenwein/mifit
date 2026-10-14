@@ -14,6 +14,11 @@ dependencies = [
     "qrcode>=7.4",
 ]
 
+[project.optional-dependencies]
+# For running the tests: pytest, and the IANA zone database for the DST tests on
+# systems that have none (Windows).
+test = ["pytest>=8", "tzdata"]
+
 [project.scripts]
 mifit = "mifit.cli:main"
 
