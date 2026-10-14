@@ -83,7 +83,8 @@ def _dumps(obj: Any) -> bytes:
     """One JSON Lines line of ``obj``: compact strict JSON, ASCII only (non-ASCII text
     is escaped, so no string can fail to encode), LF-terminated.
 
-    Raises ``ValueError`` on a NaN or an infinity, before anything is written.
+    Raises ``ValueError`` on a NaN or an infinity, and ``RecursionError`` on nesting too
+    deep to encode, before anything is written.
     """
     text = json.dumps(obj, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     return text.encode("ascii") + b"\n"

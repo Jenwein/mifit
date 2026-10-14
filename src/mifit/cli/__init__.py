@@ -305,17 +305,22 @@ def _write_result(result: DomainResult, json_path: str | None, *, noun: str = "r
     to ``json_path``, or to stdout when it is ``None``; return the exit code.
 
     The confirmation for a file counts ``noun``s: the rows of ``raw`` when ``noun`` is
-    ``"row"`` (a generic read has no records), else the ``records``.
+    ``"row"`` (a generic read has no records), else the ``records``. A result nested
+    too deeply to encode is an error: nothing is written and the exit code is 1.
     """
     result = _json_ready(result)
     for note in result.notes:
         _eprint(f"note: {note}")
 
-    text = json.dumps(
-        {"records": result.records, "raw": result.raw, "notes": result.notes},
-        indent=2,
-        allow_nan=False,
-    )
+    try:
+        text = json.dumps(
+            {"records": result.records, "raw": result.raw, "notes": result.notes},
+            indent=2,
+            allow_nan=False,
+        )
+    except RecursionError:
+        _eprint("error: the result is nested too deeply to write as JSON.")
+        return _EXIT_ERROR
     if json_path is None:
         # Keep stdout to the JSON alone so it can be piped.
         print(text)
@@ -449,7 +454,7 @@ def _save_part(
         return
     except OSError as exc:
         reason = exc.strerror or type(exc).__name__
-    except ValueError as exc:  # a value strict JSON cannot hold; nothing was written
+    except (ValueError, RecursionError) as exc:  # not storable as JSON; nothing was written
         reason = type(exc).__name__
     finally:
         if create and not saved:

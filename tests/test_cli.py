@@ -1790,6 +1790,84 @@ def test_unwritable_output_keeps_the_partial_for_resume(
     assert not partial_of(out).exists()
 
 
+TOO_DEEP_ERROR = "error: the result is nested too deeply to write as JSON."
+
+
+def indented_dumps_recurse(monkeypatch):
+    """Make ``json.dumps`` with an ``indent`` raise ``RecursionError``, whatever the depth.
+
+    Python 3.12 and 3.13 do this on their own for data about a thousand levels deep:
+    the indenting encoder is pure Python, while the compact one (the partial file's)
+    is in C. 3.14 copes with far deeper data, so the tests do not rely on it.
+    """
+    real_dumps = json.dumps
+
+    def dumps(obj, *args, **kwargs):
+        if kwargs.get("indent") is not None:
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_dumps(obj, *args, **kwargs)
+
+    monkeypatch.setattr(json, "dumps", dumps)
+
+
+def test_output_too_deep_to_encode_is_a_clean_error(fake_mifit, monkeypatch, tmp_path, capsys):
+    indented_dumps_recurse(monkeypatch)
+    out = tmp_path / "out.json"
+
+    rc = cli.main(
+        ["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02", "--json", str(out)]
+    )
+
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert TOO_DEEP_ERROR in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert not out.exists()
+
+
+def test_stdout_too_deep_to_encode_prints_no_json(fake_mifit, monkeypatch, capsys):
+    indented_dumps_recurse(monkeypatch)
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert TOO_DEEP_ERROR in captured.err
+    assert captured.out == ""
+
+
+def test_output_too_deep_keeps_the_partial_for_resume(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+    indented_dumps_recurse(monkeypatch)
+
+    assert export_steps(out) == 1
+
+    err = capsys.readouterr().err
+    assert TOO_DEEP_ERROR in err
+    assert RESUME_HINT.format(partial_of(out)) in err
+    assert stored_labels(out) == LABELS
+    assert not out.exists()
+
+
+def test_chunk_too_deep_to_save_is_a_save_error(fake_mifit, monkeypatch, tmp_path, capsys):
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(FakeMiFit, "steps", echo())
+
+    def too_deep(path, label, part):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(cli, "append_part", too_deep)
+
+    assert export_steps(out) == 1
+
+    err = capsys.readouterr().err
+    assert "error: could not save chunk 1/3" in err
+    assert "(RecursionError)" in err
+    assert not partial_of(out).exists()
+
+
 def test_partial_that_cannot_be_deleted_is_a_note(fake_mifit, monkeypatch, tmp_path, capsys):
     out = tmp_path / "out.json"
     monkeypatch.setattr(FakeMiFit, "steps", echo())

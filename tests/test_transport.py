@@ -289,15 +289,23 @@ class InvalidJsonHttp(FakeHttp):
     """Answers with a body that decrypts fine but is not valid JSON: the decode
     error then carries the whole plaintext in ``JSONDecodeError.doc``."""
 
+    plaintext = b'{"code": 0, "x": "SYNTH-BODY-FRAGMENT"'
+
     def get(self, url, params=None, headers=None, timeout=None):
         self.calls.append(
             {"url": url, "params": params, "headers": headers, "timeout": timeout}
         )
         key = base64.b64decode(signed_nonce(SYNTH_SSECURITY, params["_nonce"]))
-        raw = b'{"code": 0, "x": "SYNTH-BODY-FRAGMENT"'
         return FakeResponse(
-            self.status, base64.b64encode(rc4_crypt(key, raw)).decode("ascii")
+            self.status, base64.b64encode(rc4_crypt(key, self.plaintext)).decode("ascii")
         )
+
+
+class TooDeepJsonHttp(InvalidJsonHttp):
+    """Answers with a body that is valid JSON, nested far deeper than the parser's
+    recursion limit allows on every Python version."""
+
+    plaintext = b'{"code": 0, "x": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
 
 
 def test_unparsable_body_error_has_no_chain():
@@ -307,6 +315,15 @@ def test_unparsable_body_error_has_no_chain():
     exc = excinfo.value
     assert exception_chain(exc) == [exc]
     assert "SYNTH-BODY-FRAGMENT" not in str(exc)
+
+
+def test_too_deeply_nested_body_is_an_api_error():
+    with pytest.raises(ApiError) as excinfo:
+        make_transport(TooDeepJsonHttp()).get_json(ENDPOINT, DATA_OBJ)
+
+    exc = excinfo.value
+    assert str(exc) == "Response body could not be decrypted or parsed as a JSON object."
+    assert exception_chain(exc) == [exc]
 
 
 def test_delay_is_applied_before_the_request(monkeypatch):

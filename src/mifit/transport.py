@@ -142,10 +142,10 @@ class Transport:
 
         Raises ``AuthError`` on an HTTP 401 that was not renewed away
         (``RenewalError`` when the ``renew`` hook failed), ``ApiError`` on any
-        other non-2xx status, an undecryptable body, or a decrypted
-        ``code != 0``. An ``OSError`` from ``http`` (every ``requests`` exception
-        is one: timeouts, connection errors) propagates unchanged, and so does one
-        from the ``renew`` hook.
+        other non-2xx status, an undecryptable body (one nested too deeply to
+        parse included), or a decrypted ``code != 0``. An ``OSError`` from
+        ``http`` (every ``requests`` exception is one: timeouts, connection
+        errors) propagates unchanged, and so does one from the ``renew`` hook.
         """
         response, nonce = self._send(endpoint_path, data_obj, sign_path, base_path)
         if (
@@ -196,7 +196,7 @@ class Transport:
             payload = decrypt_response_payload(
                 response.text, nonce, self._session.ssecurity
             )
-        except ValueError:
+        except (ValueError, RecursionError):
             # Raised after the block, so the decode error is not left on
             # ``__context__``: a ``JSONDecodeError`` keeps the whole decrypted
             # document in ``.doc`` (``from None`` would only hide it from the
