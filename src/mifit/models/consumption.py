@@ -13,8 +13,8 @@ from dataclasses import dataclass
 class ConsumptionRecord:
     """Energy figures for one day, in kilocalories.
 
-    ``date`` is the ISO calendar date (``YYYY-MM-DD``) of ``epoch_s`` in UTC and
-    ``epoch_s`` is the UTC start of that day in Unix seconds. ``resting_kcal`` is the
+    ``date`` is the local calendar date (``YYYY-MM-DD``) the figures cover and
+    ``epoch_s`` is that day's local midnight in Unix seconds. ``resting_kcal`` is the
     resting (basal metabolic) energy, ``active_kcal`` the energy spent on activity
     and ``intake_kcal`` the energy eaten. Each is ``None`` when the source did not
     report it, never zero; a reported ``0`` (e.g. nothing logged as eaten) stays ``0``.

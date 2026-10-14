@@ -1,12 +1,12 @@
 # Live verification: consumption (calories) domain
 
-**Status:** PASS (values verified against the app) — with a known date-label timezone offset (follow-up).
+**Status:** PASS (values and dates verified against the app). The date-label offset found in the first run is fixed and re-verified live (see *Date-label fix*).
 
 Run 2026-10-14 against the user's real account (cached QR session), `mifit`/`MiFit().consumption(...)`.
 
 ## What was read (diet/user_consumption → resting/active/intake/total)
 
-Domain output for a 2026-10-11…2026-10-14 request (SDK machine in CST/UTC+8):
+First run, **before** the date-label fix: domain output for a 2026-10-11…2026-10-14 request (SDK machine in CST/UTC+8). The dates here are one day early; see *Date-label fix* for the corrected run.
 
 | record date (SDK, UTC-bucket) | resting_kcal | active_kcal | intake_kcal | total_kcal |
 |---|---|---|---|---|
@@ -23,13 +23,31 @@ Domain output for a 2026-10-11…2026-10-14 request (SDK machine in CST/UTC+8):
 - **intake_kcal = 0** (no diet logged). ✅
 - **total_kcal = resting + active** = the app's "总卡路里" definition (静息 + 活动). ✅
 
-## Known issue (follow-up, not a value error)
+## Date-label fix (re-verified live 2026-10-14)
 
-**Date label is offset by one day for this non-UTC (CST) user.** The SDK labels each consumption record by the UTC day of its bucket, while the app labels by the user's local day; so SDK-date D currently lines up with app-date D+1 (values identical). Cause: the domain derives days by flooring local-midnight epochs to the UTC day. The VALUES and `epoch_s` are correct; only the `date` string is shifted for users east/west of UTC. This is the same date-semantics follow-up already noted for the steps domain. Fix deferred: derive the server's exact per-region day-bucketing rule and label `date` by the user's local day (needs a small dedicated investigation to avoid overfitting to CST).
+The first run labeled every record one day early for this UTC+8 account (SDK-date D held the app's day D+1). A first fix (`03904b1`, rounding request bounds to the nearest UTC midnight) changed which days were requested but **not** the `time` sent for each day, so a re-run showed the same offset. It was a misdiagnosis.
+
+**Root cause.** The domain sent `time` = UTC midnight + 12 h (20:00 local). The app sends the day's **local midnight**: `HeatViewModel.preloadWeekConsumption` builds `HeatConsumptionNewRequest((int)(TimeDateUtil.atStartOfDay(day) / 1000))`, and `atStartOfDay(LocalDate)` is `date.toDateTimeAtStartOfDay(DateTimeZone.forID(TimeZone.getDefault().getID()))`. The service files a `time` under the day the app would mean by it, not under its UTC day.
+
+**Probe evidence** (same account, read-only, one call each; `exercise` returned):
+
+| `time` sent | local (UTC+8) | answered with app day |
+|---|---|---|
+| local midnight 10-11 / 10-12 / 10-13 | 00:00 | 10-11 (576) / 10-12 (453) / 10-13 (490) |
+| 2026-10-12T23:59:59Z | 10-13 07:59 | 10-13 (490) |
+| 2026-10-13T00:00:00Z | 10-13 08:00 | 10-13 (490) |
+| 2026-10-13T11:59:59Z | 10-13 19:59 | **10-14** (355) |
+| 2026-10-13T12:00:00Z (old SDK) | 10-13 20:00 | **10-14** (355) |
+
+So the service's day boundary for this account lies between 08:00 and 19:59 local, which is neither UTC nor local midnight. The exact rule was not pinned down and is not needed: the local midnight is what the app sends.
+
+**Fix.** The domain walks local calendar days (machine zone by default, like the app's device zone; injectable `tz`), sends each day's local midnight as `time`, and labels the record with that local date (`epoch_s` = that local midnight). The facade passes local day bounds (end = 23:59:59), the same as `steps`.
+
+**Re-run** (`mifit export consumption --from 2026-10-10 --to 2026-10-14`): 10-11 = 576, 10-12 = 453, 10-13 = 490, matching the app's values for the same dates. 10-14 (today) = 355 and still rising as the day syncs. 10-10 = 587 was not compared with the app. No notes.
 
 ## Caveat (as designed)
 
 `active_kcal`/`total_kcal` on the current/most-recent day can be lower than the app's live figure because the cloud lags the phone's on-device blend (see notes/05). Fully-synced past days match.
 
 ## Outcome
-**PASS** — the consumption domain reads the real cloud calorie fields; `active_kcal` is the app's activity-calorie value. Date-label tz alignment is a documented follow-up. No tokens or raw per-day values beyond this verification record are committed.
+**PASS**: the consumption domain reads the real cloud calorie fields, `active_kcal` is the app's activity-calorie value, and each record's `date` is the app's day. No tokens or raw per-day values beyond this verification record are committed.

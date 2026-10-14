@@ -102,18 +102,20 @@ class MiFit:
     def consumption(self, start: DateArg, end: DateArg) -> DomainResult:
         """Daily calorie consumption from ``start`` to ``end`` (inclusive).
 
-        One record per UTC day that has data. ``resting_kcal`` is resting metabolism
+        One record per local day that has data. ``resting_kcal`` is resting metabolism
         (BMR, from the profile), ``active_kcal`` is the activity calories (this equals
         the app's activity-calorie figure), ``intake_kcal`` is food, and ``total_kcal``
         is resting plus active. The app's calorie ring is composited on the device
         (cloud activity plus phone-side activity), so the most recent day can read
         lower than the app.
 
-        Both bounds are passed as local midnights (the end date's own, not its last
-        second): the domain rounds each to the nearest UTC midnight to get its day key,
-        so each record's ``date`` is the local calendar date requested.
+        Days are the machine's local calendar days, each requested by its local
+        midnight as the app does, so each record's ``date`` is the local date it
+        covers.
         """
-        return fetch_consumption(self._transport, to_epoch_s(start), to_epoch_s(end))
+        return fetch_consumption(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
 
     def heart_rate(
         self, start: DateArg, end: DateArg, *, full: bool = False

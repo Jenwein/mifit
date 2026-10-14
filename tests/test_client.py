@@ -6,7 +6,7 @@ session file or any real health data. Every credential below is synthetic.
 import json
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 
 import pytest
@@ -145,21 +145,25 @@ def test_consumption_delegates_to_domain(build):
 
     result = client.consumption(1760400000, 1760400000)
 
+    # The day is the machine-local one holding that instant, requested by its local
+    # midnight; derived here so the test holds in any timezone.
+    local_day = datetime.fromtimestamp(1760400000).date()
+    local_midnight = int(datetime.combine(local_day, time()).timestamp())
     assert isinstance(result, DomainResult)
     assert result.records == [
         ConsumptionRecord(
-            date="2025-10-14",
-            epoch_s=1760400000,
+            date=local_day.isoformat(),
+            epoch_s=local_midnight,
             resting_kcal=1907.5,
             active_kcal=365,
             intake_kcal=0,
             total_kcal=2272.5,
         )
     ]
-    # One UTC day in the window: one per-day call, at noon of that day, through
-    # the facade's own transport and not the paged one.
+    # One local day in the window: one per-day call, at that day's local midnight,
+    # through the facade's own transport and not the paged one.
     assert fake.json_calls == [
-        {"endpoint_path": CONSUMPTION_ENDPOINT, "data_obj": {"time": 1760443200}}
+        {"endpoint_path": CONSUMPTION_ENDPOINT, "data_obj": {"time": local_midnight}}
     ]
     assert fake.calls == []
     # Same answer as calling the domain directly with the same transport.
@@ -182,11 +186,9 @@ def test_consumption_converts_date_strings_to_day_bounds(build, monkeypatch):
     assert result is sentinel
     (transport, start_s, end_s) = seen[0]
     assert transport is fake
-    # Unlike ``steps``, both bounds are local midnights: the domain rounds each bound
-    # to the nearest UTC midnight to get its day key, so a local end-of-day
-    # (23:59:59) would round up and over-include the following day.
+    # Local day bounds, as for ``steps``: the end date's last second keeps it inclusive.
     assert datetime.fromtimestamp(start_s) == datetime(2026, 10, 1, 0, 0, 0)
-    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 0, 0, 0)
+    assert datetime.fromtimestamp(end_s) == datetime(2026, 10, 3, 23, 59, 59)
 
 
 def test_date_string_converts_to_epoch_day_bounds(build):
