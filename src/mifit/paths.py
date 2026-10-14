@@ -12,6 +12,7 @@ from pathlib import Path
 
 APP_DIR_NAME = ".mifit"
 SESSION_FILE_NAME = "session.json"
+SESSION_LOG_FILE_NAME = "session-log.jsonl"
 
 
 def app_data_dir() -> Path:
@@ -22,3 +23,8 @@ def app_data_dir() -> Path:
 def default_session_path() -> Path:
     """Return the default location of the persisted login session."""
     return app_data_dir() / SESSION_FILE_NAME
+
+
+def default_session_log_path() -> Path:
+    """Return the default location of the session lifetime log (next to the session)."""
+    return app_data_dir() / SESSION_LOG_FILE_NAME

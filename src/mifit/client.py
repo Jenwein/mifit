@@ -95,6 +95,11 @@ class MiFit:
         self._session = session
         self._transport = Transport(session, http=http)
 
+    @property
+    def session(self) -> Session:
+        """The login session in use (read-only; ``login_qr`` switches it)."""
+        return self._session
+
     def steps(self, start: DateArg, end: DateArg) -> DomainResult:
         """Daily step summaries from ``start`` to ``end`` (inclusive days)."""
         return fetch_steps(

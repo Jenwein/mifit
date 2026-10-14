@@ -24,9 +24,11 @@ from typing import Any, TextIO
 import qrcode
 import requests
 
-# ``MiFit``, ``login_qr`` and ``save_session`` are looked up through this module at
-# call time (not captured), so tests can patch them here and stay offline.
+# ``MiFit``, ``login_qr``, ``save_session`` and ``record_event`` are looked up through
+# this module at call time (not captured), so tests can patch them here and stay
+# offline and off the real session files.
 from mifit import MiFit
+from mifit.auth.lifetime import describe_session, record_event
 from mifit.auth.qr import login_qr
 from mifit.auth.session import save_session
 from mifit.client import to_epoch_s
@@ -120,6 +122,7 @@ def _cmd_login(args: argparse.Namespace) -> int:
     except OSError as exc:
         _eprint(f"error: could not save the session ({exc.strerror or type(exc).__name__}).")
         return _EXIT_ERROR
+    record_event("login", session)  # best effort: it never raises
 
     # Only where the session went; never the session itself.
     where = f" to {path}" if path else ""
@@ -167,11 +170,15 @@ def _cmd_export(args: argparse.Namespace) -> int:
     if args.full and args.domain not in _FULL_DOMAINS:
         _eprint(f"note: --full only affects heart_rate; ignored for {args.domain}.")
 
+    client = None
     try:
         client = _open_client()
         result = _fetch(client, args.domain, args.start, args.end, args.full)
     except AuthError as exc:
         _eprint(f"error: {exc}")
+        if client is not None:
+            # Ages and the renewal state only; the session itself is never printed.
+            _eprint(f"session: {describe_session(client.session)}")
         _eprint("Run `mifit login` to sign in.")
         return _EXIT_ERROR
     except MiFitError as exc:

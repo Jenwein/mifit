@@ -352,6 +352,22 @@ def test_transport_is_built_from_the_session_and_injected_http(build):
     assert keywords == {"http": http}
 
 
+def test_session_property_returns_the_session_in_use(build, monkeypatch):
+    first = make_session(token="SYNTH-FIRST-TOKEN-0001")
+    second = make_session(token="SYNTH-SECOND-TOKEN-0002")
+    client, _, _ = build(load_fixture("steps_daily_sample.json"), session=first)
+
+    assert client.session is first
+    with pytest.raises(AttributeError):
+        client.session = second  # read-only: use login_qr to switch sessions
+
+    monkeypatch.setattr(client_module, "_login_qr", lambda http=None, on_qr=None: second)
+    monkeypatch.setattr(client_module, "save_session", lambda session, path=None: None)
+    client.login_qr()
+
+    assert client.session is second
+
+
 def test_no_session_raises_AuthError(monkeypatch):
     monkeypatch.setattr(client_module, "load_session", lambda path=None: None)
 

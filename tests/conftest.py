@@ -5,7 +5,9 @@ the package with ``pip install -e ".[test]"`` (see the README). Putting ``src``
 on ``sys.path`` here as well keeps ``mifit`` importable when neither applies,
 e.g. if pytest is pointed at another config file with ``-c``.
 
-Every test also runs with the network refused. The guard raises
+Every test also runs with the network refused and with the home directory moved
+under pytest's ``tmp_path``, so no test can read or write the real ``~/.mifit``
+(the session file and the session log). The network guard raises
 ``RuntimeError`` rather than an ``OSError``: an ``OSError`` would be turned into
 an ordinary network error by urllib3/requests and by the CLI, which would hide
 the guard behind a handled failure instead of failing the test.
@@ -30,6 +32,20 @@ if str(SRC) not in sys.path:
 
 def _refuse(*args, **kwargs):
     raise RuntimeError("tests must not use the network")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(monkeypatch, tmp_path):
+    """Point the home directory at a per-test temp dir.
+
+    ``Path.home()`` reads ``USERPROFILE`` on Windows and ``HOME`` elsewhere; both
+    are set, so ``paths.app_data_dir()`` resolves under ``tmp_path`` on every
+    platform, for code in this process and for child processes that inherit the
+    environment. The directory is not created: code that writes there makes it.
+    """
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
 
 @pytest.fixture(autouse=True)

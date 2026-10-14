@@ -105,6 +105,7 @@ class FakeMiFit:
         if FakeMiFit.error_on_init is not None:
             raise FakeMiFit.error_on_init
         self.calls = []
+        self.session = make_session()
         FakeMiFit.instances.append(self)
 
     def steps(self, start, end):
@@ -337,6 +338,37 @@ def test_export_without_session_points_to_login(fake_mifit, capsys):
     assert "mifit login" in err
 
 
+def test_export_auth_error_prints_session_age(fake_mifit, monkeypatch, capsys):
+    def refused(self, start, end):
+        raise AuthError("The Mi Fitness service rejected the session token.")
+
+    monkeypatch.setattr(FakeMiFit, "steps", refused)
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc != 0
+    captured = capsys.readouterr()
+    err = captured.err
+    assert "error: The Mi Fitness service rejected the session token." in err
+    assert "session: logged in 2026-10-14T00:00:00Z" in err
+    assert "never renewed" in err
+    assert err.index("error:") < err.index("session: logged in") < err.index("Run `mifit login`")
+    for secret in (SYNTH_TOKEN, SYNTH_SSECURITY, SYNTH_COOKIE):
+        assert secret not in captured.out + err
+
+
+def test_export_without_session_prints_no_session_line(fake_mifit, capsys):
+    fake_mifit.error_on_init = AuthError("No valid Mi Fitness login session was found.")
+
+    rc = cli.main(["export", "steps", "--from", "2026-10-01", "--to", "2026-10-02"])
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "No valid Mi Fitness login session" in err
+    assert "session:" not in err
+    assert "Run `mifit login`" in err
+
+
 def test_export_api_error_is_reported_without_traceback(fake_mifit, monkeypatch, capsys):
     def boom(self, start, end):
         raise ApiError("Request refused (code 401).", code=401)
@@ -395,6 +427,30 @@ def test_cli_never_prints_token(monkeypatch, capsys):
     assert "<redacted>" not in captured.out  # no Session repr either
     assert recorder.saved == [recorder.session]
     assert "success" in captured.out.lower()
+
+
+def test_login_records_a_login_event(monkeypatch):
+    recorder = LoginRecorder(monkeypatch)
+    events = []
+    monkeypatch.setattr(
+        cli, "record_event", lambda event, session, **kwargs: events.append((event, session))
+    )
+
+    rc = cli.main(["login"])
+
+    assert rc == 0
+    assert events == [("login", recorder.session)]
+
+
+def test_login_records_no_event_when_the_login_fails(monkeypatch):
+    LoginRecorder(monkeypatch, error=AuthError("The login was refused."))
+    events = []
+    monkeypatch.setattr(cli, "record_event", lambda *args, **kwargs: events.append(args))
+
+    rc = cli.main(["login"])
+
+    assert rc != 0
+    assert events == []
 
 
 def test_login_shows_qr_and_login_url_then_saves_session(monkeypatch, capsys):
