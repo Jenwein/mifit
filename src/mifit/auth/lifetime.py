@@ -1,11 +1,18 @@
 """Observe how long a session lives: its ages, a one-line description and an event log.
 
 The service token's real lifetime is not documented anywhere, so the SDK records
-when each session event happens (``login``, ``unauthorized``, ``renewed``,
-``renew_failed``) and how old the session and its token were at that moment. The
-log holds only event names, UTC times and ages in seconds: never a token, a
-cookie, a user id or a device id. Writing it is best effort and never raises, so
-a read-only disk can not turn a working request into a failure.
+when each session event happens and how old the session and its token were at
+that moment. The events are ``login``; ``unauthorized`` (a request got HTTP 401);
+and then how the renewal that follows ended: ``renewed``, ``renew_failed`` (the
+account service refused the stored passToken, or the exchange failed),
+``renew_unavailable`` (the session has no passToken or user id, so nothing was
+sent) or ``renew_network_error`` (the renewal could not reach the network, so the
+passToken was never judged). Only ``renew_failed`` can bear on the passToken's
+lifetime. A 401 can also come from a refused request signature, so an
+``unauthorized`` is not always an expiry. The log holds only event names, UTC
+times and ages in seconds: never a token, a cookie, a user id or a device id.
+Writing it is best effort and never raises, so a read-only disk can not turn a
+working request into a failure.
 
 Times are the UTC ISO-8601 strings stored on ``Session`` (``2026-10-14T03:18:19Z``).
 A time that does not parse gives an age of ``None`` ("unknown"); a time in the

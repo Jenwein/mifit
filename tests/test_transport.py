@@ -428,7 +428,7 @@ def test_renewal_failure_raises_renewal_error_mentioning_401():
     assert exc.code == 70016
     assert "401" in str(exc)
     assert "70016" in str(exc)
-    assert exc.__cause__ is None and exc.__suppress_context__
+    assert exc.__cause__ is None and exc.__context__ is None
     assert len(http.calls) == 1
 
 

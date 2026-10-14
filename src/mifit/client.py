@@ -104,12 +104,14 @@ class MiFit:
     limits); a renewal that fails raises ``RenewalError``, an ``AuthError``. A
     renewal that fails on the network raises a network error of the same type
     instead, with a fixed message in place of the original's, whose URL carries
-    a one-time signature. The renewal runs on the injected ``http`` or, by
-    default, on a fresh HTTP client of its own, never on the one the health
-    requests use. A client whose session came from the store (``session``
-    omitted, or after ``login_qr``) saves the renewed session there and logs the
-    401 and the renewal to the session log; a session passed in is renewed in
-    memory only, so read ``session`` to keep it.
+    a one-time signature. The renewal runs on the injected ``http`` when one is
+    given, so with renewal on that object's ``get`` must also accept the
+    ``cookies=`` and ``allow_redirects=`` keywords (a ``requests.Session`` does);
+    by default the renewal uses a fresh HTTP client of its own, never the one
+    the health requests use. A client whose session came from the store
+    (``session`` omitted, or after ``login_qr``) saves the renewed session there
+    and logs the 401 and the renewal to the session log; a session passed in is
+    renewed in memory only, so read ``session`` to keep it.
     """
 
     def __init__(
@@ -160,7 +162,9 @@ class MiFit:
     def _renew(self, old: Session) -> Session:
         """The transport's ``renew`` hook: trade ``old``'s passToken for a new session.
 
-        Records ``unauthorized`` and then ``renewed`` or ``renew_failed``; a
+        Records ``unauthorized`` and then one of ``renewed``, ``renew_failed`` (the
+        account service refused), ``renew_unavailable`` (the session has nothing to
+        renew with, so no request was sent) or ``renew_network_error``; a
         store-backed client also saves the new session (a save that fails only
         warns, so the read goes on). Exceptions from the renewal are re-raised,
         except that a network failure is replaced by a fresh exception of the same
@@ -174,10 +178,12 @@ class MiFit:
             # transport's cookie jar.
             new = renew_session(old, http=self._http)
         except OSError as exc:  # requests' exceptions are OSErrors
-            self._record("renew_failed", old)
+            self._record("renew_network_error", old)
             network_error = _scrubbed_network_error(exc)
         except Exception:
-            self._record("renew_failed", old)
+            # `renew_session` refuses before any request when the session has no
+            # passToken or user id, so there was no verdict from the account service.
+            self._record("renew_failed" if old.can_renew() else "renew_unavailable", old)
             raise
         if network_error is not None:
             # Raised here, outside the ``except`` block, so that neither its

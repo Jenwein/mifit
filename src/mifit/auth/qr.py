@@ -193,11 +193,16 @@ def _load_json(response: Any, what: str) -> dict[str, Any]:
     body = response.text.strip()
     if body.startswith(SAFE_PREFIX):
         body = body[len(SAFE_PREFIX) :]
+    malformed = False
     try:
         payload = json.loads(body)
     except ValueError:
-        # `from None`: the decode error carries a fragment of the body.
-        raise ApiError(f"{what} returned a body that is not valid JSON.") from None
+        malformed = True
+    if malformed:
+        # Raised outside the ``except`` block: the decode error holds the whole
+        # body in ``.doc``, and neither ``__cause__`` nor ``__context__`` may lead
+        # back to it.
+        raise ApiError(f"{what} returned a body that is not valid JSON.")
     if not isinstance(payload, dict):
         raise ApiError(f"{what} returned a JSON value that is not an object.")
     return payload

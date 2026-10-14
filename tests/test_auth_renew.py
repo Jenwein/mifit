@@ -139,6 +139,26 @@ def old_session(**overrides):
     return Session(**fields)
 
 
+def exception_chain(exc):
+    """``exc`` and every exception reachable from it through ``__cause__``/``__context__``."""
+    seen = []
+    pending = [exc]
+    while pending:
+        link = pending.pop()
+        if link is None or any(link is s for s in seen):
+            continue
+        seen.append(link)
+        pending += [link.__cause__, link.__context__]
+    return seen
+
+
+def assert_stands_alone(exc):
+    """Nothing is reachable from ``exc`` but itself: the original failure (whose
+    payload or ``JSONDecodeError.doc`` can hold the response body) is not chained."""
+    assert exc.__cause__ is None and exc.__context__ is None
+    assert exception_chain(exc) == [exc]
+
+
 def expected_client_sign(nonce, ssecurity):
     digest = hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode("utf-8")).digest()
     return base64.b64encode(digest).decode("ascii")
@@ -319,7 +339,7 @@ def test_refused_pass_token_raises_renewal_error_with_code():
     assert exc.code == 70016
     assert isinstance(exc, AuthError)
     assert "70016" in str(exc)
-    assert exc.__cause__ is None and exc.__suppress_context__
+    assert_stands_alone(exc)
     assert len(http.calls) == 1
 
 
@@ -332,7 +352,7 @@ def test_security_confirmation_raises_renewal_error():
         renew_session(old_session(), http)
 
     assert not isinstance(excinfo.value, NotificationRequiredError)
-    assert excinfo.value.__suppress_context__
+    assert_stands_alone(excinfo.value)
     assert "authStart" not in str(excinfo.value)
     assert len(http.calls) == 1
 
@@ -346,7 +366,7 @@ def test_redirect_or_http_error_raises_renewal_error(status):
         renew_session(old_session(), http)
 
     assert str(status) in str(excinfo.value)
-    assert excinfo.value.__suppress_context__
+    assert_stands_alone(excinfo.value)
     assert len(http.calls) == 1
 
 
@@ -357,7 +377,7 @@ def test_sts_failure_raises_renewal_error():
         renew_session(old_session(), http)
 
     assert "serviceToken" in str(excinfo.value)
-    assert excinfo.value.__suppress_context__
+    assert_stands_alone(excinfo.value)
     assert len(http.calls) == 2
 
 
@@ -382,8 +402,12 @@ def test_renewal_errors_never_contain_secrets(name):
     with pytest.raises(RenewalError) as excinfo:
         renew_session(session, FakeHttp(*responses))
 
-    text = str(excinfo.value) + repr(excinfo.value)
-    assert not any(secret in text for secret in ALL_SECRETS)
+    # Every link of the chain, attributes included: a JSONDecodeError keeps the
+    # whole response body in ``.doc``.
+    for link in exception_chain(excinfo.value):
+        text = str(link) + repr(link) + repr(link.args) + repr(vars(link))
+        assert not any(secret in text for secret in ALL_SECRETS), type(link).__name__
+    assert_stands_alone(excinfo.value)
 
 
 def test_network_errors_propagate():

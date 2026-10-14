@@ -1,6 +1,7 @@
 """CLI tests. ``MiFit``, ``login_qr`` and ``save_session`` are patched on ``mifit.cli``
 so nothing here touches the network, the real session file or any real health data.
-Every credential below is synthetic.
+The session store and the session log (``record_event``) live under the isolated
+home (conftest), never the real ``~/.mifit``. Every credential below is synthetic.
 """
 
 import dataclasses
@@ -446,7 +447,7 @@ def test_export_renewal_network_error_does_not_echo_the_sts_url(monkeypatch, cap
     log = default_session_log_path().read_text(encoding="utf-8")
     assert [json.loads(line)["event"] for line in log.splitlines()] == [
         "unauthorized",
-        "renew_failed",
+        "renew_network_error",
     ]
     assert client_sign not in log and "sts.synthetic" not in log
 

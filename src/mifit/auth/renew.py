@@ -77,21 +77,29 @@ def renew_session(session: Session, http: Any = None, *, sid: str = SID) -> Sess
         "passToken": session.pass_token,
         "cUserId": session.c_user_id,
     }
-    # Each `from None` drops the original exception, whose payload and context
-    # were never meant for a caller's logs.
+    # The error that is raised is built inside the ``except`` block but raised
+    # after it. Raising inside would leave the original on ``__context__`` even
+    # with ``from None`` (which only hides it from the printed traceback), and
+    # the original can hold the response body (a ``JSONDecodeError`` keeps all of
+    # it in ``.doc``). So the caller's error has neither ``__cause__`` nor
+    # ``__context__``.
+    failure: RenewalError | None = None
     try:
         result = _parse_login_content(response, "serviceLogin", known=known)
         renewed = exchange_sts(result, sid, http, device_id=session.device_id)
     except NotificationRequiredError:
-        raise RenewalError(
+        failure = RenewalError(
             "Xiaomi asked for a security confirmation before it would renew the session."
-        ) from None
+        )
     except ApiError as exc:
         if exc.code is not None:
-            raise RenewalError(
+            failure = RenewalError(
                 f"Xiaomi refused the stored passToken (code {exc.code}).", code=exc.code
-            ) from None
-        raise RenewalError(exc.message) from None
+            )
+        else:
+            failure = RenewalError(exc.message)
+    if failure is not None:
+        raise failure
 
     return dataclasses.replace(
         renewed,

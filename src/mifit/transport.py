@@ -83,8 +83,10 @@ class Transport:
     token is not retried, and a 401 right after a renewal is taken for a refused
     signature, not an expired session; either one switches renewal off for this
     transport. A hook that fails with an ``OSError`` (every ``requests`` error is
-    one) never reached a verdict, so its exception propagates and the attempt
-    does not count. Without a hook, a 401 raises ``AuthError`` at once.
+    one) is treated as a network failure rather than a refusal: its exception
+    propagates and the attempt does not count. The transport cannot tell how far
+    the hook got, so an account service that had already accepted the login may
+    precede the failure. Without a hook, a 401 raises ``AuthError`` at once.
     """
 
     def __init__(
@@ -126,7 +128,9 @@ class Transport:
         itself is unchanged). Raises ``AuthError`` on an HTTP 401 that was not
         renewed away (``RenewalError`` when the ``renew`` hook failed),
         ``ApiError`` on any other non-2xx status, an undecryptable body, or a
-        decrypted ``code != 0``.
+        decrypted ``code != 0``. An ``OSError`` from ``http`` (every ``requests``
+        exception is one: timeouts, connection errors) propagates unchanged, and
+        so does one from the ``renew`` hook.
         """
         response, nonce = self._send(endpoint_path, data_obj, sign_path)
         if (
@@ -136,19 +140,24 @@ class Transport:
         ):
             self._renewals_left -= 1
             old = self._session
+            refused: RenewalError | None = None
             try:
                 new = self._renew(old)
             except RenewalError as exc:
-                raise RenewalError(
+                # Raised after the block, so the original is not left on
+                # ``__context__`` (``from None`` would only hide it from the
+                # printed traceback).
+                refused = RenewalError(
                     "Request was rejected with HTTP 401 and the session could not "
                     f"be renewed: {exc}",
                     code=exc.code,
-                ) from None
+                )
             except OSError:
-                # A network failure: the passToken was never judged, so the
-                # attempt is given back.
+                # A network failure, not a refusal: the attempt is given back.
                 self._renewals_left += 1
                 raise
+            if refused is not None:
+                raise refused
             if new.service_token == old.service_token:
                 self._renewals_left = 0
                 raise AuthError(_SAME_TOKEN_401)

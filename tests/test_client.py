@@ -638,6 +638,25 @@ def test_failed_renewal_is_logged_and_re_raised(monkeypatch):
     assert client.session is stored
 
 
+def test_session_that_cannot_renew_logs_renew_unavailable(monkeypatch):
+    # No passToken: ``renew_session`` refuses before any request, so the account
+    # service gave no verdict and the log must not say it did (``renew_failed``).
+    stored = make_session()
+    assert not stored.can_renew()
+    error = RenewalError("This session has no passToken or user id to renew with.")
+    monkeypatch.setattr(client_module, "load_session", lambda path=None: stored)
+    recorder = RenewalRecorder(monkeypatch, error=error)
+    client = MiFit()
+
+    with pytest.raises(RenewalError) as excinfo:
+        client._renew(stored)
+
+    assert excinfo.value is error
+    assert recorder.event_names == ["unauthorized", "renew_unavailable"]
+    assert recorder.saved == []
+    assert client.session is stored
+
+
 def exception_chain(exc):
     """``exc`` and every exception reachable from it through ``__cause__``/``__context__``."""
     seen = []
@@ -652,8 +671,11 @@ def exception_chain(exc):
 
 
 def assert_chain_hides_the_sts_url(exc, *secrets):
+    """No link of ``exc``'s chain carries the STS host or any of ``secrets``, in its
+    message, its args or its attributes (a ``JSONDecodeError`` keeps the whole
+    document in ``.doc``)."""
     for link in exception_chain(exc):
-        text = str(link) + repr(link)
+        text = str(link) + repr(link) + repr(link.args) + repr(vars(link))
         for secret in ("sts.synthetic.example.com", *secrets):
             assert secret not in text, f"{type(link).__name__} carries {secret!r}"
         # A requests exception keeps the request it was sending, URL and all.
@@ -693,7 +715,7 @@ def test_network_failure_during_renewal_stays_a_network_error_without_the_url(mo
     assert "renewal" in str(exc)
     assert exc.__cause__ is None and exc.__context__ is None
     assert_chain_hides_the_sts_url(exc, CLIENT_SIGN)
-    assert recorder.event_names == ["unauthorized", "renew_failed"]
+    assert recorder.event_names == ["unauthorized", "renew_network_error"]
     assert client.session is stored
 
 
@@ -810,16 +832,17 @@ class RoutingHttp:
     service-token cookie.
     """
 
-    def __init__(self, sts_failure=None):
+    def __init__(self, sts_failure=None, login_body=LOGIN_BODY):
         self.health_statuses = [401, 200]
         self.calls = []
         self.sts_failure = sts_failure  # None, "network" or an HTTP status
+        self.login_body = login_body
         self.client_sign = None
 
     def get(self, url, params=None, headers=None, timeout=None, allow_redirects=True, cookies=None):
         if url == RENEW_URL:
             self.calls.append("serviceLogin")
-            return FakeHttpResponse(text=LOGIN_BODY)
+            return FakeHttpResponse(text=self.login_body)
         if url == STS_LOCATION:
             self.calls.append("sts")
             self.client_sign = params["clientSign"]
@@ -875,10 +898,57 @@ def test_failed_renewal_never_chains_to_the_sts_url(no_delay, sts_failure, expec
     assert type(excinfo.value) is expected
     assert http.calls == ["health", "serviceLogin", "sts"]
     assert http.client_sign
+    assert exception_chain(excinfo.value) == [excinfo.value]
     assert_chain_hides_the_sts_url(
         excinfo.value, http.client_sign, NEW_PASS_TOKEN, NEW_SSECURITY, SYNTH_PASS_TOKEN
     )
     assert client.session is old
+
+
+MALFORMED_LOGIN_BODY = (
+    "&&&START&&&"
+    + '{"code": 0, "passToken": "' + NEW_PASS_TOKEN + '", "ssecurity": "' + NEW_SSECURITY
+    + '", "location": "' + STS_LOCATION + '", "MARKER": "SYNTH-LOGIN-BODY-MARKER", '
+)
+
+
+def test_malformed_service_login_body_never_chains_to_the_response(no_delay):
+    """The serviceLogin answer is not valid JSON but holds the new passToken: the
+    ``JSONDecodeError`` keeps all of it in ``.doc``, and it must not be reachable
+    (``__cause__``/``__context__``) from the error a caller catches."""
+    old = renewable_session()
+    http = RoutingHttp(login_body=MALFORMED_LOGIN_BODY)
+    client = MiFit(old, http=http)
+
+    with pytest.raises(RenewalError) as excinfo:
+        client.raw("steps", 1, 2)
+
+    exc = excinfo.value
+    assert http.calls == ["health", "serviceLogin"]
+    assert "not valid JSON" in str(exc)
+    assert exc.__cause__ is None and exc.__context__ is None
+    assert exception_chain(exc) == [exc]
+    assert_chain_hides_the_sts_url(
+        exc, NEW_PASS_TOKEN, NEW_SSECURITY, SYNTH_PASS_TOKEN, "SYNTH-LOGIN-BODY-MARKER"
+    )
+    assert client.session is old
+
+
+def test_end_to_end_session_that_cannot_renew_logs_renew_unavailable(no_delay):
+    stored = make_session()  # no passToken
+    save_session(stored)  # under the isolated home (conftest)
+    http = RoutingHttp()
+    client = MiFit(http=http)
+
+    with pytest.raises(RenewalError):
+        client.raw("steps", 1, 2)
+
+    assert http.calls == ["health"]  # nothing was sent to the account service
+    log = paths.default_session_log_path().read_text(encoding="utf-8")
+    assert [json.loads(line)["event"] for line in log.splitlines()] == [
+        "unauthorized",
+        "renew_unavailable",
+    ]
 
 
 def test_renewal_uses_its_own_http_client_and_saves_the_session(no_delay, monkeypatch):
