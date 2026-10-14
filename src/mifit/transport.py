@@ -114,6 +114,45 @@ class Transport:
             )
         return payload
 
+    def get_paged(
+        self,
+        endpoint_path: str,
+        data_obj: dict,
+        *,
+        list_key: str = "data_list",
+        sign_path: str | None = None,
+        max_pages: int | None = None,
+    ) -> list[dict]:
+        """Follow a cursor-paginated endpoint and return all items concatenated.
+
+        Calls ``get_json`` repeatedly, collecting ``payload[list_key]`` from each
+        page. While a page reports a truthy ``has_more`` the server's ``next_key``
+        is sent back unchanged as ``next_key`` in the next request (``data_obj`` is
+        copied per request; the caller's dict is never modified, and the first
+        request carries only what the caller put in it).
+
+        Stops when ``has_more`` is falsy, after ``max_pages`` pages (``None`` means
+        no cap; ``0`` or less fetches nothing), or when ``has_more`` stays true but
+        ``next_key`` is missing/empty or equals the cursor that request was sent
+        with, which would otherwise loop forever. The guard ends the pull quietly;
+        the items of the page that tripped it are kept.
+        """
+        items: list[dict] = []
+        request = dict(data_obj)
+        pages = 0
+        while max_pages is None or pages < max_pages:
+            payload = self.get_json(endpoint_path, request, sign_path=sign_path)
+            pages += 1
+            items.extend(payload.get(list_key) or [])
+
+            if not payload.get("has_more"):
+                break
+            next_key = payload.get("next_key")
+            if not next_key or next_key == request.get("next_key"):
+                break
+            request = {**data_obj, "next_key": next_key}
+        return items
+
     def _headers(self) -> dict[str, str]:
         return {
             "Cookie": self._cookie_header(),
