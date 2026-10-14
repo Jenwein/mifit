@@ -105,4 +105,6 @@
 - **其他原始 key 是否同样按桶**：`resting_heart_rate`、`single_heart_rate`、`spo2` 等都没测。`MiFit.raw` 因此保持不过滤（只在 docstring 提醒）。sleep 域的原始读取本来就两侧各加一天再按会话匹配，不受影响。
 - **app 自己不用时间窗拉原始数据**：`CloudSyncLineRouter.pullFullPullFitnessData(key, endTime, nextKey)` 发 `GetFitnessDataByTime(key, start=null, end=endTime, reverse=true, nextKey)`，即 SDK 的 `fetch_heart_rate_full`；按窗口的 `pullFitnessDataByTime(start, end, nextKey, key)` 使用类的默认 `reverse`。所以 app 很可能从未踩到这个问题。
 - 3 个比较日里只有 2 天（D1、D3）的首桶有数据，真正触发了丢失；D2 只说明加宽与过滤不会多出或改动行。
-- **带 `start_time` 的多页窗口读取没有在真机上跑过**：每个探测窗口都在一页之内。不带起点的读取翻页没问题（基准读取就是 2 页）；带起点时 `next_key` 是否同样正常，以及起点桶丢失与翻页如何叠加，未验证。
+- **带 `start_time` 的多页窗口读取：已核对（2026-10-14，真机，4 次只读调用，间隔 ≥ 2 s，无 401）。** 用 SDK 的 `fetch_heart_rate_window` 读 D1–D3 三天（同 §2.2 的三天；请求起点 = D1 本地零点 − 86400），服务端分 2 页返回（247 + 148 行，第 2 页带 `start_time` 和 `next_key`）。同时做不带起点的读取（同一 `end_time`，按 `next_key` 翻 2 页，247 + 229 行，已越过 D1 零点）。
+  - 在 [D1 零点, D3 次日零点 − 1] 内两者都是 269 行（53 + 77 + 139，与 §2.2 相同），外层 `time` 集合相同，`value` 逐行相同，两边都无重复。
+  - 两种读取的第 1 页逐行相同，分页边界在同一处（D1 零点 +14:00，偶数整点 UTC 小时）；窗口读取第 2 页最新一行在边界前 20 分钟，不带起点的读取在两者之间没有行，即翻页处不丢行。起点桶的丢失只发生在 `start_time` 处，落在边际日，被过滤掉。
