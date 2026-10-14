@@ -103,23 +103,23 @@ def build(monkeypatch):
 def test_steps_delegates_to_domain(build):
     client, fake, _ = build(load_fixture("steps_daily_sample.json"))
 
-    result = client.steps(1759276800, 1759363199)
+    result = client.steps(1760400000, 1760486399)
 
     assert isinstance(result, DomainResult)
     assert result.records == [
         StepRecord(
-            date="2025-10-01",
+            date="2025-10-14",
             steps=8000,
             distance_m=5200,
             calories=210,
-            epoch_s=1759276800,
+            epoch_s=1760400000,
         )
     ]
     # Same answer as calling the domain directly with the same transport.
-    assert result == fetch_steps(fake, 1759276800, 1759363199)
+    assert result == fetch_steps(fake, 1760400000, 1760486399)
     assert fake.calls[0]["endpoint_path"] == STEPS_ENDPOINT
-    assert fake.calls[0]["data_obj"]["start_time"] == 1759276800
-    assert fake.calls[0]["data_obj"]["end_time"] == 1759363199
+    assert fake.calls[0]["data_obj"]["start_time"] == 1760400000
+    assert fake.calls[0]["data_obj"]["end_time"] == 1760486399
 
 
 def test_date_string_converts_to_epoch_day_bounds(build):

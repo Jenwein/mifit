@@ -1,9 +1,10 @@
 """Steps domain: daily step summaries from the aggregated fitness endpoint.
 
-Each returned row carries its payload as a JSON *string* in ``value``
-(``{"time", "steps", "distance", "calories"}``), which is decoded a second time
-here. The decoded dicts go to ``DomainResult.raw`` untouched; ``records`` holds
-the normalized ``StepRecord`` view of them.
+Each returned row is an outer object whose ``time`` is the UTC-midnight day label
+and whose ``value`` is a JSON *string* (``{"steps", "distance", "calories"}``, no
+time of its own) that is decoded a second time here. The decoded value dicts go to
+``DomainResult.raw`` untouched; ``records`` holds the normalized ``StepRecord``
+view of each row (day from the outer ``time``, figures from the value).
 """
 
 from __future__ import annotations
@@ -23,8 +24,9 @@ def fetch_steps(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainRes
     """Fetch the daily step summaries between two Unix-second timestamps.
 
     A window with no rows gives an empty result, never a fabricated zero. A row
-    without ``time`` or ``steps`` is skipped with a note (its decoded value is
-    still kept in ``raw``); an absent ``distance``/``calories`` becomes ``None``.
+    whose outer ``time`` or whose value's ``steps`` is missing or unusable is
+    skipped with a note (its decoded value is still kept in ``raw``); an absent
+    ``distance``/``calories`` becomes ``None``.
     """
     entries = t.get_paged(
         _ENDPOINT,
@@ -53,19 +55,21 @@ def fetch_steps(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainRes
             continue
 
         result.raw.append(value)
-        record = _to_record(value)
+        record = _to_record(entry, value)
         if record is None:
             result.notes.append(
-                "Skipped a daily step row without a usable time or step count."
+                "Skipped a daily step row without a usable day timestamp or step count."
             )
             continue
         result.records.append(record)
     return result
 
 
-def _to_record(value: dict) -> StepRecord | None:
+def _to_record(entry: dict, value: dict) -> StepRecord | None:
+    # The day timestamp is the OUTER entry's ``time``; the decoded ``value`` holds
+    # only ``steps``/``distance``/``calories`` and carries no time of its own.
     try:
-        epoch_s = int(value["time"])
+        epoch_s = int(entry["time"])
         steps = int(value["steps"])
         distance_m = _optional_int(value.get("distance"))
         calories = _optional_int(value.get("calories"))

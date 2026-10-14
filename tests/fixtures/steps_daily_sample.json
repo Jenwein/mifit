@@ -3,13 +3,12 @@
   "result": {
     "data_list": [
       {
+        "sid": "synthetic-sid",
         "tag": "daily_report",
         "key": "steps",
-        "time": 1759276800,
-        "value": "{\"time\":1759276800,\"steps\":8000,\"distance\":5200,\"calories\":210}",
-        "sid": "synthetic-sid",
-        "source_sid_list": ["synthetic-source-1", "synthetic-source-2"],
-        "update_time": 1759300000,
+        "time": 1760400000,
+        "value": "{\"steps\":8000,\"distance\":5200,\"calories\":210}",
+        "update_time": 1760430000,
         "watermark": 1
       }
     ],
