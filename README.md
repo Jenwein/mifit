@@ -23,6 +23,7 @@ Python objects, so you can build on it.
 | `consumption` | calories per day: resting, active, intake, total | `ConsumptionRecord` | yes |
 | `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` | yes; the sleep score could not be checked and is in `raw` only |
 | `workouts` | one entry per workout: start and end, sport, duration, distance, active calories, average and maximum heart rate, steps | `Workout` | pending |
+| `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed, altitude) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
 | `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
 | `spo2` | raw SpO2 readings | `Spo2Point` | pending |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
@@ -32,8 +33,8 @@ Python objects, so you can build on it.
 "Checked against the app" means the values were compared with what the Mi
 Fitness app shows, on one real account (China region, UTC+8). "Pending" means
 implemented and tested offline, but not yet compared with the app. More is
-planned, such as workout details and GPS tracks. Meanwhile, `raw` returns the
-rows of any other key of the fitness-data endpoint, uninterpreted.
+planned. Meanwhile, `raw` returns the rows of any other key of the
+fitness-data endpoint, uninterpreted.
 
 ## Install
 
@@ -72,11 +73,13 @@ open it, confirm, then run `mifit login` again.
 ## Export
 
 ```bash
-mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [--chunk day|week|month] [--long] [--resume]
+mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [--no-track] [--chunk day|week|month] [--long] [--resume]
 ```
 
 - `<domain>`: `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
-  `spo2`, `spo2_daily`, `steps`, `weight` or `workouts`.
+  `spo2`, `spo2_daily`, `steps`, `weight`, `workouts` or `workout_detail`
+  (per-second samples and GPS track of outdoor runs and rides; not yet checked
+  against the app).
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.
 - `--json PATH`: write to a file instead of standard output.
 - `--full`: `heart_rate` only; page backwards through the history instead of
@@ -84,6 +87,8 @@ mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [
   This is a single read: it ignores `--from`, so it needs no `--long` however
   long the range, and it cannot be combined with `--chunk`, `--long` or
   `--resume`.
+- `--no-track`: `workout_detail` only; skip the GPS file, so no track is
+  requested or written.
 - `--chunk day|week|month`: the chunk size (1, 7 or 31 days) for a range
   longer than one chunk; the default depends on the domain.
 - `--long`: allow a range over 92 days.
@@ -102,10 +107,10 @@ The output is one JSON object with three lists:
 
 ### Long ranges
 
-A range longer than one chunk (7 days for raw heart rate and SpO2, 31 days
-for everything else, counted from `--from`) is read chunk by chunk, one
-request at a time, with progress on standard error. A shorter range is a
-single read, as before. The chunks are merged into one output of the same
+A range longer than one chunk (7 days for raw heart rate, SpO2 and workout
+detail, 31 days for everything else, counted from `--from`) is read chunk by
+chunk, one request at a time, with progress on standard error. A shorter range
+is a single read, as before. The chunks are merged into one output of the same
 shape; with more than one chunk, each note starts with the chunk it came
 from. Ranges over 92 days need `--long`: they take many requests and can run
 for many minutes. The one exception is `heart_rate --full`: it ignores
@@ -144,8 +149,16 @@ energy = client.consumption("2026-10-01", "2026-10-07")
 heart = client.heart_rate("2026-10-07", "2026-10-07")      # one time window
 heart_full = client.heart_rate("2026-10-07", "2026-10-07", full=True)
 
+detail = client.workout_detail("2026-10-12", "2026-10-12")  # samples and GPS track
+no_gps = client.workout_detail("2026-10-12", "2026-10-12", track=False)
+
 rows = client.raw("sleep", "2026-10-07", "2026-10-07")     # any fitness-data key, as served
 ```
+
+`workout_detail` gives one `WorkoutDetail` per workout in `records`: its
+`workout` summary (the `Workout` of `workouts`), its `samples` (`WorkoutSample`,
+one per recorded second) and its `track` (`TrackPoint`); `track=False` asks
+for no GPS file.
 
 Dates are `"YYYY-MM-DD"` strings (local calendar days, inclusive) or ints of
 Unix seconds. Each domain method returns a result with `records`, `raw` and
@@ -174,8 +187,9 @@ heart = merge_chunks(parts)  # its records are those of one read of the whole ra
 ```
 
 `read_chunks(..., skip=labels)` passes over the chunks whose labels you
-already have, to resume. The library has no 92-day limit: a long range is
-many requests, so ask for what you need.
+already have, to resume, and `options=` gives keyword arguments to every
+chunk's call, such as `{"track": False}` for `workout_detail`. The library has
+no 92-day limit: a long range is many requests, so ask for what you need.
 
 When a request is refused with HTTP 401, the client renews the session once
 from its passToken and sends the request again. A client that uses the
@@ -193,8 +207,9 @@ client, the renewal uses a fresh `requests.Session` of its own.
 ## Two layers: `raw` and `records`
 
 - **`raw`** is the service's decoded payloads (the inner `value` of each row,
-  or for consumption the response's `result` object), with Xiaomi's own field
-  names. It is not a complete dump of every row the service sent.
+  or for consumption the response's `result` object; for `workout_detail`,
+  each workout's decoded summary and files as stored values), with Xiaomi's
+  own field names. It is not a complete dump of every row the service sent.
 - **`records`** are typed dataclasses with neutral names (`asleep_min`,
   `avg_hr_bpm`, ...). A field's meaning is established from what the app
   displays or from the app's own code before it enters this layer. One, the
@@ -227,6 +242,13 @@ client, the renewal uses a fresh `requests.Session` of its own.
 - **A read the service breaks off says so.** When the service reports more
   pages but sends no usable cursor to fetch them, the read stops there and
   `notes` says that rows in the range may be missing.
+- **Workout detail is new.** `workout_detail` is pending a check against the
+  app. It covers outdoor runs and rides in the file formats seen so far
+  (record formats 8 and 5, GPS format 2); other sports and formats are
+  reported in `notes`. One call reads the detail of at most 10 workouts (long
+  ranges are read a week per chunk). A GPS track shows where you were,
+  including where you live: `--no-track` (`track=False`) leaves it out. The
+  download links and keys never appear in the output.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** On an HTTP 401, mifit renews the session once from the
