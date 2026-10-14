@@ -49,10 +49,13 @@ sign-in. Your password never passes through mifit.
 The session is saved to `~/.mifit/session.json` (on Windows
 `%USERPROFILE%\.mifit\session.json`). It grants access to your Mi Fitness
 account's health data (not only reading). It also holds your account's
-passToken, which mifit uses to renew the session when it expires, so the file
-stays useful long after the session token itself has expired: treat it like a
-password, and do not share it or commit it. On Linux and macOS the file is
-readable by you only; on Windows it relies on your user profile's permissions.
+passToken, which mifit uses to renew the session when it expires. The passToken
+is account-level: it can obtain tokens for any Xiaomi service, so the file
+grants access to your whole Xiaomi account, not just your Mi Fitness health
+data, and it stays useful long after the session token itself has expired.
+Treat it like a password, and do not share it or commit it. On Linux and macOS
+the file is readable by you only; on Windows it relies on your user profile's
+permissions.
 
 If Xiaomi asks for an extra security confirmation, `mifit login` prints a URL:
 open it, confirm, then run `mifit login` again.
@@ -116,6 +119,12 @@ session saved by `mifit login` saves the renewed session back to
 `~/.mifit`. Explicit sessions (`MiFit(session)`) are renewed in memory; read
 `client.session` to keep the renewed one. `MiFit(auto_renew=False)` turns
 renewal off, so a 401 raises `AuthError` straight away.
+
+`MiFit(http=...)` injects the HTTP client, to keep a client offline. With
+renewal on, the renewal runs on that client too, so its `get` must accept the
+`cookies=` and `allow_redirects=` keywords as well as the usual `params=`,
+`headers=` and `timeout=` (a `requests.Session` does). Without an injected
+client, the renewal uses a fresh `requests.Session` of its own.
 
 ## Two layers: `raw` and `records`
 

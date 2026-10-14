@@ -64,7 +64,7 @@
 
 **结果**：新的 `service_token`、`ssecurity`、STS cookie（`extra_cookies`）；保留 `region`、`created_at`（登录时间）、`device_id`；`pass_token` 取服务器返回的（轮换），没返回则保留旧的；`renewed_at` = 当前 UTC 时间（`…Z`）。传入的 `session` 对象本身不变。
 
-**错误**：`RenewalError` 是 `AuthError` 的子类，所以现有的 `except AuthError`（包括 CLI）仍以 "Run `mifit login`" 收尾。所有 `RenewalError` 都 `from None` 抛出，消息只说原因，不含任何凭据、cookie 值、STS URL 或安全确认 URL。`requests` 自身的网络异常（超时、连接失败）原样向上传。
+**错误**：`RenewalError` 是 `AuthError` 的子类，所以现有的 `except AuthError`（包括 CLI）仍以 "Run `mifit login`" 收尾。所有 `RenewalError` 都在 `except` 块**之外**抛出（`__cause__` 和 `__context__` 都是 `None`；`from None` 只是不打印，原异常仍挂在 `__context__` 上，而 `JSONDecodeError.doc` 含整个响应体），消息只说原因，不含任何凭据、cookie 值、STS URL 或安全确认 URL。`requests` 自身的网络异常（超时、连接失败）原样向上传。
 
 ## 4. 未知项
 
@@ -83,10 +83,12 @@
   {"event": "unauthorized", "at": "2026-10-15T03:18:19Z", "login_age_s": 86400, "token_age_s": 86400}
   ```
 
-  （合成示例。）`event` 取 `login`、`unauthorized`、`renewed`、`renew_failed`；`at` 是 UTC 时间；`login_age_s` 从 `created_at` 算起；`token_age_s` 从 `renewed_at` 算起（从未续期则从 `created_at`）。日志不含 token、id 或任何 cookie 值。
+  （合成示例。）`event` 取 `login`、`unauthorized`、`renewed`、`renew_failed`、`renew_unavailable`、`renew_network_error`；`at` 是 UTC 时间；`login_age_s` 从 `created_at` 算起；`token_age_s` 从 `renewed_at` 算起（从未续期则从 `created_at`）。日志不含 token、id 或任何 cookie 值。
 - 只有从 `~/.mifit` 读会话（或自己登录）的客户端才写日志；显式传入的会话只在内存里续期，不写。
 - 读法：
   - serviceToken 寿命 ≈ 每次 `login`/`renewed` 之后第一条 `unauthorized` 的 `token_age_s`。这是上界：401 只在实际发请求时出现，所以 token 至少活到上一次成功请求、至多活到这次 401。
-  - `unauthorized` 后紧跟 `renewed` = 自动续期成功；紧跟 `renew_failed` = 需要 `mifit login`，此时的 `login_age_s` 是 passToken 寿命（或 deviceId 绑定问题）的线索。
+  - `unauthorized` 后紧跟 `renewed` = 自动续期成功；紧跟 `renew_failed` = 账号服务拒绝了 passToken（或 STS 交换失败），需要 `mifit login`，此时的 `login_age_s` 是 passToken 寿命（或 deviceId 绑定问题）的线索。
+  - `renew_unavailable` = 会话本身不能续期（没有 passToken 或 user id，例如 T2 之前的旧会话），没有发任何请求，**不**说明 passToken 寿命；`renew_network_error` = 续期没能连上网（OSError），账号服务没有表态，下一次 401 会再试。这两个事件和 `renew_failed` 区分开，就是为了不把它们当成 passToken 过期。
+  - **注意**：签名错误的 401（notes/04 §3，业务 code=0）同样会记 `unauthorized`→`renewed`，在日志上和 token 过期一模一样——续期换来新 token、重试成败都不影响这对记录已经写下。所以单独一条 `token_age_s` 不能直接当 serviceToken 寿命；要多次观测到相近的 `token_age_s` 才可信。
 
 （Task 3–5 在此追加：日志格式落地、真机续期结果、自然过期的观测。）
