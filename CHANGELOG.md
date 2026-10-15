@@ -94,6 +94,14 @@ result is not affected unless a line below says so.
   duplicate with stages, and gives unstaged sleep no stage minutes instead of
   zero minutes.
 
+### Packaging
+
+- Published on PyPI as `mifit`: install with `uv tool install mifit`,
+  `pipx install mifit` or `pip install mifit` instead of cloning the
+  repository.
+- `mifit --version` and `mifit.__version__`.
+- The package is marked as typed (`py.typed`).
+
 ## 0.1.0 — 2026-10-14
 
 The first commits; never tagged or published. QR login, the signed transport,

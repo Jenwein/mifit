@@ -29,6 +29,9 @@
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | ✅ 实现完成（2026-10-14）：分块串行读取、超过 92 天需 --long、--resume 断点续传 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
+| R | 发布到 PyPI：打包元数据、`mifit --version`、标签触发的发布流水线（Trusted Publishing）、GitHub Release | 实现完成，待首次发布（见计划 [2026-10-15-mifit-release-pypi](plans/2026-10-15-mifit-release-pypi.md)） |
+| P | MCP 服务：`mifit mcp`，本机 stdio、只读，每个已核对的数据域一个工具 | 设计完成，待计划 |
+| E | 生态登记：官方 MCP Registry、Claude Desktop 一键安装包（`.mcpb`）、各客户端配置 | 设计完成，待计划 |
 
 主线顺序沿用设计 §4.6/§10：步数 → 睡眠 → 心率 → 运动记录 → 血氧、体重 → FDS 明细 → 其余。唯一的插入是 M2 开头的"日语义统一"（理由见 M2）。
 
@@ -36,6 +39,7 @@
 
 ## 1. 已完成（截至 2026-10-15）
 
+- **发布与 AI 接入**：设计见 [specs/2026-10-15-mifit-release-mcp-design.md](specs/2026-10-15-mifit-release-mcp-design.md)（R 发布到 PyPI → P MCP 服务 → E 生态登记）。
 - **底座**：nonce/RC4/SHA1 签名、地区路由、扫码登录 + STS、本地会话存储、签名传输（含 401 处理）、分页、`MiFit` 门面、`mifit login` / `mifit export` CLI。
 - **数据域**（除标注外均已真机核对）：
   - `steps`：日步数、距离与 app 一致（`step_calories` 是步数报告自带的走路卡路里，不是 app 的卡路里环）。

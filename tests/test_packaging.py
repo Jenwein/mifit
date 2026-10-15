@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import re
 import tomllib
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 
 import mifit
 from mifit import cli
+from support import load_release_tool
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,3 +71,45 @@ def test_pyproject_has_the_pypi_metadata():
 def test_py_typed_ships_with_the_package():
     assert (ROOT / "src" / "mifit" / "py.typed").is_file()
     assert "py.typed" in _pyproject()["tool"]["setuptools"]["package-data"]["mifit"]
+
+
+def _readme() -> str:
+    return (ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def _section(text: str, heading: str) -> str:
+    """The lines after ``## <heading>`` up to the next ``## `` line."""
+    lines = text.splitlines()
+    start = lines.index(f"## {heading}") + 1
+    end = next(
+        (i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines)
+    )
+    return "\n".join(lines[start:end])
+
+
+def test_readme_links_are_absolute():
+    # PyPI renders the README away from the repository: relative links and
+    # in-page anchors break there.
+    targets = re.findall(r"\]\(([^)\s]+)\)", _readme())
+    assert targets
+    assert [t for t in targets if not t.startswith("https://")] == []
+
+
+def test_readme_install_section_uses_pypi():
+    install = _section(_readme(), "Install")
+    for command in ("uv tool install mifit", "pipx install mifit", "pip install mifit"):
+        assert command in install
+    assert "git clone" not in install
+    assert "git clone" in _section(_readme(), "Development")
+
+
+def test_readme_has_the_pypi_badge():
+    assert "(https://pypi.org/project/mifit/)" in _readme()
+
+
+def test_changelog_0_2_0_lists_the_packaging():
+    release = load_release_tool()
+    section = release.changelog_section(
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.2.0"
+    )
+    assert "### Packaging" in section and "uv tool install mifit" in section

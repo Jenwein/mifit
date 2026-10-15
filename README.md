@@ -1,6 +1,7 @@
 # mifit
 
 [![CI](https://github.com/Jenwein/mifit/actions/workflows/ci.yml/badge.svg)](https://github.com/Jenwein/mifit/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/mifit)](https://pypi.org/project/mifit/)
 
 Read your own Mi Fitness (小米运动健康) data from the Xiaomi cloud: a small
 Python library and a command-line tool.
@@ -11,7 +12,7 @@ own account by QR code, reads that synced data and returns it as JSON or as
 Python objects, so you can build on it.
 
 > **Unofficial.** Not affiliated with, endorsed by or supported by Xiaomi.
-> See [Disclaimer](#disclaimer).
+> See [Disclaimer](https://github.com/Jenwein/mifit#disclaimer).
 
 ## What it reads today
 
@@ -39,17 +40,19 @@ returns the rows of any other key of the fitness-data or (with `--daily`)
 daily-report endpoint, uninterpreted.
 
 What changed in each version, breaking changes included, is in
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](https://github.com/Jenwein/mifit/blob/main/CHANGELOG.md).
 
 ## Install
 
-Requires Python 3.12 or later.
+Requires Python 3.12 or later; `uv` installs one for you if needed.
 
 ```bash
-git clone https://github.com/Jenwein/mifit.git
-cd mifit
-pip install -e .
+uv tool install mifit     # recommended: its own environment, `mifit` on your PATH
+pipx install mifit        # the same, with pipx
+pip install mifit         # into the current environment, to use it as a library
 ```
+
+Upgrade: `uv tool upgrade mifit` (or `pipx upgrade mifit`, `pip install -U mifit`).
 
 ## Log in
 
@@ -87,7 +90,7 @@ mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.
 - `--json PATH`: write to a file instead of standard output.
 - `--full`: `heart_rate` only; page backwards through the history instead of
-  querying one time window (see [Known limitations](#known-limitations)).
+  querying one time window (see [Known limitations](https://github.com/Jenwein/mifit#known-limitations)).
   This is a single read: it ignores `--from`, so it needs no `--long` however
   long the range, and it cannot be combined with `--chunk`, `--long` or
   `--resume`.
@@ -156,7 +159,7 @@ the service sends it, whether or not mifit also has a domain for it
   has data; `--tag TAG` picks another aggregated tag (default `daily_report`).
 - It is one read, paged: a range over 92 days needs `--long`, and there is no
   `--resume`.
-- The keys known so far are listed in `notes/domain-catalog.md`.
+- The keys known so far are listed in [notes/domain-catalog.md](https://github.com/Jenwein/mifit/blob/main/notes/domain-catalog.md).
 
 ```bash
 mifit raw stress --from 2026-10-01 --to 2026-10-07 --json stress.json
@@ -191,7 +194,7 @@ the rows of your window, with `value` decoded. `daily_report(key, ...)` returns
 the key's daily rows, one per local day that has data, with `tag=` to pick a
 tag other than `daily_report`. Both give `records=[]` and the rows in `raw`.
 
-Which keys exist and what is verified: `notes/domain-catalog.md`.
+Which keys exist and what is verified: [notes/domain-catalog.md](https://github.com/Jenwein/mifit/blob/main/notes/domain-catalog.md).
 
 `workout_detail` gives one `WorkoutDetail` per workout in `records`: its
 `workout` summary (the `Workout` of `workouts`), its `samples` (`WorkoutSample`,
@@ -275,8 +278,9 @@ client, the renewal uses a fresh `requests.Session` of its own.
   walking-calorie figure, not the ring.
 - **Raw windows are corrected by the SDK.** The service drops the samples at
   the start of a raw-data window (the first bucket); every dense raw key
-  checked does this: `heart_rate`, `spo2`, `stress` and `calories` (notes/08,
-  notes/11, `notes/domain-catalog.md`). The `heart_rate`, `spo2` and `weight`
+  checked does this: `heart_rate`, `spo2`, `stress` and `calories`
+  ([notes/08](https://github.com/Jenwein/mifit/blob/main/notes/08-heart-rate-keys-and-completeness.md),
+  [notes/11](https://github.com/Jenwein/mifit/blob/main/notes/11-spo2-weight-profile.md), [notes/domain-catalog.md](https://github.com/Jenwein/mifit/blob/main/notes/domain-catalog.md)). The `heart_rate`, `spo2` and `weight`
   reads, `raw_window` and `mifit raw` ask the service for a day before the
   start and keep only the requested window. `raw(key, ...)` returns the
   service's answer as it came, for any key, without this correction: use
@@ -322,6 +326,8 @@ client, the renewal uses a fresh `requests.Session` of its own.
 ## Development
 
 ```bash
+git clone https://github.com/Jenwein/mifit.git
+cd mifit
 pip install -e ".[test]"
 python -m pytest -q
 ```
@@ -342,15 +348,15 @@ It is meant for reading **your own** data with **your own** account.
 Automated access may conflict with Xiaomi's terms of service and could get
 your account rate-limited or restricted; use it at your own risk. Nothing it
 outputs is medical advice. The software is provided "as is", without warranty
-of any kind (see [LICENSE](LICENSE)).
+of any kind (see [LICENSE](https://github.com/Jenwein/mifit/blob/main/LICENSE)).
 
 ## Credits
 
 Request signing and encryption, the transport, the region table and the STS
 token exchange are adapted from
 [Mi-Fitness-Sync](https://github.com/kevinkwee/Mi-Fitness-Sync) by kevinkwee
-(MIT License). See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+(MIT License). See [THIRD_PARTY_NOTICES](https://github.com/Jenwein/mifit/blob/main/THIRD_PARTY_NOTICES).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/Jenwein/mifit/blob/main/LICENSE).
