@@ -500,7 +500,7 @@ There is no new code here; every outward step waits for the user's go-ahead. Rec
 
   A pending publisher does not reserve the name (spec §12 F1), so do Steps 3–7 on the same day if possible. If PyPI refuses the name `mifit`, stop and ask the user: the fallback (spec D1) renames only the distribution, to `mifit-cloud`, and that touches Tasks 2–5.
 
-- [ ] **Step 4 (user): create the GitHub environments.** Under GitHub → `Jenwein/mifit` → Settings → Environments, create `pypi` and `testpypi`. Recommended: on `pypi`, add "Required reviewers" with the user as the reviewer.
+- [ ] **Step 4 (user): create the GitHub environments.** Under GitHub → `Jenwein/mifit` → Settings → Environments, create `pypi` and `testpypi`. Recommended on `pypi`: add "Required reviewers" with the user as the reviewer, and under "Deployment branches and tags" allow only tags matching `v*` (a second guard on the publish gate, from the final review).
 
 - [ ] **Step 5 (me, after the user agrees): TestPyPI dry run.** Run `gh workflow run release.yml --ref main` and watch it with `gh run watch`.
   - Expected: `test`, `build`, `smoke` (all three systems) and `publish-testpypi` are green; `publish-pypi` and `github-release` are skipped.
