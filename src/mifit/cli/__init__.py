@@ -37,10 +37,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import dataclasses
 import io
 import json
-import math
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -70,6 +68,7 @@ from mifit.client import to_epoch_s
 from mifit.domains.base import REGISTRY, DomainResult
 from mifit.domains.days import parse_day
 from mifit.errors import AuthError, MiFitError, NotificationRequiredError
+from mifit.jsonsafe import json_ready
 
 __all__ = ["main"]
 
@@ -215,13 +214,6 @@ def _fetch(
     return getattr(client, domain)(start, end, **options)
 
 
-def _plain(record: Any) -> Any:
-    """A record as JSON-ready data: dataclasses become dicts, the rest is as it is."""
-    if dataclasses.is_dataclass(record) and not isinstance(record, type):
-        return dataclasses.asdict(record)
-    return record
-
-
 def _report(exc: MiFitError | requests.RequestException, client: Any, where: str = "") -> None:
     """Report a failed read on stderr: an ``AuthError`` with the session's ages (when
     a client was opened) and the advice to log in, any other SDK error with its
@@ -249,59 +241,6 @@ def _read(fetch: Callable[[Any], DomainResult]) -> DomainResult | None:
         return None
 
 
-def _finite(value: Any) -> tuple[Any, int]:
-    """A copy of ``value`` with every non-finite float (NaN, +Infinity, -Infinity)
-    replaced by ``None``, at any depth of dicts, lists and tuples (the latter
-    become lists), and how many were replaced. ``bool`` and ``int`` are untouched.
-
-    ``value`` is JSON-shaped data, a tree (no container holds itself). It is walked
-    with an explicit stack, not by recursion, so any depth ``json.loads`` accepts
-    works; dict keys and list items keep their order.
-    """
-    replaced = 0
-    root: list[Any] = [None]
-    # Each entry: a value to copy, and the container and key (or index) it goes to.
-    stack: list[tuple[Any, Any, Any]] = [(value, root, 0)]
-    while stack:
-        item, target, key = stack.pop()
-        if isinstance(item, float):
-            if not math.isfinite(item):
-                item = None
-                replaced += 1
-            target[key] = item
-        elif isinstance(item, dict):
-            # Every key is set now, in order; its value is filled in later.
-            copy = dict.fromkeys(item)
-            target[key] = copy
-            stack.extend((child, copy, child_key) for child_key, child in item.items())
-        elif isinstance(item, (list, tuple)):
-            copy = [None] * len(item)
-            target[key] = copy
-            stack.extend((child, copy, index) for index, child in enumerate(item))
-        else:
-            target[key] = item
-    return root[0], replaced
-
-
-def _json_ready(result: DomainResult) -> DomainResult:
-    """``result`` as strict-JSON data: records as plain dicts and no NaN/Infinity.
-
-    JSON has no such numbers (``json.dumps`` would write the non-standard ``NaN``
-    and ``Infinity`` literals), so each one becomes ``null``; the notes say how
-    many, so the change is never silent.
-    """
-    records, in_records = _finite([_plain(record) for record in result.records])
-    raw, in_raw = _finite(result.raw)
-    notes = list(result.notes)
-    replaced = in_records + in_raw
-    if replaced:
-        notes.append(
-            f"Replaced {replaced} non-finite number(s) (NaN or Infinity) with null: "
-            "strict JSON has no such values."
-        )
-    return DomainResult(records=records, raw=raw, notes=notes)
-
-
 def _write_result(result: DomainResult, json_path: str | None, *, noun: str = "record") -> int:
     """Show the notes on stderr and write ``{records, raw, notes}`` as strict JSON
     to ``json_path``, or to stdout when it is ``None``; return the exit code.
@@ -310,7 +249,7 @@ def _write_result(result: DomainResult, json_path: str | None, *, noun: str = "r
     ``"row"`` (a generic read has no records), else the ``records``. A result nested
     too deeply to encode is an error: nothing is written and the exit code is 1.
     """
-    result = _json_ready(result)
+    result = json_ready(result)
     for note in result.notes:
         _eprint(f"note: {note}")
 
@@ -515,7 +454,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 start, end = args.start, args.end
             # The same strict-JSON part is stored and merged, so a resumed chunk is
             # exactly a freshly read one.
-            part = _json_ready(_fetch(client, args.domain, start, end, options))
+            part = json_ready(_fetch(client, args.domain, start, end, options))
             if partial is not None:
                 _save_part(partial, header, chunk.label, part, create=not stored)
                 stored = True

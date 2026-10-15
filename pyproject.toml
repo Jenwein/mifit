@@ -28,8 +28,11 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.31",
-    "qrcode>=7.4",
+    # The png extra (pypng, pure Python) draws the login QR code the MCP server returns.
+    "qrcode[png]>=7.4",
     "cryptography>=42",
+    # The MCP server (`mifit mcp`); imported only when that command runs.
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
