@@ -90,7 +90,7 @@
 
 ### 3.3 文件不存在
 
-- 真机：给一次力量训练（`proto_type` 8，没有 GPS）请求 GPS 文件，服务端照样返回这个键和一个 URL，但**条目里没有 `obj_key`**；对那个 URL 下载得 HTTP 404。
+- 真机：给一次 `proto_type` 8 的运动（没有 GPS）请求 GPS 文件，服务端照样返回这个键和一个 URL，但**条目里没有 `obj_key`**；对那个 URL 下载得 HTTP 404。
 - app 在 `objectKey` 为空时直接放弃，不下载。SDK 照做（D9）：`obj_key` 缺失或为空 → `key_b64=None` → 该文件 `None`，note "the service has no record/GPS file for it"，省一次下载。
 - 平时 SDK 不会给 `proto_type` 8 发请求（§1）；这一条只记下服务端的行为。
 

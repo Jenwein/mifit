@@ -108,7 +108,7 @@
 
 - 接口 `data/get_sport_records_by_time`（`reverse=true`、`limit=50`、按 `next_key` 翻页，可选 `category`）。
 - 每条 `value` 是约 200 个字段的 `SportBasicReport`：A 层全量透传；B 层 `Workout` 只放核对过的核心字段（运动类型、开始/结束、时长、距离、卡路里、平均/最高心率、步数），其余留在 A 层（设计反目标：不确定含义的字段不进 B）。
-- 运动类型：小米的类型编号 → 中立运动类型的映射表放在映射层。先覆盖你实际做过的类型，其余保留原始编号。
+- 运动类型：小米的类型编号 → 中立运动类型的映射表放在映射层。先覆盖核实过的类型，其余保留原始编号。
 - 完成标准：你最近的几次运动，列表条数和核心字段与 app 运动记录页一致。
 - 前置：T2（会话续期）最好在这之前有结论，因为运动历史往往要长区间拉取。
 - **结果（2026-10-14）✅（待真机核对）**：`MiFit.workouts()` / `mifit export workouts` 产出 `Workout`（开始 / 结束、时区偏移、中立运动类型、时长、距离、活动卡路里 `active_kcal`、平均 / 最高心率、步数；0 或缺失为 `None`，时区偏移除外：0 即 UTC，照实保留），运动类型只映射了已核实的 4 个编号，其余 `sport` 为 `None` 并保留 `source_sport_code`；`total_cal`（含静息消耗，app 显示哪一个卡路里待真机核对）、最低心率、心率区间、配速 / 步频等留在 `raw`。按开始时刻选行（服务端规则 `start_time < time <= end_time`，客户端再过滤），最多读 20 页，触顶时结果带提示建议缩短范围（notes/10）；app 对照推迟到收尾的真机核对会话。
@@ -127,7 +127,7 @@
 
 - 规模最大、风险最高，**先单独写设计文档**再写计划。
 - 已知链路（notes/04 §2d）：`healthapp/service/gen_download_url`（签名路径要去掉 `healthapp/` 前缀再补回 `/`）→ 预签名 URL → 下载（不带会话 Cookie、不跟随重定向）→ Base64 → AES/CBC/PKCS5（固定 IV）→ 二进制头部 + body → 按 APK `assets/schemas.zip`（72 项）解析。
-- 范围建议：先做 `record`（逐秒明细，proto 0）和 `gps`（proto 2），只覆盖你实际做过的 1–2 种运动；其余 proto_type 按需补。
+- 范围建议：先做 `record`（逐秒明细，proto 0）和 `gps`（proto 2），只覆盖 1–2 种运动；其余 proto_type 按需补。
 - 新依赖：AES 需要引入一个加密库（如 `cryptography`），到时在设计文档里定。
 - 完成标准：一次运动的轨迹点数、起止时间、距离与 app 轨迹页一致；逐秒心率曲线形态与 app 一致。
 - **结果（2026-10-15）✅（待真机核对）**：链路为运动列表（与 `workouts` 共用 `sport_rows`）→ `healthapp/service/gen_download_url`（签名路径 `/service/gen_download_url`；每次运动一次请求，带 record、GPS 两项）→ 预签名 URL → 独立的下载器（不带 Cookie、会话或 netrc 凭据，不跟随重定向，只认 200，主机须在 `.fds.api.xiaomi.com` 下，正文上限 16 MiB，与 `Transport` 同样节流）→ JSON 字符串里的 base64url → AES-128-CBC（固定 IV）→ 8 字节头 + 有效性标志，头部的时间戳、时区、协议号须与汇总一致才解析。新增硬依赖 `cryptography>=42`（只在 `fds/cipher.py` 里导入）。只启用真机见过的三种布局（D1）：跑 record v8（协议 22）、骑 record v5（协议 23）、GPS v2；其它运动（如爬楼机、力量训练，协议 8）不发 FDS 请求，其它版本只给头部，都带 note。`MiFit.workout_detail()` / `mifit export workout_detail` 每次运动一条 `WorkoutDetail(workout, samples, track)`：B 层 `WorkoutSample`（逐秒：真实 Unix 秒、心率、累计距离、累计步数、步频、配速、骑行速度、海拔）和 `TrackPoint`（时刻、纬度、经度）；海拔暂进 B，跑步极值与汇总差 2–3 m，待真机定（spec §16 Q4），其余（逐秒卡路里、步幅、冲击力、垂直振幅、段字段、GPS 精度与速度等）只留 A 层（`raw` 用 `schemas.zip` 的字段名、存储值不缩放）。一次调用至多读 10 次支持的运动（超出加 note），分块读取按周（`week`）；`--no-track` / `track=False` 不请求 GPS 文件。URL、`obj_key`、`sid` 不进任何输出。本机真实文件闸门通过（D25，不联网）：4/4 份文件走到末尾、无剩余字节、无异常，头部与汇总一致；跑步步数、骑行卡路里、心率最大 / 最小值与汇总相等，距离与汇总的比值 1.000，轨迹长度 / 距离 0.99（跑）、1.02（骑），丢点 0；用保存的列表、链接答复和下载正文离线重放整条链路，得 2 条带样本和轨迹的明细，另 2 条只有“不支持”的 note。事实见 notes/12；app 对照推迟到收尾的真机核对会话（spec §14、§16）。

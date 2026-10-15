@@ -112,7 +112,7 @@ FitnessFDSDataGetter.getSportRecordData / getSportGpsData(sid, SportBasicReport)
    "obj_name": "<76 字符>", "obj_key": "<base64url，解出 16 字节>", "method": "GET", "expires_time": 1700001800}
   ```
   `expires_time` 是 Unix 秒（10 位整数），距请求约 1800 s。
-- **文件不存在时**（真机：给力量训练请求 GPS 文件）：照样返回该键，但**没有 `obj_key` 字段**；对其 URL 下载得 HTTP 404。app 在 `objectKey` 为空时直接放弃，不下载——我们照做，省一次请求。
+- **文件不存在时**（真机：给一次 `proto_type` 8 的运动请求 GPS 文件）：照样返回该键，但**没有 `obj_key` 字段**；对其 URL 下载得 HTTP 404。app 在 `objectKey` 为空时直接放弃，不下载——我们照做，省一次请求。
 
 ### 4.4 下载（真机）
 
@@ -263,10 +263,10 @@ APK 字段表的版本区间（`FourDimenDataInfo` 的 `supportVersion` / `maxSu
 - 它的字段名（`newDistance`、`heartRate`、`cadence`……）就是我们 A 层的命名来源；字段语义说明（单位、×10）是核对的线索。
 - 它的解释器（`BinarySchemaDecoder`）语义：小端；`bitField` 低位在前，除非 `highBitFirst`；`exists` 指针为 0 时元素不占字节；`valid` 指针为 0 时元素占字节但不出值；`itemCount: "EOF"` 读到末尾；`scale`/`offset` 线性变换。本期不实现它（§15 D2），记在这里给以后用。
 
-### 4.11 本账号的范围
+### 4.11 已核实的类型
 
-- 运动类型 {1 跑, 6 骑, 300 爬楼机, 308 力量训练}；后两者 `proto_type` 8（自由训练），`supportGpsSport(proto)` 只认 1、2、4、5、6、10、15、17、21–25，所以没有 GPS。
-- 真机共 4 条运动；本期覆盖其中 2 条的 record + GPS。
+- 已核实的运动类型 {1 跑, 6 骑, 300 爬楼机, 308 力量训练}；后两者 `proto_type` 8（自由训练），`supportGpsSport(proto)` 只认 1、2、4、5、6、10、15、17、21–25，所以没有 GPS。
+- 本期只覆盖跑（协议 22）和骑（协议 23）的 record + GPS。
 
 ---
 

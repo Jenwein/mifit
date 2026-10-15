@@ -42,7 +42,7 @@
 - With `limit=2`, the first page had `has_more=true` and a `next_key`. The second page, sent with that `next_key`, continued with no overlap and no gap against a one-page read.
 - `category:"running"` returned only the running workout.
 
-**Sport types on the account (ids only):** `{1, 6, 300, 308}`.
+**Sport types verified so far (ids only):** `{1, 6, 300, 308}`.
 - APK `FitnessSportType` names: `RUNNING_OUTDOOR=1`, `BIKING_OUTDOOR=6`, `CLIMBING_MACHINE=300`, `STRENGTH_TRAINING=308`.
 - The app's Health Connect mapping (`TypeConvert.convertMiToHealthConnectType`): 1→56 RUNNING, 6→8 BIKING, 300→69 STAIR_CLIMBING_MACHINE, 308→70 STRENGTH_TRAINING.
 
@@ -180,7 +180,7 @@
   - §2 返回形状与字段: the outer row; the value's present / optional keys; units and the verified relations from "Live-verified shapes"; the APK `isValid` bounds.
   - §3 时间窗、翻页、category: the `[S−1,S]` / `[S,S+1]` experiment and the rule; `limit=2` paging; the `category` filter, which the SDK does not use yet.
   - §4 运动类型:
-    - the four ids on the account and their neutral names;
+    - the four ids verified so far and their neutral names;
     - the source of truth for further ids: APK `com.xiaomi.fit.data.common.data.annotation.FitnessSportType` (names and ids) and `com.xiaomi.fitness.repo.healthconnect.biz.sport.TypeConvert` (the app's Health Connect mapping);
     - how to add a type: one entry in `_SPORTS`, one line in `test_maps_the_known_sport_types`, and a check against the app.
   - §5 B/A 划分与未决:
