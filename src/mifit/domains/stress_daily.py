@@ -24,7 +24,12 @@ from __future__ import annotations
 
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, as_float, as_positive_int, register
+from mifit.domains.base import (
+    DomainResult,
+    as_non_negative_int,
+    as_positive_int,
+    register,
+)
 from mifit.domains.daily_report import fetch_daily_summaries
 from mifit.models.stress import StressDailySummary
 from mifit.transport import Transport
@@ -72,16 +77,8 @@ def _summary(day: str, epoch_s: int, value: dict) -> StressDailySummary:
         avg_stress_level=as_positive_int(value.get("avg_stress")),
         max_stress_level=as_positive_int(value.get("max_stress")),
         min_stress_level=as_positive_int(value.get("min_stress")),
-        relaxed_min=_band_minutes(scale.get("relax")),
-        mild_min=_band_minutes(scale.get("mild")),
-        moderate_min=_band_minutes(scale.get("moderate")),
-        severe_min=_band_minutes(scale.get("severe")),
+        relaxed_min=as_non_negative_int(scale.get("relax")),
+        mild_min=as_non_negative_int(scale.get("mild")),
+        moderate_min=as_non_negative_int(scale.get("moderate")),
+        severe_min=as_non_negative_int(scale.get("severe")),
     )
-
-
-def _band_minutes(raw: object) -> int | None:
-    """Minutes in one stress band: ``0`` is a real value; absent, negative (a
-    fraction such as -0.5 included) or not a number gives ``None`` (``as_float``
-    rules). The sign is checked before the value is truncated to whole minutes."""
-    minutes = as_float(raw)
-    return None if minutes is None or minutes < 0 else int(minutes)

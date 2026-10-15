@@ -1,8 +1,8 @@
 """Shared domain plumbing: the result container, a minimal name registry,
 ``decode_value``, which decodes a row's JSON-string ``value``,
-``as_int`` / ``as_positive_int`` / ``as_float`` / ``as_positive_float``, the domains'
-common readings of a reported number, and ``stalled_note``, the caveat for a paged
-read that stalled.
+``as_int`` / ``as_positive_int`` / ``as_non_negative_int`` / ``as_float`` /
+``as_positive_float``, the domains' common readings of a reported number, and
+``stalled_note``, the caveat for a paged read that stalled.
 
 A domain is a function ``fn(transport, start_epoch_s, end_epoch_s) -> DomainResult``
 registered under a short name so callers can list and dispatch domains.
@@ -138,6 +138,17 @@ def as_positive_int(raw: object) -> int | None:
     reported", like an absent, negative or non-number value (``as_int`` rules)."""
     value = as_int(raw)
     return value if value is not None and value > 0 else None
+
+
+def as_non_negative_int(raw: object) -> int | None:
+    """A reported amount (a count, minutes, kcal) for which ``0`` is a real value,
+    meaning "none that day"; ``None`` when absent or unusable.
+
+    Unlike ``as_positive_int``, ``0`` is kept. A negative value (a fraction such as
+    -0.5 included) or a non-number gives ``None`` (``as_float`` rules): the sign is
+    checked before the value is truncated to a whole number."""
+    value = as_float(raw)
+    return None if value is None or value < 0 else int(value)
 
 
 def as_positive_float(raw: object) -> float | None:

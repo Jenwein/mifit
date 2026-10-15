@@ -10,6 +10,7 @@ from mifit.domains.base import (
     ValueProblem,
     as_float,
     as_int,
+    as_non_negative_int,
     as_positive_float,
     as_positive_int,
     decode_value,
@@ -117,6 +118,55 @@ def test_as_positive_int_keeps_positive_numbers(raw, expected):
 )
 def test_as_positive_int_rejects_zero_negatives_and_non_numbers(raw):
     assert as_positive_int(raw) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (0, 0),  # "none that day" is a real value
+        (0.0, 0),
+        (0.9, 0),  # truncated after the sign check
+        (45, 45),
+        (45.9, 45),
+        (1e3, 1000),
+    ],
+)
+def test_as_non_negative_int_keeps_zero_and_positive_numbers(raw, expected):
+    assert as_non_negative_int(raw) == expected
+    assert type(as_non_negative_int(raw)) is int
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        -1,
+        -0.5,  # the sign is checked before truncating, so this is not 0
+        None,
+        True,
+        False,
+        "30",
+        [30],
+        {"min": 30},
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    ],
+    ids=[
+        "negative",
+        "negative-fraction",
+        "none",
+        "true",
+        "false",
+        "str",
+        "list",
+        "dict",
+        "nan",
+        "inf",
+        "-inf",
+    ],
+)
+def test_as_non_negative_int_rejects_negatives_and_non_numbers(raw):
+    assert as_non_negative_int(raw) is None
 
 
 @pytest.mark.parametrize(
