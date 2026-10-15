@@ -1,0 +1,3 @@
+# The sdist is the package and its metadata. setuptools would otherwise add
+# tests/test*.py by default, without the conftest, helpers and fixtures they need.
+prune tests

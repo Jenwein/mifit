@@ -6,9 +6,26 @@ build-backend = "setuptools.build_meta"
 name = "mifit"
 version = "0.2.0"
 description = "Read your own Mi Fitness data from the Xiaomi cloud."
+readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES"]
 requires-python = ">=3.12"
+keywords = ["mi-fitness", "xiaomi", "health", "fitness", "wearable", "sleep", "heart-rate"]
+# No License classifier: the `license` expression above replaces it (PEP 639).
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
 dependencies = [
     "requests>=2.31",
     "qrcode>=7.4",
@@ -20,12 +37,22 @@ dependencies = [
 # systems that have none (Windows).
 test = ["pytest>=8", "tzdata"]
 
+[project.urls]
+Homepage = "https://github.com/Jenwein/mifit"
+Source = "https://github.com/Jenwein/mifit"
+Issues = "https://github.com/Jenwein/mifit/issues"
+Changelog = "https://github.com/Jenwein/mifit/blob/main/CHANGELOG.md"
+
 [project.scripts]
 mifit = "mifit.cli:main"
 
 # src layout: the ``mifit`` package (and its subpackages) live under src/.
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The marker that tells type checkers the package ships its own annotations.
+[tool.setuptools.package-data]
+mifit = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
