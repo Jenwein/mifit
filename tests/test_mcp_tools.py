@@ -187,6 +187,22 @@ def test_workout_start_accepts_any_offset_and_unix_seconds():
         assert tools.parse_workout_start(value) == 1790820000
 
 
+@pytest.mark.parametrize(
+    "value", [-5, "99999999999999999999999", "1900-01-01T00:00:00+00:00", 32503680000]
+)
+def test_workout_start_outside_any_workout_time_is_refused(value):
+    with pytest.raises(ToolFailure) as err:
+        tools.parse_workout_start(value)
+    assert str(err.value).startswith("workout_start must be a workout's start")
+
+
+@pytest.mark.parametrize("value", [1790820000000, "1790820000000"])
+def test_workout_start_in_milliseconds_gets_a_hint(value):
+    with pytest.raises(ToolFailure) as err:
+        tools.parse_workout_start(value)
+    assert str(err.value).endswith("(It looks like milliseconds: divide by 1000.)")
+
+
 @pytest.mark.parametrize("value", ["2026-10-01T10:00:00", "yesterday", True, "", "2026-10-01"])
 def test_workout_start_rejects_values_without_a_moment(value):
     with pytest.raises(ToolFailure) as err:

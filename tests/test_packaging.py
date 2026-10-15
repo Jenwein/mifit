@@ -140,6 +140,8 @@ def test_readme_mcp_section():
         assert text in section, text
     for name in P2_TOOLS:
         assert f"`{name}`" in section, name
+    # The privacy paragraph must not claim more than is true: login writes a file.
+    assert "the login tools save the new session" in " ".join(section.split())
 
 
 def test_version_is_0_3_0_with_its_changelog():

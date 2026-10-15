@@ -6,8 +6,10 @@ import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 
+import anyio
 import pytest
 import requests
+from mcp.server.mcpserver.exceptions import ToolError
 
 import mifit
 from mcp_fakes import (
@@ -317,6 +319,7 @@ def test_input_errors_read_nothing(fake):
         ("get_calories", {"start_date": "2026-09-01", "end_date": "2026-10-02"}),
         ("get_heart_rate", {"start_date": "2026-10-01", "end_date": "2026-10-08"}),
         ("get_workout_detail", {"workout_start": "2026-10-01"}),
+        ("get_workout_detail", {"workout_start": 1790820000000}),  # milliseconds
     ]:
         result = call_tool(server, name, arguments)
         assert result.is_error, name
@@ -379,6 +382,27 @@ def test_read_errors(fake, caplog, exc, text):
     assert result.is_error and text in text_of(result)
     for secret in SECRETS:
         assert secret not in text_of(result) and secret not in caplog.text
+
+
+def test_internal_errors_keep_no_link_to_the_original():
+    async def body():
+        raise RuntimeError("SYNTH-ORIGINAL-SECRET")
+
+    with pytest.raises(ToolError) as err:
+        anyio.run(server_module.guarded, "get_steps", body)
+    assert str(err.value) == "Internal error in mifit (RuntimeError)."
+    # Nothing leads back to the original, whose text may hold a credential.
+    assert err.value.__context__ is None and err.value.__cause__ is None
+
+
+def test_tool_failures_keep_their_message_and_no_link():
+    async def body():
+        raise errors.ToolFailure("start_date must be ...")
+
+    with pytest.raises(ToolError) as err:
+        anyio.run(server_module.guarded, "get_steps", body)
+    assert str(err.value) == "start_date must be ..."
+    assert err.value.__context__ is None
 
 
 def test_no_credential_in_any_output(caplog):
@@ -567,6 +591,17 @@ def test_success_switches_the_client(tmp_path):
     assert started["status"] == "succeeded" and account.saved
     assert not call_tool(server, "get_steps", {"start_date": "2026-10-02"}).is_error
     assert len(factory_calls) == 2  # the login dropped the old client
+    assert [c[0] for c in old.calls] == ["steps"] and [c[0] for c in new.calls] == ["steps"]
+
+
+def test_a_login_clears_the_cached_results(tmp_path):
+    old, new = FakeClient(), FakeClient(make_session(created_at="2026-10-15T01:00:00Z"))
+    clients = iter([old, new])
+    account = FakeAccount(tmp_path)
+    server = build(old, factory=lambda: next(clients), login=account.flow)
+    call_tool(server, "get_steps", ONE_DAY)
+    call_tool(server, "login_start")
+    call_tool(server, "get_steps", ONE_DAY)  # the same question, maybe another account now
     assert [c[0] for c in old.calls] == ["steps"] and [c[0] for c in new.calls] == ["steps"]
 
 

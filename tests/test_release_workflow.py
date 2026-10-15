@@ -119,6 +119,8 @@ def test_smoke_installs_the_built_wheel_on_three_systems_without_checkout():
 def test_smoke_runs_the_mcp_server_over_stdio():
     runs = _runs(JOBS["smoke"])
     assert '["mifit", "mcp"]' in runs and "tools/list" in runs and "get_status" in runs
+    # The server writes UTF-8; the Windows runner's locale code page is not.
+    assert 'encoding="utf-8"' in runs
 
 
 def test_github_release_follows_the_pypi_publish():

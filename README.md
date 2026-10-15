@@ -91,7 +91,8 @@ it ("how did I sleep last week?").
 sent to the assistant's model provider, like the rest of the conversation. The
 login stays in `~/.mifit` on this computer: the server runs locally on
 stdin/stdout, opens no network port, never puts a credential in a result, and
-only reads. GPS tracks are off: the server gives a workout's route only when it
+only reads your health data (the login tools save the new session to
+`~/.mifit`). GPS tracks are off: the server gives a workout's route only when it
 was started with `--allow-gps` *and* the assistant asks for it, and a route
 shows where you were, including where you live.
 

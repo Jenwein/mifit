@@ -217,6 +217,14 @@ def test_cache_evicts_least_recently_used():
     assert (cache.get("a"), cache.get("c")) == ("1", "3")
 
 
+def test_cache_clear_drops_every_entry():
+    cache = TtlCache(clock=Clock())
+    cache.put("a", "1")
+    cache.put("b", "2")
+    cache.clear()
+    assert (cache.get("a"), cache.get("b")) == (None, None)
+
+
 def test_cache_put_refreshes_age_and_recency():
     clock = Clock()
     cache = TtlCache(max_entries=2, clock=clock)

@@ -59,6 +59,7 @@ def test_stdout_carries_only_json_rpc():
         input="".join(json.dumps(m) + "\n" for m in HANDSHAKE),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=_env(),
         cwd=ROOT,
         timeout=120,
@@ -74,6 +75,9 @@ def test_stdout_carries_only_json_rpc():
     )
     assert init["instructions"] == INSTRUCTIONS
     assert {t["name"] for t in replies[1]["result"]["tools"]} == P2_TOOLS
+    # The protocol stream is UTF-8 whatever the console code page.
+    descriptions = {t["name"]: t["description"] for t in replies[1]["result"]["tools"]}
+    assert "活力指标" in descriptions["get_activity"]
     assert "MCP server on stdio (GPS tracks off)" in proc.stderr
 
 
@@ -83,6 +87,7 @@ def test_the_gps_flag_reaches_the_server_line():
         input="",
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=_env(),
         cwd=ROOT,
         timeout=120,

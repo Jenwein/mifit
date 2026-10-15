@@ -112,7 +112,7 @@ jobs:
               {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
           ]
           proc = subprocess.run(["mifit", "mcp"], input="".join(json.dumps(m) + "\n" for m in msgs),
-                                capture_output=True, text=True, timeout=120)
+                                capture_output=True, text=True, encoding="utf-8", timeout=120)
           assert proc.returncode == 0, proc.stderr
           replies = [json.loads(line) for line in proc.stdout.splitlines()]
           assert [r["id"] for r in replies] == [1, 2], replies

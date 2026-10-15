@@ -225,6 +225,30 @@ def test_save_failure(tmp_path):
     assert h.recorded == [] and h.switched == []
 
 
+@pytest.mark.parametrize("stage", ["save", "record", "on_success"])
+def test_an_unexpected_error_after_the_approval_still_ends_the_login(tmp_path, capsys, stage):
+    h = Harness(tmp_path)
+    boom = TypeError(f"boom {LP_URL}")
+
+    def fail(*args):
+        raise boom
+
+    if stage == "save":
+        h.save = fail
+    elif stage == "record":
+        h.record = fail
+    else:
+        h.flow._on_success = fail
+    h.flow._save, h.flow._record = h.save, h.record
+    h.flow.start()
+    view = h.finish()
+    assert view == LoginView("failed", "Login failed (TypeError).")
+    assert not h.qr_path.exists()
+    assert "SYNTH-LP-SECRET" not in capsys.readouterr().err
+    h.jobs.clear()
+    assert h.flow.start().status == "pending" and len(h.requests) == 2  # not stuck
+
+
 def test_qr_request_failure_is_failed_and_starts_nothing(tmp_path):
     h = Harness(tmp_path, request_error=requests.ReadTimeout("slow"))
     view = h.flow.start()

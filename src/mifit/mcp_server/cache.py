@@ -3,12 +3,14 @@
 AI clients often read the same range several times in one conversation; a cached
 result answers without another request to Xiaomi. Entries live ``ttl_s`` seconds
 (5 minutes by default, so newly synced data does not wait long) and at most
-``max_entries`` are kept, the least recently used going first. Nothing is written to
-disk: that would be one more copy of the user's health data.
+``max_entries`` are kept, the least recently used going first. A login clears it,
+since the new session may be another account's. Nothing is written to disk: that
+would be one more copy of the user's health data.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Hashable
@@ -17,8 +19,8 @@ __all__ = ["TtlCache"]
 
 
 class TtlCache:
-    """Encoded tool results by key. Not thread-safe: the server uses it only from its
-    event loop."""
+    """Encoded tool results by key. The server's event loop reads and fills it; a
+    login's background thread clears it, so every method holds a lock."""
 
     def __init__(
         self,
@@ -31,23 +33,31 @@ class TtlCache:
         self._max_entries = max_entries
         self._clock = clock
         self._entries: OrderedDict[Hashable, tuple[float, str]] = OrderedDict()
+        self._lock = threading.Lock()
 
     def get(self, key: Hashable) -> str | None:
         """The value stored under ``key`` less than ``ttl_s`` seconds ago, or ``None``."""
-        entry = self._entries.get(key)
-        if entry is None:
-            return None
-        stored_at, value = entry
-        if self._clock() - stored_at >= self._ttl_s:
-            del self._entries[key]
-            return None
-        self._entries.move_to_end(key)
-        return value
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            stored_at, value = entry
+            if self._clock() - stored_at >= self._ttl_s:
+                del self._entries[key]
+                return None
+            self._entries.move_to_end(key)
+            return value
 
     def put(self, key: Hashable, value: str) -> None:
         """Store ``value`` under ``key`` as of now, evicting the least recently used
         entries beyond ``max_entries``."""
-        self._entries[key] = (self._clock(), value)
-        self._entries.move_to_end(key)
-        while len(self._entries) > self._max_entries:
-            self._entries.popitem(last=False)
+        with self._lock:
+            self._entries[key] = (self._clock(), value)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        """Drop every entry."""
+        with self._lock:
+            self._entries.clear()

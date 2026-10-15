@@ -193,14 +193,20 @@ class LoginFlow:
             return False
 
     def _finish(self, challenge: Any, http: Any, device_id: str) -> None:
-        """The background job: wait for the approval and save the session."""
+        """The background job: wait for the approval and save the session. It always
+        ends with a final view, whatever goes wrong, so a login is never stuck
+        ``pending`` and nothing reaches the thread's stderr."""
+        failure = None
         try:
             final = self._approve(challenge, http, device_id)
-        finally:
-            try:
-                self._qr_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        except Exception as exc:
+            failure = exc
+        if failure is not None:
+            final = _failed(failure)
+        try:
+            self._qr_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         self._set(final)
 
     def _approve(self, challenge: Any, http: Any, device_id: str) -> LoginView:

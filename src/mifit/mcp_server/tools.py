@@ -386,23 +386,38 @@ def parse_range(
     return first, last
 
 
+_LATEST_START = 32503680000
+"""3000-01-01 UTC: no workout starts later, and every platform can show the time."""
+
+_MILLISECONDS = 10**12
+"""Unix *milliseconds* of any recent date are at least this large."""
+
+
 def parse_workout_start(value: str | int) -> int:
     """A workout's start in Unix seconds: from an ISO 8601 date-time with an offset
     (as ``get_workouts`` gives it, or with ``Z``), or from Unix seconds (an int or a
-    string of digits). Raises ``ToolFailure`` otherwise."""
+    string of digits) between 1970 and 3000. Raises ``ToolFailure`` otherwise, with
+    a hint when the value looks like milliseconds."""
+    seconds = None
     if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    if isinstance(value, str):
+        seconds = value
+    elif isinstance(value, str):
         text = value.strip()
         if _DIGITS.fullmatch(text):
-            return int(text)
-        try:
-            moment = datetime.fromisoformat(text)
-        except ValueError:
-            moment = None
-        if moment is not None and moment.utcoffset() is not None:
-            return int(moment.timestamp())
+            seconds = int(text)
+        else:
+            try:
+                moment = datetime.fromisoformat(text)
+            except ValueError:
+                moment = None
+            if moment is not None and moment.utcoffset() is not None:
+                seconds = int(moment.timestamp())
+    if seconds is not None and 0 <= seconds < _LATEST_START:
+        return seconds
+    hint = ""
+    if seconds is not None and _MILLISECONDS <= seconds < _LATEST_START * 1000:
+        hint = " (It looks like milliseconds: divide by 1000.)"
     raise ToolFailure(
         "workout_start must be a workout's start as get_workouts gives it, such as "
-        "2026-10-01T10:00:00+08:00, or Unix seconds."
+        "2026-10-01T10:00:00+08:00, or Unix seconds." + hint
     )

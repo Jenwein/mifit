@@ -2,7 +2,7 @@
 
 Every tool answers with one text block of compact JSON (``present.encode``) and
 declares no output schema (``structured_output=False``): a structured copy would
-reach the AI client's context twice. Each tool body runs inside ``tool_errors``, so
+reach the AI client's context twice. Each tool body runs through ``guarded``, so
 a failure reaches the client as a ``ToolError`` with a safe one-line message; the
 SDK would otherwise log an unexpected exception with its full text and traceback,
 and the text of a network error holds the URL it was fetching.
@@ -16,13 +16,12 @@ minutes (``TtlCache``); ``get_status`` is not cached and never opens a client.
 
 from __future__ import annotations
 
-import contextlib
 import functools
 import logging
 import time
-from collections.abc import Awaitable, Callable, Hashable, Iterator
+from collections.abc import Awaitable, Callable, Hashable
 from datetime import date, datetime, tzinfo
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeVar
 
 import anyio
 from mcp.server import MCPServer
@@ -64,7 +63,7 @@ __all__ = [
     "READ_ANNOTATIONS",
     "SERVER_NAME",
     "build_server",
-    "tool_errors",
+    "guarded",
 ]
 
 SERVER_NAME = "mifit"
@@ -96,6 +95,8 @@ LOGIN_ANNOTATIONS = ToolAnnotations(
 
 logger = logging.getLogger("mifit.mcp_server")
 
+T = TypeVar("T")
+
 # The tools' parameters, with the descriptions the AI client reads.
 StartDate = Annotated[str, Field(description=tools.START_DATE_DOC)]
 EndDate = Annotated[str | None, Field(description=tools.END_DATE_DOC)]
@@ -111,24 +112,24 @@ IncludeTrack = Annotated[bool, Field(description=tools.INCLUDE_TRACK_DOC)]
 _SERIES = {"heart_rate": ("bpm", "heart rate"), "spo2": ("spo2_pct", "SpO2")}
 
 
-@contextlib.contextmanager
-def tool_errors(name: str) -> Iterator[None]:
-    """Turn what a tool body raises into a ``ToolError`` the client may see.
+async def guarded(name: str, body: Callable[[], Awaitable[T]]) -> T:
+    """``await body()``, with what it raises turned into a ``ToolError`` the client
+    may see.
 
     A ``ToolFailure`` keeps its (safe) message. Anything else is named by its type
     only, here and in the one log line, because its text may hold a credential.
     """
     try:
-        yield
+        return await body()
     except ToolFailure as failure:
         message = str(failure)
     except Exception as exc:
         kind = type(exc).__name__
         logger.error("%s failed (%s)", name, kind)
         message = f"Internal error in mifit ({kind})."
-    else:
-        return
-    # Raised outside the ``except`` blocks: the error leads back to no original.
+    # Raised here, after the handlers have ended, so the error leads back to no
+    # original (a context manager could not do this: its exit runs while the
+    # original is still being handled).
     raise ToolError(message)
 
 
@@ -332,13 +333,15 @@ class _Tools:
 
 def _daily_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable[str]]:
     async def daily(start_date: StartDate, ctx: Context, end_date: EndDate = None) -> str:
-        with tool_errors(tool.name):
+        async def body() -> str:
             first, last = tools.parse_range(
                 start_date, end_date, max_days=tool.max_days, tool=tool.name
             )
             return await state.cached(
                 (tool.name, first, last), lambda: state.daily_text(tool, first, last, ctx)
             )
+
+        return await guarded(tool.name, body)
 
     return daily
 
@@ -350,7 +353,7 @@ def _sleep_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable[
         end_date: EndDate = None,
         include_stages: IncludeStages = False,
     ) -> str:
-        with tool_errors(tool.name):
+        async def body() -> str:
             if include_stages:
                 max_days = tools.SLEEP_STAGES_MAX_DAYS
                 label = f"{tool.name} with include_stages=true"
@@ -362,6 +365,8 @@ def _sleep_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable[
                 lambda: state.sleep_text(tool, first, last, include_stages, ctx),
             )
 
+        return await guarded(tool.name, body)
+
     return sleep
 
 
@@ -372,7 +377,7 @@ def _series_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable
         end_date: EndDate = None,
         interval_min: IntervalMin = None,
     ) -> str:
-        with tool_errors(tool.name):
+        async def body() -> str:
             first, last = tools.parse_range(
                 start_date, end_date, max_days=tool.max_days, tool=tool.name
             )
@@ -380,6 +385,8 @@ def _series_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable
                 (tool.name, first, last, interval_min),
                 lambda: state.series_text(tool, first, last, interval_min, ctx),
             )
+
+        return await guarded(tool.name, body)
 
     return series
 
@@ -390,7 +397,7 @@ def _detail_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable
         interval_s: IntervalS = None,
         include_track: IncludeTrack = False,
     ) -> str:
-        with tool_errors(tool.name):
+        async def body() -> str:
             start = tools.parse_workout_start(workout_start)
             if include_track and not state.allow_gps:
                 raise ToolFailure(GPS_DISABLED)
@@ -399,6 +406,8 @@ def _detail_tool(state: _Tools, tool: tools.DataTool) -> Callable[..., Awaitable
                 (tool.name, start, interval_s, track),
                 lambda: state.detail_text(tool, start, interval_s, track),
             )
+
+        return await guarded(tool.name, body)
 
     return detail
 
@@ -430,7 +439,7 @@ def build_server(
     stored session for ``get_status`` (``mifit.auth.session.load_session``).
     ``login_factory(on_success)`` makes the QR login of ``login_start`` (a
     ``LoginFlow`` by default); ``on_success`` drops the server's client, so the next
-    read opens the newly saved session.
+    read opens the newly saved session, and clears the cached results.
     """
 
     def default_factory() -> Any:
@@ -446,10 +455,18 @@ def build_server(
         return LoginFlow(on_success=on_success)
 
     access = Access(client_factory or default_factory)
-    login = (login_factory or default_login)(access.reset)
+    cache = TtlCache(clock=clock)
+
+    def logged_in() -> None:
+        # The new session may be another account's: open it, and forget the old
+        # account's results.
+        access.reset()
+        cache.clear()
+
+    login = (login_factory or default_login)(logged_in)
     state = _Tools(
         access,
-        TtlCache(clock=clock),
+        cache,
         allow_gps=allow_gps,
         tz=tz,
         now=now or default_now,
@@ -458,33 +475,40 @@ def build_server(
     )
     server = MCPServer(SERVER_NAME, version=mifit.__version__, instructions=INSTRUCTIONS)
 
+    async def status_text() -> str:
+        return encode(state.status())
+
     async def get_status() -> str:
-        with tool_errors("get_status"):
-            return encode(state.status())
+        return await guarded("get_status", status_text)
 
     async def get_profile() -> str:
-        with tool_errors("get_profile"):
-            return await state.cached(("get_profile",), state.profile_text)
+        return await guarded(
+            "get_profile", lambda: state.cached(("get_profile",), state.profile_text)
+        )
+
+    async def start_login() -> Any:
+        view = await anyio.to_thread.run_sync(login.start)
+        text = encode(
+            {
+                "tool": "login_start",
+                "status": view.status,
+                "message": view.message,
+                "login_url": view.login_url,
+            }
+        )
+        if view.png:
+            return [text, Image(data=view.png, format="png")]
+        return text
 
     async def login_start() -> Any:
-        with tool_errors("login_start"):
-            view = await anyio.to_thread.run_sync(login.start)
-            text = encode(
-                {
-                    "tool": "login_start",
-                    "status": view.status,
-                    "message": view.message,
-                    "login_url": view.login_url,
-                }
-            )
-            if view.png:
-                return [text, Image(data=view.png, format="png")]
-            return text
+        return await guarded("login_start", start_login)
+
+    async def login_view_text() -> str:
+        view = login.view()
+        return encode({"tool": "login_status", "status": view.status, "message": view.message})
 
     async def login_status() -> str:
-        with tool_errors("login_status"):
-            view = login.view()
-            return encode({"tool": "login_status", "status": view.status, "message": view.message})
+        return await guarded("login_status", login_view_text)
 
     def add(
         fn: Callable[..., Any],
