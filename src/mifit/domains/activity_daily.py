@@ -71,8 +71,9 @@ def fetch_activity_daily(
 
     One request per key (``READS``). There is one record per local date that any
     key has a row for, newest first; a figure whose key has no row for that date is
-    ``None``, and when a key has two rows for one date the first one read gives the
-    figure (``raw`` keeps both). A window with no rows gives an empty result, never
+    ``None``, and when a key has several rows for one date the first usable figure
+    read gives it (a row whose figure is ``None`` never hides a later usable one;
+    ``raw`` keeps every row). A window with no rows gives an empty result, never
     a fabricated figure. ``0`` is a real value for every figure (none that day); an
     absent, negative or non-number figure becomes ``None``.
 
@@ -99,8 +100,11 @@ def fetch_activity_daily(
         result.notes.extend(part.notes)
         for day, epoch_s, figure in part.records:
             epoch_of.setdefault(day, epoch_s)
-            # The first row read for a date gives that date's figure.
-            figures_of.setdefault(day, {}).setdefault(read.summary_field, figure)
+            # The first usable figure read for a date gives that date's figure; a
+            # row with none leaves the date present but does not hide a later one.
+            day_figures = figures_of.setdefault(day, {})
+            if day_figures.get(read.summary_field) is None:
+                day_figures[read.summary_field] = figure
 
     for day in sorted(figures_of, reverse=True):  # ISO dates: newest first
         found = figures_of[day]

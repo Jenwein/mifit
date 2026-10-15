@@ -12,6 +12,8 @@ zone; notes/06) and ``value`` is a JSON string holding that key's figure.
 import dataclasses
 from datetime import timedelta, timezone
 
+import pytest
+
 from mifit.domains.activity_daily import fetch_activity_daily
 from mifit.domains.base import REGISTRY, stalled_note
 from mifit.models.activity import ActivityDailySummary
@@ -146,14 +148,23 @@ def test_zero_is_a_real_value():
     assert result.records == [S("2025-10-14", DAY_1, 0, 0, 0)]
 
 
-def test_missing_negative_or_non_numeric_figures_become_none():
-    values = [{}, {"count": None}, {"count": -1}, {"count": "9"}, {"count": True}]
-    transport = fake(stand=[(DAY_1 + k * 86400, v) for k, v in enumerate(values)])
+@pytest.mark.parametrize(
+    ("rows_of", "field", "attribute"),
+    [
+        pytest.param("stand", "count", "activity_count", id="valid_stand"),
+        pytest.param("intensity", "duration", "activity_min", id="intensity"),
+        pytest.param("calories", "calories", "active_kcal", id="calories"),
+    ],
+)
+def test_missing_negative_or_non_numeric_figures_become_none(rows_of, field, attribute):
+    values = [{}, {field: None}, {field: -1}, {field: "9"}, {field: True}]
+    rows = [(DAY_1 + k * 86400, v) for k, v in enumerate(values)]
+    transport = fake(**{rows_of: rows})
 
     result = fetch_activity_daily(transport, START, DAY_1 + 4 * 86400 + 86399, tz=UTC)
 
     assert len(result.records) == 5
-    assert all(record.activity_count is None for record in result.records)
+    assert all(getattr(record, attribute) is None for record in result.records)
     assert result.notes == []
 
 
@@ -209,6 +220,16 @@ def test_second_row_of_a_key_for_the_same_day_is_ignored():
     (record,) = result.records
     assert record.activity_count == 9
     assert result.raw == [{"count": 9}, {"count": 3}]
+
+
+def test_unusable_first_row_of_a_key_does_not_hide_a_later_usable_one():
+    transport = fake(stand=[(DAY_1, {}), (DAY_1, {"count": 9})])
+
+    result = fetch_activity_daily(transport, START, END, tz=UTC)
+
+    (record,) = result.records
+    assert record.activity_count == 9
+    assert result.raw == [{}, {"count": 9}]
 
 
 def test_unverified_fields_stay_out_of_the_summary():

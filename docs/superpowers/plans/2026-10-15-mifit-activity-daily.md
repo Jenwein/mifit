@@ -114,7 +114,7 @@
   - **The merge:**
     - there is one record per date found in any key's records, and a figure whose key has no record for that date is `None`;
     - records are sorted newest date first;
-    - when one key has two rows for the same date, the first one read gives the figure (`raw` keeps both).
+    - when one key has several rows for the same date, the first usable figure (not `None`) read gives it (`raw` keeps every row); see Decision 8.
   - **`raw` and `notes`:** `raw` is the three reads' `raw` lists concatenated in table order (the `valid_stand` values, then `intensity`, then `calories`, each in the service's order). `notes` are the three reads' notes concatenated in the same order.
   - **The module docstring** says:
     - the day rules are steps' (notes/06);
@@ -145,6 +145,7 @@
     - `test_raw_holds_each_keys_values_in_key_order`: raw is the `valid_stand` values, then the `intensity` values, then the `calories` values, each untouched. The calories value carries an extra `"goal": 500` and the intensity value an extra `"process": [1]`, both kept.
     - `test_notes_name_the_figure_and_follow_key_order`: the `valid_stand` row has outer time `"x"`, the `intensity` value is `"not json"` and the `calories` value is `"[1]"`. Then `notes == ["Skipped a daily activity-count row without a usable day timestamp.", "Skipped a daily activity-time row whose value is missing or not JSON.", "Skipped a daily active-calorie row whose value is not an object."]`, `records == []`, and `raw == [<the valid_stand value>]`.
     - `test_second_row_of_a_key_for_the_same_day_is_ignored`: `valid_stand` rows `(DAY_1, {"count": 9})` and then `(DAY_1, {"count": 3})` give `activity_count == 9`, and `raw` holds both values.
+    - `test_unusable_first_row_of_a_key_does_not_hide_a_later_usable_one` (added in the final-review fix): `valid_stand` rows `(DAY_1, {})` and then `(DAY_1, {"count": 9})` give `activity_count == 9`.
     - `test_unverified_fields_stay_out_of_the_summary`: the dataclass field names are `{"date", "epoch_s", "activity_count", "activity_min", "active_kcal"}`.
     - `test_empty_window_yields_no_records_and_no_notes`: three calls are still sent, and `records`, `raw` and `notes` are all empty.
     - `test_stalled_reads_say_so_per_key`: with `stalled=True` and one DAY_1 row per key, `notes == [stalled_note("daily activity-count rows"), stalled_note("daily activity-time rows"), stalled_note("daily active-calorie rows")]`, and the DAY_1 record is still returned.
@@ -236,7 +237,7 @@
    - Three requests per call (and per month chunk) are within the low-frequency rule.
 6. **`raw` is grouped by key** (one section per key, in service order), not by day. Rows without a usable day have no place in a day order, and grouping by day would need a decode loop of the domain's own. The cost is that a chunked read's merged `raw` holds the same values in another order, as `sleep`'s does. `chunks.py` documents this, and `test_chunks` compares it as a multiset.
 7. **Records are sorted newest date first.** The other daily domains get that order from the service (`reverse`). The merge has to sort, so that chunked and single reads give equal `records`.
-8. **When one key has two rows for the same day, the first row read wins** (`raw` keeps both). This was never seen live, but the rule makes the result deterministic.
+8. **When one key has several rows for the same day, the first usable figure (not `None`) wins** (`raw` keeps every row). A row whose figure is `None` does not hide a later usable one. This was never seen live, but the rule makes the result deterministic. 2026-10-15: changed to first usable figure (it was "the first row read wins").
 9. **`calories` and `consumption` both stay.** `consumption` costs one request per day and adds resting, intake and total calories. `activity_daily` keeps the app page's three figures together. There is no cross-check note.
 10. **`goal` and `process` stay A-only.** The APK declares them but they never appeared live (design §2).
 11. **`as_non_negative_int` goes into `base.py` in its own task**, replacing `stress_daily._band_minutes`, which follows the same rule. Two users justify a shared reading, and the existing stress tests guard the swap. A reviewer can reject this step without rejecting the domain.
