@@ -22,6 +22,7 @@ from mifit.auth.lifetime import record_event
 from mifit.auth.qr import login_qr as _login_qr
 from mifit.auth.renew import renew_session
 from mifit.auth.session import Session, load_session, save_session
+from mifit.domains.activity_daily import fetch_activity_daily
 from mifit.domains.base import DomainResult, stalled_note
 from mifit.domains.consumption import fetch_consumption
 from mifit.domains.days import local_midnight, parse_day
@@ -362,6 +363,18 @@ class MiFit:
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
         )
 
+    def activity_daily(self, start: DateArg, end: DateArg) -> DomainResult:
+        """Daily activity summaries from ``start`` to ``end`` (inclusive days).
+
+        One record per local day that any of the three figures has data for, giving
+        the activity count, the activity minutes and the active calories as the
+        app's activity page shows them. Each call sends three requests, one per
+        figure.
+        """
+        return fetch_activity_daily(
+            self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)
+        )
+
     def spo2(self, start: DateArg, end: DateArg) -> DomainResult:
         """Raw all-day SpO2 samples from ``start`` to ``end``.
 
@@ -498,12 +511,13 @@ class MiFit:
         already yielded stay valid. ``mifit.chunks.merge_chunks`` turns the parts
         into one result: its ``records`` equal a single read of the range, and so
         does its ``raw`` except for ``sleep`` (one block of daily values and
-        matched sessions per chunk), and for ``workout_detail`` only while each
-        call stays within its 10-workout cap; with more than one chunk, each note
-        starts with its chunk's label. Unknown domains, dates that are not
-        ``"YYYY-MM-DD"`` strings, a reversed range and a truthy ``full`` option
-        (a backward read cannot be chunked) are refused before anything is read
-        (see ``mifit.chunks.read_chunks``).
+        matched sessions per chunk) and ``activity_daily`` (one section per key
+        per chunk), and for ``workout_detail`` only while each call stays within
+        its 10-workout cap; with more than one chunk, each note starts with its
+        chunk's label. Unknown domains, dates that are not ``"YYYY-MM-DD"``
+        strings, a reversed range and a truthy ``full`` option (a backward read
+        cannot be chunked) are refused before anything is read (see
+        ``mifit.chunks.read_chunks``).
         """
         return chunks.read_chunks(
             self, domain, start, end, size=size, skip=skip, options=options

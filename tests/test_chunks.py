@@ -3,9 +3,9 @@
 The chunked-read tests run ``MiFit`` over ``WindowFake``, a model of the service's
 window rule, so a merged chunked read of every registered domain can be compared
 with a single read of the same range: equal records, and equal raw (as a multiset
-for sleep, whose raw comes in per-chunk sections). ``workout_detail`` also gets its
-link requests and downloads from a ``FakeFdsService`` (``DetailWindowFake``). Every
-row and file here is synthetic.
+for sleep and activity_daily, whose raw comes in per-chunk sections).
+``workout_detail`` also gets its link requests and downloads from a
+``FakeFdsService`` (``DetailWindowFake``). Every row and file here is synthetic.
 """
 
 import copy
@@ -177,6 +177,10 @@ def stress_daily_figures(n):
     return {"avg_stress": 30 + n % 20, "max_stress": 70 + n % 25, "min_stress": 5 + n % 10}
 
 
+def activity_daily_figures(n):
+    return {"count": n % 13, "duration": 20 + n % 60, "calories": 150 + n}
+
+
 def heart_rate_sample(n, moment):
     return {"time": moment, "bpm": 55 + n % 60, "type": 1}
 
@@ -264,6 +268,13 @@ COMPARISONS = [
         lambda: WindowFake(daily_reports(stress_daily_figures)),
         {"data_list"},
     ),
+    # WindowFake serves the same rows to all three keys (valid_stand, intensity,
+    # calories); each read picks its own field from them.
+    (
+        "activity_daily",
+        lambda: WindowFake(daily_reports(activity_daily_figures)),
+        {"data_list"},
+    ),
     ("heart_rate", lambda: WindowFake(raw_points(heart_rate_sample)), {"data_list"}),
     ("spo2", lambda: WindowFake(raw_points(spo2_sample)), {"data_list"}),
     ("weight", lambda: WindowFake(raw_points(weight_sample)), {"data_list"}),
@@ -275,6 +286,10 @@ COMPARISONS = [
 ]
 """``(domain, make_fake, list_keys)`` for every registered domain, each over rows
 that run past the read range on both sides."""
+
+SECTIONED_RAW = {"sleep", "activity_daily"}
+"""Domains whose single read's raw comes in sections, so a merged chunked read holds
+the same values in another order."""
 
 
 def raw_as_multiset(raw):
@@ -432,9 +447,11 @@ def test_read_chunks_matches_single_read(windowed, domain, make_fake, list_keys)
         # Every file was read, so the samples and tracks are compared too.
         assert all(detail.samples and detail.track for detail in single.records)
     assert merged.records == single.records
-    if domain == "sleep":
+    if domain in SECTIONED_RAW:
         # Sleep's raw is two sections, the daily values and then the matched raw
-        # sessions; merged, those sections come once per chunk (merge_chunks).
+        # sessions; merged, those sections come once per chunk (merge_chunks). An
+        # activity_daily read's raw is one section per key, so merged it holds
+        # those sections once per chunk.
         assert merged.raw != single.raw
         assert raw_as_multiset(merged.raw) == raw_as_multiset(single.raw)
     else:

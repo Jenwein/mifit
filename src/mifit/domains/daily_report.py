@@ -11,9 +11,10 @@ local days, as the service sent them. ``passthrough.fetch_daily_rows`` and ``ste
 read their rows through it.
 
 ``fetch_daily_summaries`` is the whole fetch of a daily summary domain
-(``heart_rate_daily``, ``spo2_daily``, ``stress_daily``): it decodes each row, keeps
-the decoded values in ``raw``, finds each row's day and leaves the record itself to
-the domain's ``summarize``. Its notes are worded with the domain's ``what``.
+(``heart_rate_daily``, ``spo2_daily`` and ``stress_daily``, plus ``activity_daily``,
+which calls it once per key): it decodes each row, keeps the decoded values in
+``raw``, finds each row's day and leaves the record itself to the domain's
+``summarize``. Its notes are worded with the domain's ``what``.
 
 ``steps`` and ``sleep`` keep their own loops, because their notes and their day
 parsing differ: they read the outer ``time`` with ``int()``, and a row also needs

@@ -85,9 +85,9 @@
 | `sleep` | daily_report | `CloudSleepReport` | `total_duration, sleep_deep_duration, sleep_light_duration, sleep_awake_duration, sleep_score, sleep_stage, avg_hr, avg_spo2, max_hr?, min_hr?, day_sleep_evaluation, long_sleep_evaluation, segment_details`（list of object） | 7 天 1–10 | app 已核对 | `sleep` |
 | `spo2` | daily_report | `CloudSpo2Report` | `avg_spo2, max_spo2, min_spo2, lack_spo2_count, latest_spo2`（object） | 7 天 1–10 | app 已核对 | `spo2_daily` |
 | `stress` | daily_report | `CloudStressReport` | `avg_stress, max_stress, min_stress`（int），`stress_scale`（object：`relax, mild, moderate, severe`） | 7 天 1–10 | app 已核对 | `stress_daily` |
-| `calories` | daily_report | `CloudCaloriesReport` | `calories`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
-| `intensity` | daily_report | `CloudHMStrengthReport` | `duration`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
-| `valid_stand` | daily_report | `CloudStandReport` | `count`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
+| `calories` | daily_report | `CloudCaloriesReport` | `calories`（int） | 7 天 1–10 | app 已核对 | `activity_daily` |
+| `intensity` | daily_report | `CloudHMStrengthReport` | `duration`（int） | 7 天 1–10 | app 已核对 | `activity_daily` |
+| `valid_stand` | daily_report | `CloudStandReport` | `count`（int） | 7 天 1–10 | app 已核对 | `activity_daily` |
 | `vo2_max` | daily_report | `CloudVo2MaxReport` | APK：`avg_vo2_max, max_vo2_max, min_vo2_max, …` | 无 | — | — |
 | `blood_pressure` | daily_report | `CloudBloodPressureReport` | — | 无 | — | — |
 | `energy` | daily_report | — | — | 无 | — | — |

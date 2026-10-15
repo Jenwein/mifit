@@ -8,8 +8,9 @@ A chunk is a block of whole local days. Each domain has a size (``DOMAIN_CHUNK``
   margin of ``raw_window``), so a week costs one day of margin where day chunks
   would double every read.
 * The daily-report domains (``steps``, ``heart_rate_daily``, ``sleep``,
-  ``spo2_daily``, ``stress_daily``) use ``month``: 31 daily rows fit one page at
-  ``limit`` 50.
+  ``spo2_daily``, ``stress_daily``, ``activity_daily``) use ``month``: 31 daily
+  rows fit one page at ``limit`` 50. ``activity_daily`` reads three keys, so its
+  chunk is three such requests.
 * ``consumption`` uses ``month``: it sends one request per day either way, so a
   chunk is 31 one-day requests, which is also the step a resumed read restarts from.
 * ``workouts`` and ``weight`` use ``month``: their rows are sparse.
@@ -26,12 +27,14 @@ Chunks are planned newest-first, as the paging domains' ``reverse`` reads return
 their rows, except for the domains in ``OLDEST_FIRST`` (``consumption``, whose
 single read walks the days oldest-first). Merged in that order
 (``merge_chunks``), a chunked read's ``records`` equal one read of the whole
-range, order included, and so does its ``raw`` for every domain but ``sleep``,
-and for ``workout_detail`` only while each call stays within its 10-workout cap.
-A single sleep read's ``raw`` has two sections, the daily values and then the
-matched raw sessions, so merged it holds those two sections once per chunk, in
-chunk order: the same values in another order. With more than one chunk the
-notes carry their chunk's label, so they differ from a single read's too.
+range, order included, and so does its ``raw`` for every domain but ``sleep``
+and ``activity_daily``, and for ``workout_detail`` only while each call stays
+within its 10-workout cap. A single read of either gives its ``raw`` in
+sections: ``sleep`` the daily values and then the matched raw sessions,
+``activity_daily`` one section per key. Merged, a chunked read holds those
+sections once per chunk, in chunk order: the same values in another order. With
+more than one chunk the notes carry their chunk's label, so they differ from a
+single read's too.
 
 The raw reads of ``heart_rate``, ``spo2`` and ``weight`` start one day early (the
 margin of ``raw_window``), so neighbouring chunks' requests overlap by a day. A row
@@ -69,6 +72,7 @@ DOMAIN_CHUNK: dict[str, ChunkSize] = {
     "workout_detail": "week",
     "spo2_daily": "month",
     "stress_daily": "month",
+    "activity_daily": "month",
     "spo2": "week",
     "weight": "month",
 }
@@ -205,13 +209,15 @@ def merge_chunks(parts: Sequence[tuple[Chunk, DomainResult]]) -> DomainResult:
     ``records`` and ``raw`` are concatenated. For the parts of ``read_chunks``,
     in the order it yields them, ``records`` equal a single read of the whole
     range (for ``workout_detail``, while each call stays within its 10-workout
-    cap). ``raw`` does too, except for ``sleep``: its raw comes as one block of
-    daily values and matched sessions per chunk, in chunk order, where a single
-    read gives all the daily values first. With more than one part every note is
-    prefixed with its chunk's label (``"<label>: <note>"``), so a repeated note
-    says which chunk it came from; a single part's notes are kept as they are.
-    (A row without a usable time in the day two raw reads share can be noted by
-    both chunks; see the module docstring.) No parts give an empty result.
+    cap). ``raw`` does too, except for ``sleep`` and ``activity_daily``: their
+    raw comes as one block of sections per chunk, in chunk order (``sleep``: the
+    daily values, then the matched sessions; ``activity_daily``: one section per
+    key), where a single read gives each section once, for the whole range. With
+    more than one part every note is prefixed with its chunk's label
+    (``"<label>: <note>"``), so a repeated note says which chunk it came from; a
+    single part's notes are kept as they are. (A row without a usable time in the
+    day two raw reads share can be noted by both chunks; see the module
+    docstring.) No parts give an empty result.
     """
     merged = DomainResult()
     labeled = len(parts) > 1

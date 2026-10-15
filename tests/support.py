@@ -97,10 +97,13 @@ class PagedFake(Transport):
 
     ``payload`` is a decrypted envelope (``{"code": 0, "result": {list_key: [...]}}``)
     served for every endpoint; ``by_endpoint`` maps an endpoint path to its own
-    envelope (an endpoint it does not name gets ``payload``). ``errors`` maps an
-    endpoint path to the exception its paged read raises. Every paged read reports
-    ``truncated`` and ``stalled`` as given; ``stalled_endpoints``, when given,
-    narrows ``stalled`` to those endpoint paths.
+    envelope (an endpoint it does not name gets ``payload``). ``by_key`` maps the
+    ``key`` in a paged request's ``data_obj`` to its own envelope and is checked
+    first; a paged request without a ``key``, or with one it does not name, falls
+    through to ``by_endpoint`` and ``payload``. ``errors`` maps an endpoint path to
+    the exception its paged read raises. Every paged read reports ``truncated`` and
+    ``stalled`` as given; ``stalled_endpoints``, when given, narrows ``stalled`` to
+    those endpoint paths.
 
     Each paged read, through ``get_paged`` or ``get_paged_result``, is recorded in
     ``calls``; each ``get_json`` in ``json_calls``. Needs no session and no HTTP
@@ -112,6 +115,7 @@ class PagedFake(Transport):
         payload=None,
         *,
         by_endpoint=None,
+        by_key=None,
         errors=None,
         truncated=False,
         stalled=False,
@@ -119,6 +123,7 @@ class PagedFake(Transport):
     ):
         self._payload = payload
         self._by_endpoint = by_endpoint or {}
+        self._by_key = by_key or {}
         self._errors = errors or {}
         self._truncated = truncated
         self._stalled = stalled
@@ -150,7 +155,12 @@ class PagedFake(Transport):
         error = self._errors.get(endpoint_path)
         if error is not None:
             raise error
-        body = self._payload_for(endpoint_path).get("result") or {}
+        key = (data_obj or {}).get("key")
+        if key in self._by_key:
+            envelope = self._by_key[key] or {}
+        else:
+            envelope = self._payload_for(endpoint_path)
+        body = envelope.get("result") or {}
         stalled = self._stalled and (
             self._stalled_endpoints is None or endpoint_path in self._stalled_endpoints
         )

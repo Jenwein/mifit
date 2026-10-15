@@ -9,6 +9,7 @@ from mifit.errors import (
     NotificationRequiredError,
     RenewalError,
 )
+from mifit.models.activity import ActivityDailySummary
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
 from mifit.models.profile import UserProfile
@@ -42,6 +43,7 @@ __all__ = [
     "Spo2DailySummary",
     "Spo2Point",
     "StressDailySummary",
+    "ActivityDailySummary",
     "WeightRecord",
     "UserProfile",
 ]
