@@ -95,7 +95,13 @@ def test_maps_basics():
     result = fetch_profile(FakeTransport(envelope(profile_result())))
 
     assert result.records == [
-        UserProfile(height_cm=175.0, weight_kg=70.0, step_goal=8000, calorie_goal_kcal=300)
+        UserProfile(
+            height_cm=175.0,
+            weight_kg=70.0,
+            step_goal=8000,
+            calorie_goal_kcal=300,
+            activity_goal_min=30,
+        )
     ]
     (profile,) = result.records
     # The service sends whole numbers; the measurements are floats all the same.
@@ -125,7 +131,13 @@ def test_missing_or_zero_basics_become_none():
     result = fetch_profile(FakeTransport(envelope(sent)))
 
     assert result.records == [
-        UserProfile(height_cm=None, weight_kg=None, step_goal=None, calorie_goal_kcal=None)
+        UserProfile(
+            height_cm=None,
+            weight_kg=None,
+            step_goal=None,
+            calorie_goal_kcal=None,
+            activity_goal_min=30,
+        )
     ]
     assert result.raw == [sent]
     assert result.notes == []
@@ -146,7 +158,90 @@ def test_unverified_and_personal_fields_stay_out_of_b():
         "weight_kg",
         "step_goal",
         "calorie_goal_kcal",
+        "activity_goal_min",
     }
+
+
+@pytest.mark.parametrize(
+    "goals",
+    [
+        [{"field": 1, "target": 8000}, {"field": 4, "target": 45}],
+        [{"field": 4, "target": 45}, {"field": 2, "target": 300}],
+        ["junk", None, {"field": 4, "target": 45}],
+        [{"field": 4, "target": 45}, {"field": 4, "target": 60}],
+        [{"field": 4.0, "target": 45.9}],
+    ],
+    ids=["after-others", "before-others", "after-junk", "first-of-two", "floats"],
+)
+def test_activity_goal_is_the_first_field_4_target(goals):
+    sent = profile_result(regular_goal_list=goals)
+
+    (profile,) = fetch_profile(FakeTransport(envelope(sent))).records
+
+    assert profile.activity_goal_min == 45
+
+
+@pytest.mark.parametrize(
+    "goals",
+    [
+        ABSENT,
+        None,
+        {"field": 4, "target": 30},
+        [],
+        [{"field": 1, "target": 8000}, {"field": 2, "target": 300}],
+        [{"field": "4", "target": 30}],
+        [{"field": True, "target": 30}],
+        [{"field": 4}],
+        [{"field": 4, "target": 0}],
+        [{"field": 4, "target": -30}],
+        [{"field": 4, "target": "30"}],
+        [{"field": 4, "target": 0}, {"field": 4, "target": 30}],
+    ],
+    ids=[
+        "absent",
+        "null",
+        "object",
+        "empty",
+        "no-field-4",
+        "string-field",
+        "bool-field",
+        "no-target",
+        "zero-target",
+        "negative-target",
+        "string-target",
+        "first-decides",
+    ],
+)
+def test_activity_goal_is_none_when_absent_or_unusable(goals):
+    sent = profile_result(regular_goal_list=goals)
+
+    result = fetch_profile(FakeTransport(envelope(sent)))
+
+    assert result.records == [UserProfile(175.0, 70.0, 8000, 300, None)]
+    assert result.notes == []
+    assert result.raw == [sent]
+
+
+def test_step_and_calorie_goals_ignore_the_goal_list():
+    goals = [
+        {"field": 1, "target": 9000},
+        {"field": 2, "target": 400},
+        {"field": 4, "target": 30},
+    ]
+
+    (profile,) = fetch_profile(
+        FakeTransport(envelope(profile_result(regular_goal_list=goals)))
+    ).records
+    (no_step_goal,) = fetch_profile(
+        FakeTransport(
+            envelope(profile_result(regular_goal_list=goals, daily_step_goal=ABSENT))
+        )
+    ).records
+
+    assert profile.step_goal == 8000
+    assert profile.calorie_goal_kcal == 300
+    # No fallback to the list's field 1.
+    assert no_step_goal.step_goal is None
 
 
 def test_profile_is_not_registered():

@@ -5,12 +5,12 @@ The commands are ``mifit login``, ``mifit export``, ``mifit profile`` and ``mifi
 session. ``export`` reads one domain (steps, heart rate, heart rate daily, consumption,
 sleep, spo2, spo2 daily, stress daily, weight, workouts, workout detail) for a date
 range and writes ``{records, raw, notes}`` as JSON. ``profile`` reads the account profile
-(height, weight, daily step and calorie goals) and writes it the same way; its ``raw`` is the
-whole profile, personal details included, for the user's own eyes. ``raw`` reads one
-key of the fitness-data endpoint, any key, and writes the rows as the service sent
-them, with ``value`` decoded (``records`` is empty; see ``notes/domain-catalog.md``);
-``--daily`` reads the key's daily report instead. It is one paged read, never chunked
-and without ``--resume``.
+(height, weight, daily step, calorie and activity-time goals) and writes it the same
+way; its ``raw`` is the whole profile, personal details included, for the user's own
+eyes. ``raw`` reads one key of the fitness-data endpoint, any key, and writes the rows
+as the service sent them, with ``value`` decoded (``records`` is empty; see
+``notes/domain-catalog.md``); ``--daily`` reads the key's daily report instead. It is
+one paged read, never chunked and without ``--resume``.
 
 A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
 workout detail, 31 days for the rest, or ``--chunk``) is read chunk by chunk through

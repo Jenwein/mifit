@@ -16,8 +16,9 @@ class UserProfile:
 
     ``height_cm`` is the height in centimetres. ``weight_kg`` is the weight stored
     in the profile, in kilograms (it matched the latest weighing on the one
-    account checked). ``step_goal`` is the daily step goal and
-    ``calorie_goal_kcal`` the daily calorie goal. Each is ``None`` when not set.
+    account checked). ``step_goal`` is the daily step goal,
+    ``calorie_goal_kcal`` the daily calorie goal and ``activity_goal_min`` the daily
+    activity-time goal in minutes, as set in the app. Each is ``None`` when not set.
 
     Personal details (name, birth date, sex, account ids) and the goals whose
     meaning is unverified are deliberately absent: they stay in the domain
@@ -28,3 +29,4 @@ class UserProfile:
     weight_kg: float | None
     step_goal: int | None
     calorie_goal_kcal: int | None
+    activity_goal_min: int | None

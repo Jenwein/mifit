@@ -385,11 +385,11 @@ class MiFit:
         )
 
     def profile(self) -> DomainResult:
-        """The account profile: height, weight and the daily step and calorie goals.
+        """The account profile: height, weight and the daily goals.
 
-        One ``UserProfile`` record. ``raw`` holds the whole profile as the service
-        sent it, including name, birth date and account ids, so treat it as
-        personal data.
+        One ``UserProfile`` record: height, weight, daily step, calorie and
+        activity-time goals. ``raw`` holds the whole profile as the service sent it,
+        including name, birth date and account ids, so treat it as personal data.
         """
         return fetch_profile(self._transport)
 

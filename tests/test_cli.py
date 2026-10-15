@@ -116,7 +116,13 @@ STRESS_DAY = StressDailySummary(
     severe_min=None,
 )
 WEIGHT = WeightRecord(epoch_s=1790812800, weight_kg=70.5, bmi=None)
-PROFILE = UserProfile(height_cm=175.0, weight_kg=70.0, step_goal=8000, calorie_goal_kcal=None)
+PROFILE = UserProfile(
+    height_cm=175.0,
+    weight_kg=70.0,
+    step_goal=8000,
+    calorie_goal_kcal=None,
+    activity_goal_min=30,
+)
 WORKOUT = Workout(
     start_epoch_s=1790820000,
     end_epoch_s=1790822701,
