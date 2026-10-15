@@ -305,10 +305,9 @@ APK `SportGpsParser`、`OneDimenDataParser`；SDK `fds/layouts.py` 的 `GPS_FIEL
 | `heart_rate_bpm` | `heartRate` | `0`（设备的"无读数"）或无效 → `None` |
 | `distance_m` | Σ`newDistance` ÷ 距离倍数 | 从运动开始累计；某秒没有该值 → 该秒 `None`、累计不加。累计在存储单位里做，最后才除，不积累舍入误差 |
 | `steps` | Σ`newSteps` | 只在协议 22；从运动开始累计 |
-| `cadence_spm` | `cadence` | 只在协议 22；`0` → `None` |
+| `cadence_spm` | `cadence` | 只在协议 22；`0` 是真实读数（app 的平均步频把步频为 0 的秒算在内），保留；无效 → `None` |
 | `pace_s_per_km` | `pace` | 只在协议 22；`0` → `None` |
-| `speed_mps` | `speed` ÷ 36 | 只在协议 23（0.1 km/h → m/s）；`0` 是真实的静止，保留为 `0.0`（§10 Q6）；无效 → `None` |
-| `altitude_m` | 段 `initialAltitude` + Σ(±`altitudeChange` / 10) | §6.6 的规则；该秒变化无效 → `None`；`initialAltitude` 不是有限值 → 整段 `None`。暂进 B（D21），跑步极值与汇总差 2–3 m，待真机定（§10 Q4） |
+| `speed_mps` | `speed` ÷ 36 | 只在协议 23（0.1 km/h → m/s）；`0` 是真实的静止（app 的速度图停车时为 0，§10 Q6），保留为 `0.0`；无效 → `None` |
 
 `TrackPoint`（每个 GPS 点一条）：
 
@@ -321,7 +320,7 @@ APK `SportGpsParser`、`OneDimenDataParser`；SDK `fds/layouts.py` 的 `GPS_FIEL
 
 ### 8.3 只留在 A 层
 
-含义未核实（设计 §2 反目标），只在 `raw` 里：
+含义未核实或与 app 不一致（设计 §2 反目标），只在 `raw` 里：
 
 - 逐秒卡路里 `newCalories`：跑的总和与汇总差 0.3%（骑的精确相等，但两种运动一起留 A）。
 - `stride`、`verticalStrideRatio`、`verticalAmplitude`：均值与汇总只差约 1%。
@@ -329,7 +328,7 @@ APK `SportGpsParser`、`OneDimenDataParser`；SDK `fds/layouts.py` 的 `GPS_FIEL
 - `contactRatio`、`equalIntensityPace`、`runningPower`：真机文件里无效。
 - `workoutcount`、骑行的 `cadence`：真机文件里无效（没有踏频传感器，D20）。
 - `isKilometer`：与汇总一致，但累计距离已能给出整公里点。
-- 海拔的原始位（`isAltitudeRising`、`altitudeChange`）：`altitude_m` 由它们算出。
+- 海拔（段的 `initialAltitude` + 逐秒的 `isAltitudeRising` / `altitudeChange`）：只在 A 层。按 §6.6 的 APK 规则重建的曲线，骑行与 app 一致，跑步极值与 app 差 2–3 m，所以不进 B（2026-10-15，§10 Q4）。
 - 段的字段（`segmentType`、`pauseType`、段合计）：含义未核实（§10 Q3）；暂停已经体现为 `epoch_s` 的间隔。
 - GPS 精度 `locationHorizontalAccuracy`：中位数几米，像水平精度（米），未核实。
 - GPS 速度 `locationSpeed` 与 `gpsSource`：速度与由轨迹算出的速度之比只有 0.87–0.95，单位不明（D19）。

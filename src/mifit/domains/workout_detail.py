@@ -71,17 +71,12 @@ The mapping rules (spec §8; each one checked against the workout's summary, §4
 * ``steps`` is the running sum of ``newSteps``, format 22 only; format 23 records no
   steps.
 * ``cadence_spm`` (``cadence``) and ``pace_s_per_km`` (``pace``) come from format 22
-  only, and ``0`` becomes ``None``.
+  only. A cadence of ``0`` is a real reading and stays ``0``: the app's average
+  cadence counts those seconds (checked against the app, 2026-10-15). A pace of
+  ``0`` becomes ``None``.
 * ``speed_mps`` is ``speed`` (0.1 km/h) divided by 36, format 23 only. ``0`` is a
-  real standstill and stays ``0.0``.
-* ``altitude_m`` starts each segment at its ``initialAltitude``. In each second that
-  has both ``isAltitudeRising`` and ``altitudeChange``, it moves by
-  ``altitudeChange / 10`` metres, up or down as ``isAltitudeRising`` says, and that
-  second's altitude is the new value. A second without both has no altitude and
-  leaves the running value alone. A segment whose ``initialAltitude`` is not finite
-  has no altitude at all. This is the curve the app charts
-  (``SportRecordBaseParser``); for the run its extremes are 2-3 m off the summary's,
-  which the live check settles (spec §16 Q4).
+  real standstill and stays ``0.0``: the app's speed chart shows 0 while stopped
+  (checked against the app, 2026-10-15, spec §16 Q6).
 * A track point is the GPS ``time`` with the ``latitude`` and ``longitude`` float32
   values as they are, unrounded (the file stores longitude first). When any point
   lacks one of the three, the file marks them invalid and the app drops the whole
@@ -91,7 +86,8 @@ The mapping rules (spec §8; each one checked against the workout's summary, §4
 Running sums are kept in stored units and divided once, so no rounding error builds up
 over a long workout.
 
-These stay in ``raw`` only, because their meaning is unverified (design §2):
+These stay in ``raw`` only, because their meaning is unverified or did not match the
+app (design §2):
 
 * per-second energy (``newCalories``): the run's sum is 0.3% off the summary;
 * ``stride``, ``verticalStrideRatio`` and ``verticalAmplitude``: their averages are
@@ -104,7 +100,10 @@ These stay in ``raw`` only, because their meaning is unverified (design §2):
   (the ride had no cadence sensor, D20);
 * ``isKilometer``: it matches the summary, but the cumulative distance already gives
   the kilometre marks;
-* the raw altitude bits: ``altitude_m`` is built from them;
+* the altitude (``initialAltitude`` and the per-second ``isAltitudeRising`` /
+  ``altitudeChange``): the curve rebuilt by the APK rule (``SportRecordBaseParser``)
+  matched the app for the ride, but the run's extremes were 2-3 m off the app's, so
+  it is not in B (spec §16 Q4);
 * the segment fields (``segmentType``, ``pauseType`` and the segment totals): their
   meaning is unverified (spec §16 Q3); a pause already shows as a gap in ``epoch_s``;
 * the GPS accuracy (``locationHorizontalAccuracy``): it looks like metres but is
@@ -118,7 +117,7 @@ from __future__ import annotations
 import math
 import re
 
-from mifit.domains.base import DomainResult, as_float, as_int, register
+from mifit.domains.base import DomainResult, as_int, register
 from mifit.domains.workouts import NO_START_NOTE, SportRow, sport_rows, to_workout
 from mifit.errors import ApiError
 from mifit.fds.binary import FdsFormatError, parse_header
@@ -410,8 +409,6 @@ def to_samples(record_raw: dict, proto: int) -> list[WorkoutSample]:
     steps = 0
     for segment in record_raw["segments"]:
         start = segment["resumeTimestamp"]
-        initial_altitude = as_float(segment.get("initialAltitude"))
-        climb = 0  # tenths of a metre since the segment start
         for i, point in enumerate(segment["dataPoints"]):
             distance_m = None
             if "newDistance" in point:
@@ -423,13 +420,6 @@ def to_samples(record_raw: dict, proto: int) -> list[WorkoutSample]:
                 steps += point["newSteps"]
                 steps_now = steps
 
-            altitude_m = None
-            rising = point.get("isAltitudeRising")
-            change = point.get("altitudeChange")
-            if initial_altitude is not None and rising is not None and change is not None:
-                climb += change if rising else -change
-                altitude_m = initial_altitude + climb / 10
-
             speed_mps = None
             if ride and "speed" in point:
                 speed_mps = point["speed"] / _SPEED_UNITS_PER_MPS
@@ -440,10 +430,11 @@ def to_samples(record_raw: dict, proto: int) -> list[WorkoutSample]:
                     heart_rate_bpm=point.get("heartRate") or None,
                     distance_m=distance_m,
                     steps=steps_now,
-                    cadence_spm=(point.get("cadence") or None) if run else None,
+                    # ``0`` is a real cadence; the A layer has no key for an
+                    # invalid one.
+                    cadence_spm=point.get("cadence") if run else None,
                     pace_s_per_km=(point.get("pace") or None) if run else None,
                     speed_mps=speed_mps,
-                    altitude_m=altitude_m,
                 )
             )
     return samples

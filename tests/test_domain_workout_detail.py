@@ -261,7 +261,13 @@ def test_maps_a_run_and_a_ride():
     assert gym == WorkoutDetail(to_workout(GYM), None, None)
 
     assert [r["workout"] for r in result.raw] == [RUN, RIDE, GYM]
-    assert result.raw[0]["record"]["segments"][0]["dataPoints"][0]["newDistance"] == 25
+    seg = result.raw[0]["record"]["segments"][0]
+    assert seg["dataPoints"][0]["newDistance"] == 25
+    # The altitude stays in the A layer only (it differed from the app for the run).
+    assert seg["initialAltitude"] == 50.0
+    assert seg["dataPoints"][0]["isAltitudeRising"] == 1
+    assert seg["dataPoints"][0]["altitudeChange"] == 5
+    assert not hasattr(run.samples[0], "altitude_m")
     assert result.raw[0]["gps"]["gpsPoints"][0]["time"] == T
     assert result.raw[1]["record"]["header"]["version"] == 5
     assert result.raw[2] == {"workout": GYM, "record": None, "gps": None}

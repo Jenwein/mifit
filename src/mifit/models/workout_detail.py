@@ -20,6 +20,9 @@ class WorkoutSample:
     distance_m and steps are cumulative from the start of the workout (summed from the
     source's per-second increments across all segments). Any figure the source did not
     report, or marked invalid, is None, never a made-up zero.
+
+    A cadence_spm of 0 is a real reading: the app's average cadence counts those
+    seconds. A speed_mps of 0.0 is a real standstill: the app charts it as 0.
     """
 
     epoch_s: int
@@ -29,7 +32,6 @@ class WorkoutSample:
     cadence_spm: int | None  # steps per minute (running)
     pace_s_per_km: int | None  # seconds per km (running)
     speed_mps: float | None  # metres per second (cycling; source 0.1 km/h)
-    altitude_m: float | None  # metres, as the app charts it (segment start + per-second changes)
 
 
 @dataclass

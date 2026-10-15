@@ -129,7 +129,7 @@ WORKOUT = Workout(
 )
 DETAIL = WorkoutDetail(
     workout=WORKOUT,
-    samples=[WorkoutSample(1790820000, 120, 2.5, 3, 170, 360, None, 50.5)],
+    samples=[WorkoutSample(1790820000, 120, 2.5, 3, 170, 360, None)],
     track=[TrackPoint(1790820000, 10.0, 20.0)],
 )
 

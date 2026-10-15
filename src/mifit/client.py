@@ -307,10 +307,10 @@ class MiFit:
         The workouts are the ones ``workouts`` gives for the same arguments, newest
         first, each as a ``WorkoutDetail``: its ``workout`` summary, its ``samples``
         (one ``WorkoutSample`` per recorded second: heart rate, cumulative distance
-        and steps, cadence, pace or speed, altitude) and its ``track`` (``TrackPoint``
-        fixes). ``raw`` holds ``{"workout", "record", "gps"}`` for each workout, at
-        the same index. ``samples`` and ``track`` are ``None`` when the file was not
-        read (a note says why) and ``[]`` when it held no points::
+        and steps, cadence, pace or speed) and its ``track`` (``TrackPoint`` fixes).
+        ``raw`` holds ``{"workout", "record", "gps"}`` for each workout, at the same
+        index. ``samples`` and ``track`` are ``None`` when the file was not read (a
+        note says why) and ``[]`` when it held no points::
 
             res = client.workout_detail("2026-10-01", "2026-10-14")
             for d in res.records:

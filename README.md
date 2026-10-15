@@ -23,7 +23,7 @@ Python objects, so you can build on it.
 | `consumption` | calories per day: resting, active, intake, total | `ConsumptionRecord` | yes |
 | `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` | yes; the sleep score could not be checked and is in `raw` only |
 | `workouts` | one entry per workout: start and end, sport, duration, distance, active and total calories, average and maximum heart rate, steps | `Workout` | pending |
-| `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed, altitude) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
+| `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
 | `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
 | `spo2` | raw SpO2 readings | `Spo2Point` | pending |
 | `stress_daily` | stress level per day: average, highest, lowest (time per stress band in `raw` only) | `StressDailySummary` | pending |

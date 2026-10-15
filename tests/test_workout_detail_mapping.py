@@ -98,13 +98,15 @@ def test_heart_rate_zero_becomes_none():
         assert column(samples, "heart_rate_bpm") == [120, None, None]
 
 
-def test_cadence_and_pace_zero_become_none_and_are_run_only():
+def test_cadence_zero_is_kept_pace_zero_becomes_none_both_run_only():
     points = [{"cadence": 170, "pace": 360}, {"cadence": 0, "pace": 0}, {}]
 
     run = to_samples(record(seg(T, points)), RUN)
     ride = to_samples(record(seg(T, points)), RIDE)
 
-    assert column(run, "cadence_spm") == [170, None, None]
+    # A cadence of 0 is a real reading (the app's average counts those seconds);
+    # absent is no reading.
+    assert column(run, "cadence_spm") == [170, 0, None]
     assert column(run, "pace_s_per_km") == [360, None, None]
     # The ride's cadence was invalid in every checked file (D20): not mapped.
     assert column(ride, "cadence_spm") == [None, None, None]
@@ -121,41 +123,6 @@ def test_speed_converts_tenth_kmh_and_keeps_zero():
     assert column(ride, "speed_mps") == [10.0, 0.0, None]
     assert type(ride[1].speed_mps) is float
     assert column(run, "speed_mps") == [None, None, None]
-
-
-def test_altitude_accumulates_from_each_segment_start():
-    points = [
-        {"isAltitudeRising": 1, "altitudeChange": 5},
-        {"isAltitudeRising": 0, "altitudeChange": 3},
-    ]
-    later = [{"isAltitudeRising": 1, "altitudeChange": 0}]
-
-    samples = to_samples(record(seg(T, points), seg(T + 100, later, 80.0)), RIDE)
-
-    assert column(samples, "altitude_m") == [50.5, pytest.approx(50.2), 80.0]
-
-
-def test_altitude_without_a_valid_change_is_none_and_not_accumulated():
-    points = [
-        {"isAltitudeRising": 1, "altitudeChange": 5},
-        {"isAltitudeRising": 1},
-        {"altitudeChange": 7},
-        {"isKilometer": 1},
-        {"isAltitudeRising": 1, "altitudeChange": 5},
-    ]
-
-    samples = to_samples(record(seg(T, points)), RUN)
-
-    assert column(samples, "altitude_m") == [50.5, None, None, None, 51.0]
-
-
-@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf], ids=repr)
-def test_non_finite_initial_altitude_gives_none_for_the_segment(bad):
-    change = {"isAltitudeRising": 1, "altitudeChange": 5}
-
-    samples = to_samples(record(seg(T, [change, change], bad), seg(T + 100, [change])), RUN)
-
-    assert column(samples, "altitude_m") == [None, None, 50.5]
 
 
 def test_absent_field_gives_none_for_every_sample():
@@ -193,8 +160,8 @@ def test_whole_samples_of_a_run_and_a_ride():
     run = to_samples(record(seg(T, [run_point])), RUN)
     ride = to_samples(record(seg(T, [ride_point])), RIDE)
 
-    assert run == [WorkoutSample(T, 150, 2.5, 3, 172, 355, None, 50.4)]
-    assert ride == [WorkoutSample(T, 130, 6.0, None, None, None, 6.0, 49.8)]
+    assert run == [WorkoutSample(T, 150, 2.5, 3, 172, 355, None)]
+    assert ride == [WorkoutSample(T, 130, 6.0, None, None, None, 6.0)]
 
 
 def test_track_maps_latitude_and_longitude_in_order():
@@ -284,7 +251,6 @@ def test_b_models_hold_only_verified_fields():
         "cadence_spm",
         "pace_s_per_km",
         "speed_mps",
-        "altitude_m",
     ]
     assert names(TrackPoint) == ["epoch_s", "latitude_deg", "longitude_deg"]
     assert names(WorkoutDetail) == ["workout", "samples", "track"]
