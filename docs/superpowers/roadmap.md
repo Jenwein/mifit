@@ -29,7 +29,7 @@
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | ✅ 实现完成（2026-10-14）：分块串行读取、超过 92 天需 --long、--resume 断点续传 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
-| R | 发布到 PyPI：打包元数据、`mifit --version`、标签触发的发布流水线（Trusted Publishing）、GitHub Release | 实现完成，待首次发布（见计划 [2026-10-15-mifit-release-pypi](plans/2026-10-15-mifit-release-pypi.md)） |
+| R | 发布到 PyPI：打包元数据、`mifit --version`、标签触发的发布流水线（Trusted Publishing）、GitHub Release | ✅ 0.2.0 已发布到 PyPI（2026-10-15，Trusted Publishing，带 PEP 740 证明；GitHub Release `v0.2.0`）；计划 [2026-10-15-mifit-release-pypi](plans/2026-10-15-mifit-release-pypi.md) |
 | P | MCP 服务：`mifit mcp`，本机 stdio、只读，每个已核对的数据域一个工具 | 设计完成，待计划 |
 | E | 生态登记：官方 MCP Registry、Claude Desktop 一键安装包（`.mcpb`）、各客户端配置 | 设计完成，待计划 |
 
