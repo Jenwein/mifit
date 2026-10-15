@@ -10,7 +10,8 @@ same way; its ``raw`` is the whole profile, personal details included, for the u
 own eyes. ``raw`` reads one key of the fitness-data endpoint, any key, and writes the
 rows as the service sent them, with ``value`` decoded (``records`` is empty; see
 ``notes/domain-catalog.md``); ``--daily`` reads the key's daily report instead. It is
-one paged read, never chunked and without ``--resume``.
+one paged read, never chunked and without ``--resume``. ``mifit --version`` prints the
+installed version (``mifit.__version__``).
 
 A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
 workout detail, 31 days for the rest, or ``--chunk``) is read chunk by chunk through
@@ -51,6 +52,7 @@ import requests
 # ``MiFit``, ``login_qr``, ``save_session`` and ``record_event`` are looked up through
 # this module at call time (not captured), so tests can patch them here and stay
 # offline and off the real session files.
+import mifit
 from mifit import MiFit
 from mifit.auth.lifetime import describe_session, record_event
 from mifit.auth.qr import login_qr
@@ -600,6 +602,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mifit", description="Read your own Mi Fitness data from the Xiaomi cloud."
     )
+    parser.add_argument("--version", action="version", version=f"mifit {mifit.__version__}")
     commands = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
     login = commands.add_parser(
