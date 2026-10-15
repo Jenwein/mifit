@@ -1,0 +1,172 @@
+# Release: build mifit, check it, and publish it.
+#
+# - Pushing a tag vX.Y.Z publishes that version to PyPI, then creates the
+#   GitHub Release with the CHANGELOG section and the built files.
+# - Running the workflow by hand (workflow_dispatch) publishes to TestPyPI
+#   only: a dry run.
+#
+# Publishing uses PyPI Trusted Publishing: each publish job gets a short-lived
+# OIDC token, and nothing here holds a PyPI token. The trusted publishers on
+# PyPI and TestPyPI name this file (release.yml) and the environments `pypi`
+# and `testpypi`; renaming any of them breaks publishing.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Test (offline)
+        run: python -m pytest -q -rs
+
+  build:
+    name: Build and check the distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Read the version
+        id: meta
+        run: echo "version=$(python tools/release.py version)" >> "$GITHUB_OUTPUT"
+      - name: Tag, pyproject and CHANGELOG agree
+        if: github.ref_type == 'tag'
+        run: python tools/release.py check-version --tag "$GITHUB_REF_NAME"
+      - name: Install the build tools
+        run: python -m pip install build twine
+      - name: Build
+        run: python -m build
+      - name: Check the metadata
+        run: twine check --strict dist/*
+      - name: Check the contents
+        run: python tools/release.py check-dist dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    name: Install the wheel (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Install the built wheel
+        run: python -m pip install dist/*.whl
+      - name: The command and the package report the built version
+        run: |
+          test "$(mifit --version)" = "mifit ${{ needs.build.outputs.version }}"
+          mifit --help
+          python -c "import mifit; assert mifit.__version__ == '${{ needs.build.outputs.version }}'"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [test, build, smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mifit
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    name: Publish to TestPyPI (dry run)
+    needs: [test, build, smoke]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/mifit
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # A dry run can be repeated for the same version.
+          skip-existing: true
+
+  github-release:
+    name: GitHub Release
+    needs: [build, publish-pypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Release notes from the CHANGELOG
+        run: python tools/release.py notes "${{ needs.build.outputs.version }}" > notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

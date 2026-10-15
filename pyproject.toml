@@ -33,9 +33,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# For running the tests: pytest, and the IANA zone database for the DST tests on
-# systems that have none (Windows).
-test = ["pytest>=8", "tzdata"]
+# For running the tests: pytest, the IANA zone database for the DST tests on
+# systems that have none (Windows), and PyYAML for the release workflow's
+# structure test.
+test = ["pytest>=8", "tzdata", "pyyaml"]
 
 [project.urls]
 Homepage = "https://github.com/Jenwein/mifit"
