@@ -59,11 +59,19 @@ def test_jobs():
     }
 
 
+TAG_PUSH = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+
+
 def test_only_the_publish_jobs_can_mint_an_oidc_token():
     minted = {n for n, j in JOBS.items() if j.get("permissions", {}).get("id-token") == "write"}
     assert minted == {"publish-pypi", "publish-testpypi"}
     assert JOBS["publish-pypi"]["permissions"] == {"id-token": "write"}
     assert JOBS["publish-testpypi"]["permissions"] == {"id-token": "write"}
+
+
+def test_only_the_github_release_job_can_write_to_the_repository():
+    writers = {n for n, j in JOBS.items() if j.get("permissions", {}).get("contents") == "write"}
+    assert writers == {"github-release"}
 
 
 def test_publish_jobs_run_no_project_code():
@@ -76,12 +84,13 @@ def test_publish_jobs_run_no_project_code():
 def test_pypi_job_runs_on_version_tags_in_the_pypi_environment():
     job = JOBS["publish-pypi"]
     assert _env_name(job) == "pypi"
-    assert "refs/tags/v" in job["if"] and "push" in job["if"]
+    assert job["if"] == TAG_PUSH
 
 
 def test_testpypi_job_targets_testpypi_and_skips_existing():
     job = JOBS["publish-testpypi"]
-    assert _env_name(job) == "testpypi" and "workflow_dispatch" in job["if"]
+    assert _env_name(job) == "testpypi"
+    assert job["if"] == "github.event_name == 'workflow_dispatch'"
     [publish] = [s for s in _steps(job) if s.get("uses", "").startswith("pypa/")]
     assert publish["with"]["repository-url"] == "https://test.pypi.org/legacy/"
     assert publish["with"]["skip-existing"] is True
@@ -92,7 +101,8 @@ def test_build_job_checks_version_and_dist():
     assert "tools/release.py check-version --tag" in runs
     assert "twine check --strict" in runs and "tools/release.py check-dist dist" in runs
     [check] = [s for s in _steps(JOBS["build"]) if "check-version" in s.get("run", "")]
-    assert "tag" in check["if"]
+    assert check["if"] == "github.ref_type == 'tag'"
+    assert '--tag "$GITHUB_REF_NAME"' in check["run"]
 
 
 def test_smoke_installs_the_built_wheel_on_three_systems_without_checkout():
@@ -109,7 +119,7 @@ def test_smoke_installs_the_built_wheel_on_three_systems_without_checkout():
 def test_github_release_follows_the_pypi_publish():
     job = JOBS["github-release"]
     assert job["permissions"] == {"contents": "write"}
-    assert "publish-pypi" in job["needs"] and job["if"] == JOBS["publish-pypi"]["if"]
+    assert "publish-pypi" in job["needs"] and job["if"] == TAG_PUSH
     assert "tools/release.py notes" in _runs(job) and "gh release create" in _runs(job)
 
 
