@@ -4,9 +4,11 @@ synthetic."""
 
 import base64
 import copy
+import importlib.util
 import json
 from collections.abc import Callable
-from types import SimpleNamespace
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 from mifit.auth.session import Session
 from mifit.crypto import rc4_crypt, signed_nonce
@@ -16,6 +18,18 @@ SYNTH_SSECURITY = base64.b64encode(b"synthetic-support-secret").decode("ascii")
 
 ABSENT = object()
 """Marks a key left out of a row or a value, as opposed to set to ``None``."""
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_release_tool() -> ModuleType:
+    """``tools/release.py`` as a module (``tools/`` is not a package)."""
+    spec = importlib.util.spec_from_file_location(
+        "release_tool", REPO_ROOT / "tools" / "release.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def payload_with_rows_from(template: dict) -> Callable[..., dict]:
