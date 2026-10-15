@@ -109,7 +109,7 @@
   - `valid_stand.count` = 当天有原始 `valid_stand` 区间的不同本地小时数（≠ 区间个数），在 0–24 内。
   - `intensity.duration` = 当天原始 `intensity` 的行数，在 0–1440 内。
   - `calories.calories` = `diet/user_consumption` 的 `exercise`（SDK 的 `consumption.active_kcal`）；≠ 同日 `steps` 日汇总的 `calories`，≠ `exercise + basal`。
-- **候选**：`valid_stand`（站立小时数？）和 `intensity`（中高强度分钟数？）等 app 对照；`calories` 与 B 层已有的 `consumption.active_kcal` 相同，进 B 也不添新东西。2026-10-15 收尾核对时 app 里没找到对应页面，仍未核对（[清单 2.8 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。
+- **活力指标（2026-10-15 app 已核对）**：app 活力指标页的活动次数 = `valid_stand.count`，活动时长 = `intensity.duration`（分钟），卡路里 = `calories.calories`（kcal）→ B 层 `activity_daily`（`activity_count` / `activity_min` / `active_kcal`）。`calories` 与 `consumption.active_kcal` 同值，两处都保留（[清单 2.8 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。
 
 ## 3. 原始 key
 
@@ -208,7 +208,7 @@
 
 - **候选 key 的 app 对照**：已做（2026-10-15，收尾[清单 2.8](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。
   - `stress_daily` 的日均 / 最高 / 最低和各档时长都对上（`app 已核对`）。
-  - `valid_stand` / `intensity` / `calories` 仍是候选：app 里没找到对应页面，所以没有核对。以后找到页面，对上的标 `app 已核对`，再考虑进 B。
+  - `valid_stand` / `intensity` / `calories`：后来在 app 活力指标页找到并对上（`app 已核对`），进 B 层 `activity_daily`。
 - **其余没有数据的 key**（§3 `本账号` 列为 `无`）：可能是本账号的设备或功能没有产出（体温、血压、血糖、心电、女性健康、噪音……），也可能服务端不认识。换设备、开功能或换账号时再探；有了行，要补真机字段，并把值类后的"？"去掉。
 - **只有较早数据的 key**：`training_load`、`vo2_max`、`dynamic`、`high_heart_rate`、`grade_prediction`、`running_ability_index` 最近 7 天没有行，`vitality` 只有零星几行，含义都没法对照；有新数据（如做过运动）后再看。
 - **汇总 key**：`daily_report` 里 APK 的另外 8 个 key（`vo2_max`、`blood_pressure`、`energy`、`pai`、`blood_sugar`、`headset`、`weight`、`menstruation`）本账号 7 天没有行；`headset` 在 `daily_mark` 有行、在 `daily_report` 没有，原因未知。

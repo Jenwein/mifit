@@ -27,6 +27,7 @@ Python objects, so you can build on it.
 | `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | yes |
 | `spo2` | raw SpO2 readings | `Spo2Point` | yes |
 | `stress_daily` | stress level per day: average, highest, lowest, and minutes in each stress band (relaxed, mild, moderate, severe) | `StressDailySummary` | yes |
+| `activity_daily` | activity per day, as on the app's 活力指标 page: activity count (活动次数), activity minutes (活动时长), active calories (卡路里) | `ActivityDailySummary` | yes |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | yes; body composition could not be checked and is in `raw` only |
 | `profile` (its own command: `mifit profile`) | height, weight, daily step, calorie and activity-time goals | `UserProfile` | yes |
 | `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data or daily-report key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
@@ -80,7 +81,7 @@ open it, confirm, then run `mifit login` again.
 mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [--no-track] [--chunk day|week|month] [--long] [--resume]
 ```
 
-- `<domain>`: `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
+- `<domain>`: `activity_daily`, `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
   `spo2`, `spo2_daily`, `steps`, `stress_daily`, `weight`, `workouts` or `workout_detail`
   (per-second samples and GPS track of outdoor runs and rides).
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.

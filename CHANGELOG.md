@@ -48,7 +48,9 @@ result is not affected unless a line below says so.
     rides, read from the encrypted workout files (`--no-track` skips the
     GPS file);
   - `spo2_daily`, `spo2`, `weight` and `stress_daily` (with the minutes in
-    each stress band).
+    each stress band);
+  - `activity_daily`: the activity count, activity minutes and active calories
+    of the app's 活力指标 page.
 - `MiFit.profile()` and `mifit profile`: height, weight and the daily step,
   calorie and activity-time goals.
 - Generic reads of any key, uninterpreted: `mifit raw <key>` (with `--daily`

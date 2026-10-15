@@ -220,9 +220,9 @@ mifit raw calories --daily --from D-3 --to D-1 --json "$HOME\mifit-verify\calori
 | `avg_stress_level` | 日平均压力 | 完全相等 | PASS | 3 天一致 |
 | `max_stress_level` / `min_stress_level` | 最高 / 最低压力 | 完全相等 | PASS | 3 天一致 |
 | `stress_scale`（`raw`） | 各档时长 | 只记录 | PASS | 单位是分钟（各档时长与 app 的时长和占比一致）→ 含义已核实 |
-| `valid_stand.count`（候选） | 站立小时数 | 完全相等；对上了，就在目录里标 `app 已核对` | 未核对 | app 里没找到对应页面 |
-| `intensity.duration`（候选） | 中高强度分钟数 | 同上 | 未核对 | app 里没找到对应页面 |
-| `calories.calories`（候选） | 活动卡路里 | 同上；预计与 `consumption.active_kcal` 相同 | 未核对 | app 里没找到对应页面 |
+| `valid_stand.count`（候选） | 站立小时数 | 完全相等；对上了，就在目录里标 `app 已核对` | PASS | app 活力指标页：活动次数（2026-10-15 补核）→ `activity_daily.activity_count` |
+| `intensity.duration`（候选） | 中高强度分钟数 | 同上 | PASS | app 活力指标页：活动时长，单位分钟（2026-10-15 补核）→ `activity_daily.activity_min` |
+| `calories.calories`（候选） | 活动卡路里 | 同上；预计与 `consumption.active_kcal` 相同 | PASS | app 活力指标页：卡路里，单位 kcal（2026-10-15 补核）→ `activity_daily.active_kcal` |
 
 ## 3. 需要你决定的事项
 
@@ -252,3 +252,4 @@ mifit raw calories --daily --from D-3 --to D-1 --json "$HOME\mifit-verify\calori
 
 - 第 1、2 节：T2 续期真机可用；8 个数据域与 app 一致，差异只在 2.7 的平均步频口径（app 含步频为 0 的秒数）和跑步海拔（相差 2–3 m）。新核实的含义：`total_cal` = 总卡路里，`stress_scale` 各档单位为分钟，`regular_goal_list` 第 4 项 = 目标活动时间（分钟），骑行速度 0 在 app 图上显示为 0。
 - 第 3 节的决定：1–3 在后续提交里删改（测试换合成值），不改写历史；4 保留；5 删去手机型号、保留地区和时区；6 notes/10 改为不指明本账号；7 没有体重数据源（唯一一条为手动导入），身体成分继续只留在 A 层；8 维持现状，户外步行 / 徒步、游泳、室内跑等以后有真实文件时再补布局表。
+- 补核（2026-10-15）：2.8 的三个候选 key 在 app 活力指标页找到（活动次数 / 活动时长 / 卡路里），都对上 → 新 B 域 `activity_daily`（[计划](../plans/2026-10-15-mifit-activity-daily.md)）。

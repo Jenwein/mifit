@@ -18,7 +18,7 @@
 | M4 | 运动记录汇总（运动列表） | 中 | ✅ 完成；2026-10-15 已真机核对（PASS；`total_cal` 核实为总卡路里，加入 B 层 `total_kcal`） |
 | M5 | 血氧 + 体重/身体成分 + 用户档案 | 中 | ✅ 完成；2026-10-15 已真机核对（PASS；目标活动时间进 B 层；身体成分无数据源，只在 A 层） |
 | M6 | 运动明细 + GPS 轨迹（FDS） | 大，需单独设计文档 | ✅ 完成；2026-10-15 已真机核对（部分：海拔移回 A 层，步频 0 改为保留） |
-| M7 | 长尾数据域：枚举 key、建数据域目录 | 中，持续 | ✅ 一轮完成；`stress_daily` 2026-10-15 已真机核对（PASS，各档时长进 B 层）；候选 key 未核对（app 里没找到对应页面）；目录 notes/domain-catalog.md 持续维护 |
+| M7 | 长尾数据域：枚举 key、建数据域目录 | 中，持续 | ✅ 一轮完成；`stress_daily` 2026-10-15 已真机核对（PASS，各档时长进 B 层）；三个候选 key 2026-10-15 在 app 活力指标页核对通过 → 新 B 域 `activity_daily`；目录 notes/domain-catalog.md 持续维护 |
 
 横向工作（不占主线顺序，按触发点插入）：
 
@@ -47,11 +47,12 @@
   - `spo2_daily`：日汇总的平均 / 最高 / 最低血氧（`Spo2DailySummary`：`avg_spo2_pct` / `max_spo2_pct` / `min_spo2_pct`，日均直接取服务端的值，不重算；0 或缺失为 `None`）（notes/11）。
   - `spo2`：原始全天血氧点（`Spo2Point`）；与原始心率一样起点提前一天再过滤（共享的 `raw_window`）。
   - `stress_daily`：日汇总的平均 / 最高 / 最低压力（`StressDailySummary`：`avg_stress_level` / `max_stress_level` / `min_stress_level`，1–100 的压力指数，直接取服务端的值；0 或缺失为 `None`；各档时长 `relaxed_min` / `mild_min` / `moderate_min` / `severe_min`，单位分钟，`0` 照实保留）（notes/domain-catalog.md）。
+  - `activity_daily`：app 活力指标页的活动次数 / 活动时长（分钟）/ 卡路里（`ActivityDailySummary`：`activity_count` / `activity_min` / `active_kcal`，取自日汇总 key `valid_stand` / `intensity` / `calories`，每次读取三个请求；`0` 照实保留，缺失为 `None`；`active_kcal` 与 `consumption.active_kcal` 同值）（notes/domain-catalog.md）。
   - `weight`：体重记录（`WeightRecord`：时刻、kg、BMI），身体成分只留在 `raw`。
   - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标、目标活动时间 `activity_goal_min`），`raw` 是完整档案（含个人标识）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
   - `MiFit.raw_window(key, ...)` / `MiFit.daily_report(key, ..., tag=...)` / `mifit raw <key> [--daily [--tag TAG]]`：任意 key 的通用 A 层读取。原始 key 起点提前一天再按窗口过滤，汇总 key 按步数的日窗口；`records` 为空，`raw` 是服务端的行（`value` 已解码）。已知的 key 见 notes/domain-catalog.md。
-- 测试 1213 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；测试数据全为合成值）。
+- 测试 1248 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；测试数据全为合成值）。
 
 ---
 
@@ -143,7 +144,7 @@
 - 默认只做 A 层（通过 `raw` 或一个通用透传数据域）；只有核对过含义的才加 B 层。
 - 持续进行，不追求一次完备（设计 §6"全量"的操作性定义）。
 - **结果（2026-10-15）✅ 一轮完成**：枚举方法是 APK 常量表（`FitnessPersistKey` 的 224 个常量 = 约 170 个运动标签 + 51 个健康 key + `passion_cheer`）加 37 次只读调用（只带 tag 的汇总读取、`get_latest_fitness_data` 每批 10 个 key、7 天原始读取、首桶核对和单日一致性核对），只记 key 名、字段名、分桶的行数和布尔。51 个健康 key 里本账号有数据的原始 key 23 个，其余 28 个与 `data_collector` 没有行（分不出是没有数据还是服务端不认识）；汇总 key 9 个，分在三个 tag 下（`daily_report` 8 个、`daily_fitness` 的 `goal`，`daily_mark` 是每天每个 key 的 `has_data` 索引）。通用 A 层读取 `MiFit.raw_window` / `MiFit.daily_report` / `mifit raw` 能读任何 key：原始 key 一律提前一天请求再过滤，因为首桶丢失已在查过的 4 个 key 上全部证实（`heart_rate`、`spo2`、`stress`、`calories`）。新 B 域 `stress_daily`（`StressDailySummary`，日均 / 最高 / 最低压力）：依据是一天的内部一致（三个数恰是当天原始点的最小、最大和均值四舍五入），app 对照后来做了（见下面的核对），各档时长 `stress_scale` 起初只留在 `raw`。候选（只在 A 层）：`valid_stand`（站立小时数？）、`intensity`（中高强度分钟数？）、`calories`（一天里等于 `consumption.active_kcal`）。目录 notes/domain-catalog.md 记录 key ↔ 接口 ↔ 值字段 ↔ 本账号有无数据 ↔ 核对状态 ↔ B 层，守卫测试 `tests/test_domain_catalog.py` 保证每个已注册的数据域都在目录里、目录里没有 Unix 时间戳。目录持续维护，不追求一次完备。
-- **真机核对（2026-10-15）**：`stress_daily` 的日均 / 最高 / 最低压力与 app 一致；`stress_scale` 各档的单位是分钟（与 app 的各档时长和占比一致）→ 四个档的分钟数加入 B 层。候选 key `valid_stand`、`intensity`、`calories`：app 里没找到对应页面，仍未核对。[清单 2.8 节](verification/2026-10-15-end-of-run-checklist.md)。
+- **真机核对（2026-10-15）**：`stress_daily` 的日均 / 最高 / 最低压力与 app 一致；`stress_scale` 各档的单位是分钟（与 app 的各档时长和占比一致）→ 四个档的分钟数加入 B 层。候选 key `valid_stand`、`intensity`、`calories`：后来在 app 活力指标页找到（活动次数 / 活动时长 / 卡路里），三个都对上 → 新 B 域 `activity_daily`。[清单 2.8 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ---
 
@@ -192,7 +193,7 @@
 | 会话过期时 | 重新 `mifit login` 扫码 |
 | M5 | ~~告知体重/体脂秤数据情况~~ → ✅ 已答（2026-10-14）：账号上的体重记录为 1–10 条，身体成分全 0 → 只做到能读、结构正确 |
 | M6 开工前 | ~~评审 FDS 设计文档；告知你常做的运动类型~~ → ✅ 已答（2026-10-14）：设计按控制方裁定批准（自主运行）；常做的运动类型（以及固件会不会产出新版本文件）挪到收尾的真机会话里问（spec §16 Q9）。Q9 已答（2026-10-15）：维持现状，户外步行 / 徒步、游泳、室内跑等以后有真实文件时再补布局表 |
-| M7 | ~~真机核对时读 app 的压力日均/最高/最低、站立小时数、中高强度分钟数、活动卡路里~~ → ✅ 已做（2026-10-15）：压力日汇总与各档时长一致；站立小时数、中高强度分钟数、活动卡路里在 app 里没找到对应页面，候选 key 仍未核对 |
+| M7 | ~~真机核对时读 app 的压力日均/最高/最低、站立小时数、中高强度分钟数、活动卡路里~~ → ✅ 已做（2026-10-15）：压力日汇总与各档时长一致；三个候选 key 后来在 app 活力指标页对上（活动次数 / 活动时长 / 卡路里）→ `activity_daily` |
 
 ---
 
