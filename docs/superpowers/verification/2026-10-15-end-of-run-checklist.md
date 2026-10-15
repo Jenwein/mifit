@@ -107,7 +107,7 @@ mifit export workouts --from <最早一次运动那年>-01-01 --to D --long --js
 | `active_kcal` | 卡路里 | 完全相等。如果 app 显示的是 `total_cal`：字段改名为 `total_kcal`，改从 `total_cal` 取值 | PASS | app 同时显示：`calories` = 活动卡路里，`total_cal` = 总卡路里 → `total_cal` 含义已核实，待加入 B 层（`total_kcal`） |
 | `avg_hr_bpm` / `max_hr_bpm` | 平均 / 最高心率 | 完全相等 | PASS |  |
 | `steps` | 步数 | 完全相等 | PASS |  |
-| 长区间条数 | 全部历史的条数 | 完全相等；`notes` 里没有触顶或断页的提示 | PASS | 104 块按月读取，条数与 app 一致，无提示 |
+| 长区间条数 | 全部历史的条数 | 完全相等；`notes` 里没有触顶或断页的提示 | PASS | 按月分块读取，条数与 app 一致，无提示 |
 
 ### 2.3 `spo2_daily`（M5）
 

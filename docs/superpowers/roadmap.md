@@ -24,7 +24,7 @@
 
 | # | 横向工作 | 何时做 |
 |---|---|---|
-| T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史） |
+| T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史）；2026-10-15 按 notes/07 §5 的决定在后续提交里删去健康数字和手机型号，未改写历史 |
 | T2 | 会话寿命与自动续期 | ✅ 实现完成（2026-10-14），待真机核对（需重新 `mifit login` 一次以保存 passToken） |
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | ✅ 实现完成（2026-10-14）：分块串行读取、超过 92 天需 --long、--resume 断点续传 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
@@ -51,7 +51,7 @@
   - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标），`raw` 是完整档案（含个人标识）；待真机核对。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
   - `MiFit.raw_window(key, ...)` / `MiFit.daily_report(key, ..., tag=...)` / `mifit raw <key> [--daily [--tag TAG]]`：任意 key 的通用 A 层读取。原始 key 起点提前一天再按窗口过滤，汇总 key 按步数的日窗口；`records` 为空，`raw` 是服务端的行（`value` 已解码）。已知的 key 见 notes/domain-catalog.md。
-- 测试 1195 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；3 个测试文件含真实读数，见 notes/07 §3、§5）。
+- 测试 1195 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；测试数据全为合成值）。
 
 ---
 
@@ -99,7 +99,7 @@
 
 - 日汇总 `key=heart_rate` → `CloudHrReport`：平均、最高、最低心率，静息心率 `avg_rhr`，各心率区间时长，异常心率次数。B 层 `HeartRateDailySummary`。
 - 原始 key 补齐：`resting_heart_rate`（静息）、`single_heart_rate`（手动测量）。
-- 上次核对记下的目标：静息心率 77、睡眠心率 65 要能对上（睡眠心率可能来自 M2 的睡眠报告）。
+- 上次核对时 app 显示的静息心率和睡眠心率要能对上（睡眠心率可能来自 M2 的睡眠报告）。
 - **完整性限时调查**（建议 1 个工作单元，到时间就停，结论写进 notes）：对照 app 的 `pullFullPullFitnessData` 读法，比较窗口查询和全量翻页的点数，尝试定位漏点原因；同时让 `--full` 触顶时给出提示（这一项放到 T3 也可以）。
 - 完成标准：静息心率和日均、日最高、日最低与 app 一致；完整性问题要么定位，要么形成书面"已知限制"。
 - **结果（2026-10-14）✅（待真机核对）**：`MiFit.heart_rate_daily()` / `mifit export heart_rate_daily` 产出 `HeartRateDailySummary`（avg / max / min / resting），待真机核对（日均、范围、静息心率对照 app）。完整性已定位并修复：服务端丢掉键在 / 早于 `start_time` 的那个约 2 h 桶，窗口读取改为起点提前一天再过滤，3/3 天与不带起点的读取逐行一致（notes/08）；`--full` 触顶 10 页时现在有提示。带起点的多页窗口读取也已真机核对：3 天的窗口分 2 页，窗口内 269/269 行与不带起点的读取逐行一致（notes/08 §4）。范围上有意收窄：各心率区间时长、异常心率次数、`latest_hr` 含义未核实，只留在 `raw`，不进 B 层；`resting_heart_rate` / `single_heart_rate` 没有专门的数据域，用 `MiFit.raw` 读取。
@@ -115,7 +115,7 @@
 
 ### M5 — 血氧 + 体重/身体成分 + 用户档案
 
-- 血氧：日汇总 `key=spo2`（`CloudSpo2Report`），原始 `spo2` / `single_spo2` / `low_spo2`。已知 app 日均（95）≠ 点的简单平均（96），聚合算法未知，**不硬凑系数**；B 层日均直接取服务端的日汇总值。
+- 血氧：日汇总 `key=spo2`（`CloudSpo2Report`），原始 `spo2` / `single_spo2` / `low_spo2`。已知 app 日均 ≠ 点的简单平均（notes/04 §4），聚合算法未知，**不硬凑系数**；B 层日均直接取服务端的日汇总值。
 - 体重：key 待探测（候选 `weight_item_record` 系列）。身体成分字段在已知样本里全是 0，含义未核实前只进 A 层。
 - 用户档案/目标（身高、体重、各项目标）：入口待确认，可能是单独的接口；先反编译定位。
 - 完成标准：血氧日汇总与 app 一致；体重记录条数和数值与 app 历史一致。身体成分能核对到哪一步取决于你是否有体脂秤数据。
@@ -130,7 +130,7 @@
 - 范围建议：先做 `record`（逐秒明细，proto 0）和 `gps`（proto 2），只覆盖你实际做过的 1–2 种运动；其余 proto_type 按需补。
 - 新依赖：AES 需要引入一个加密库（如 `cryptography`），到时在设计文档里定。
 - 完成标准：一次运动的轨迹点数、起止时间、距离与 app 轨迹页一致；逐秒心率曲线形态与 app 一致。
-- **结果（2026-10-15）✅（待真机核对）**：链路为运动列表（与 `workouts` 共用 `sport_rows`）→ `healthapp/service/gen_download_url`（签名路径 `/service/gen_download_url`；每次运动一次请求，带 record、GPS 两项）→ 预签名 URL → 独立的下载器（不带 Cookie、会话或 netrc 凭据，不跟随重定向，只认 200，主机须在 `.fds.api.xiaomi.com` 下，正文上限 16 MiB，与 `Transport` 同样节流）→ JSON 字符串里的 base64url → AES-128-CBC（固定 IV）→ 8 字节头 + 有效性标志，头部的时间戳、时区、协议号须与汇总一致才解析。新增硬依赖 `cryptography>=42`（只在 `fds/cipher.py` 里导入）。只启用真机见过的三种布局（D1）：跑 record v8（协议 22）、骑 record v5（协议 23）、GPS v2；其它运动（本账号的爬楼机、力量训练，协议 8）不发 FDS 请求，其它版本只给头部，都带 note。`MiFit.workout_detail()` / `mifit export workout_detail` 每次运动一条 `WorkoutDetail(workout, samples, track)`：B 层 `WorkoutSample`（逐秒：真实 Unix 秒、心率、累计距离、累计步数、步频、配速、骑行速度、海拔）和 `TrackPoint`（时刻、纬度、经度）；海拔暂进 B，跑步极值与汇总差 2–3 m，待真机定（spec §16 Q4），其余（逐秒卡路里、步幅、冲击力、垂直振幅、段字段、GPS 精度与速度等）只留 A 层（`raw` 用 `schemas.zip` 的字段名、存储值不缩放）。一次调用至多读 10 次支持的运动（超出加 note），分块读取按周（`week`）；`--no-track` / `track=False` 不请求 GPS 文件。URL、`obj_key`、`sid` 不进任何输出。本机真实文件闸门通过（D25，不联网）：4/4 份文件走到末尾、无剩余字节、无异常，头部与汇总一致；跑步步数、骑行卡路里、心率最大 / 最小值与汇总相等，距离与汇总的比值 1.000，轨迹长度 / 距离 0.99（跑）、1.02（骑），丢点 0；用保存的列表、链接答复和下载正文离线重放整条链路，得 2 条带样本和轨迹的明细，另 2 条只有“不支持”的 note。事实见 notes/12；app 对照推迟到收尾的真机核对会话（spec §14、§16）。
+- **结果（2026-10-15）✅（待真机核对）**：链路为运动列表（与 `workouts` 共用 `sport_rows`）→ `healthapp/service/gen_download_url`（签名路径 `/service/gen_download_url`；每次运动一次请求，带 record、GPS 两项）→ 预签名 URL → 独立的下载器（不带 Cookie、会话或 netrc 凭据，不跟随重定向，只认 200，主机须在 `.fds.api.xiaomi.com` 下，正文上限 16 MiB，与 `Transport` 同样节流）→ JSON 字符串里的 base64url → AES-128-CBC（固定 IV）→ 8 字节头 + 有效性标志，头部的时间戳、时区、协议号须与汇总一致才解析。新增硬依赖 `cryptography>=42`（只在 `fds/cipher.py` 里导入）。只启用真机见过的三种布局（D1）：跑 record v8（协议 22）、骑 record v5（协议 23）、GPS v2；其它运动（如爬楼机、力量训练，协议 8）不发 FDS 请求，其它版本只给头部，都带 note。`MiFit.workout_detail()` / `mifit export workout_detail` 每次运动一条 `WorkoutDetail(workout, samples, track)`：B 层 `WorkoutSample`（逐秒：真实 Unix 秒、心率、累计距离、累计步数、步频、配速、骑行速度、海拔）和 `TrackPoint`（时刻、纬度、经度）；海拔暂进 B，跑步极值与汇总差 2–3 m，待真机定（spec §16 Q4），其余（逐秒卡路里、步幅、冲击力、垂直振幅、段字段、GPS 精度与速度等）只留 A 层（`raw` 用 `schemas.zip` 的字段名、存储值不缩放）。一次调用至多读 10 次支持的运动（超出加 note），分块读取按周（`week`）；`--no-track` / `track=False` 不请求 GPS 文件。URL、`obj_key`、`sid` 不进任何输出。本机真实文件闸门通过（D25，不联网）：4/4 份文件走到末尾、无剩余字节、无异常，头部与汇总一致；跑步步数、骑行卡路里、心率最大 / 最小值与汇总相等，距离与汇总的比值 1.000，轨迹长度 / 距离 0.99（跑）、1.02（骑），丢点 0；用保存的列表、链接答复和下载正文离线重放整条链路，得 2 条带样本和轨迹的明细，另 2 条只有“不支持”的 note。事实见 notes/12；app 对照推迟到收尾的真机核对会话（spec §14、§16）。
 
 ### M7 — 长尾数据域
 
@@ -149,7 +149,7 @@
 - 对移植自 kevinkwee/Mi-Fitness-Sync 的部分（签名/RC4、传输、登录流程思路）在源文件头和 `THIRD_PARTY_NOTICES` 里保留其 MIT 版权声明（设计 §5 要求）。
 - 写 README：安装、扫码登录、导出、已知限制（云端滞后、卡路里环是 app 端合成、心率完整性、只读）。
 - 复查 git 历史里没有会话、token 或个人健康数据（`.gitignore` 已覆盖常见路径，做一次确认）。
-- **结果（2026-10-14）✅**：新增 LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README；历史审计未发现真实凭证或账号标识，个人健康数字在 3 个核对文档之外还见于路线图、计划、notes/04–05、测试代码和 1 条提交信息（只报告，未改写历史）；notes/07 §5 留给你决定 5 项。
+- **结果（2026-10-14）✅**：新增 LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README；历史审计未发现真实凭证或账号标识，个人健康数字在 3 个核对文档之外还见于路线图、计划、notes/04–05、测试代码和 1 条提交信息（只报告，未改写历史）；notes/07 §5 留给你决定 5 项。2026-10-15 按 notes/07 §5 的决定在后续提交里删去健康数字和手机型号，未改写历史。
 
 ### T2 会话寿命与自动续期
 - 现在就开始观察：记录每次登录时间和首次 401 的时间，先得到真实的有效期。

@@ -106,7 +106,7 @@ SDK 的做法（`fetch_workouts`）：
 
 ## 4. 运动类型
 
-账号上出现过的四个 `sport_type` 和它们的中立名：
+目前核实过的四个 `sport_type` 和它们的中立名：
 
 | `sport_type` | APK `FitnessSportType` | 中立名（`Workout.sport`） | app 的 Health Connect 类型（`TypeConvert`） |
 |---|---|---|---|
@@ -152,4 +152,4 @@ SDK 的做法（`fetch_workouts`）：
 - **区间时长**：各 `hrm_*_duration` 之和约等于 `duration`，但区间阈值因用户而异，所以只留 A 层。
 - **`deleted` 和 `cheat_info`**：APK 行类里有，真机从未见过。SDK 把真值的 `deleted` 当作已删除并忽略（按字段名推断，未见实例）；`cheat_info` 不处理。
 - **每次运动的明细**（逐点心率、轨迹、分段）：不在这个接口里，走 FDS，属于 M6。
-- **覆盖面**：只有一个东八区账号、四种运动类型；其他时区的 `timezone`（含负值、非整小时）只有单元测试覆盖。
+- **覆盖面**：只有一个东八区账号；运动类型只核实了 §4 的四种；其他时区的 `timezone`（含负值、非整小时）只有单元测试覆盖。

@@ -13,9 +13,9 @@
 ## Live-verified shapes (UTC+8 account, 2026-10-14; values below are synthetic)
 
 - Daily row: outer `{tag:"daily_report", key:"sleep", time:<UTC midnight of the local date>, value:<JSON string>, update_time, watermark, source_sid_list, sid}`. Decoded value: `total_duration, sleep_deep_duration, sleep_light_duration, sleep_awake_duration, sleep_score, avg_hr, min_hr, max_hr, avg_spo2, min_spo2, max_spo2, sleep_stage, long_sleep_evaluation, day_sleep_evaluation, segment_details[]`; segment: `bedtime, wake_up_time, timezone, duration, sleep_deep_duration, sleep_light_duration, sleep_awake_duration, awake_count`. `sleep_rem_duration` is in the APK's string table next to these but absent for this device.
-- A day holds every session that **ends** on it (a night and a nap both on 10-14). `total_duration` = sum of session `duration` (asleep minutes, awake excluded). A missing measurement is reported as `0` (`avg_spo2: 0`, `avg_hr: 0`).
+- A day holds every session that **ends** on it (a night and a nap on the same day). `total_duration` = sum of session `duration` (asleep minutes, awake excluded). A missing measurement is reported as `0` (`avg_spo2: 0`, `avg_hr: 0`).
 - Raw row: outer `{key:"sleep", time:<wake_up_time>, zone_offset:28800, zone_name:"Asia/Shanghai", update_time, value, sid}`. Decoded value: `bedtime, wake_up_time, timezone, duration, sleep_*_duration, awake_count, items[]?, is_uncomplete, version, protoTime, device_bedtime, device_wake_up_time, avg_hr?, …`. `items` = `[{start_time, end_time, state}]` (true epoch seconds), contiguous from `bedtime` to `wake_up_time`. A nap had no `items` and `is_uncomplete: true`.
-- States, checked against the reported durations on a real night: `2` = deep (105 min), `3` = light (326 min), `5` = awake (51 min). APK constants (notes/04): `0` not asleep, `4` REM, `6` trace.
+- States, checked on a real night: `2` = deep, `3` = light, `5` = awake (each state's summed minutes equal the reported duration). APK constants (notes/04): `0` not asleep, `4` REM, `6` trace.
 - Times are true Unix seconds; `timezone` is the recording zone in 15-minute units (`32` → +08:00). The app shifts all times by `timezone*900 - current offset` for display (`FitnessDataUtils.sleepSegmentToLocalTime`); the SDK does **not**: it keeps true instants and exposes the offset.
 
 ## Global Constraints

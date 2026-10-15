@@ -41,8 +41,8 @@
   - `models/consumption.py`: `@dataclass ConsumptionRecord{ date: str, epoch_s: int, resting_kcal: float | None, active_kcal: float | None, intake_kcal: float | None, total_kcal: float | None }` (neutral names; `total_kcal = resting_kcal + active_kcal` when both present, else None).
   - `domains/consumption.py`: `@register("consumption") def fetch_consumption(t: Transport, start_epoch_s: int, end_epoch_s: int) -> DomainResult` — iterates days, `get_json("diet/user_consumption", {"time": day_start_utc + 43200})`, maps `result.{basal,exercise,intake}` → `ConsumptionRecord` (basal→resting_kcal, exercise→active_kcal, intake→intake_kcal), `raw` gets the decoded `{basal,exercise,intake}` dict per day.
 
-- [ ] **Step 1: Write failing tests** `tests/test_domain_consumption.py` (fake Transport whose `get_json` returns a scripted per-`time` response, e.g. `{"code":0,"result":{"basal":1907.5,"exercise":365,"intake":0}}`; NO network):
-  - `test_one_day_maps_fields`: single-day range → one `ConsumptionRecord(resting_kcal=1907.5, active_kcal=365, intake_kcal=0, total_kcal=2272.5)`, `raw==[{"basal":1907.5,"exercise":365,"intake":0}]`.
+- [ ] **Step 1: Write failing tests** `tests/test_domain_consumption.py` (fake Transport whose `get_json` returns a scripted per-`time` response, e.g. `{"code":0,"result":{"basal":1500.5,"exercise":250,"intake":0}}`; NO network):
+  - `test_one_day_maps_fields`: single-day range → one `ConsumptionRecord(resting_kcal=1500.5, active_kcal=250, intake_kcal=0, total_kcal=1750.5)`, `raw==[{"basal":1500.5,"exercise":250,"intake":0}]`.
   - `test_range_yields_one_record_per_day_with_correct_time`: a 3-day range → 3 records; assert the `time` values sent are each day's `00:00 UTC + 43200` and dates are consecutive UTC dates.
   - `test_missing_day_is_noted_not_fabricated`: a day whose response has no usable values (or get_json raises) → no record for it, a note added; other days still returned.
   - `test_values_read_from_result_wrapper`: a response nested under `result` is read correctly (not the top level).

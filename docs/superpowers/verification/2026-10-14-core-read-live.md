@@ -1,5 +1,7 @@
 # Live verification: core read path (steps, heart rate)
 
+*Readings removed on 2026-10-15 (notes/07 §5): values are recorded as match / differ, and dates are relative to the run day D (2026-10-14).*
+
 **Status:** PASS — the core read chain was verified live against the user's real account on 2026-10-14 (see section 3); one calories-semantics follow-up remains
 
 This is the **M1 gate** from the [implementation plan](../plans/2026-10-14-mifit-foundation-core-read.md) (Task 11), checked against design §8.1 and §10. It is a manual procedure, not a CI test. Run it when the user is at the computer with the Mi Fitness / Xiaomi app on their phone.
@@ -68,17 +70,18 @@ Operating notes:
 |---|---|
 | Run date and who ran it | 2026-10-14, user QR login + SDK reads |
 | QR login (sid miothealth, region cn) | PASS — service token + ssecurity obtained, no password |
-| Steps date range used | ~2 weeks (2026-10-01 … 2026-10-14) |
+| Steps date range used | about two weeks ending on D |
 | Steps: all match app within rounding (y/n) | YES — user confirmed daily steps match |
 | Distance: matches app (y/n) | YES — user confirmed |
 | Steps: date labels align with app days (y/n) | YES for this account (no off-by-one observed on the compared days) |
-| Heart-rate day used | 2026-10-13 |
-| Heart rate windowed: n / min / max / avg | 133 pts / 60 / 120 / 82.3 — **exactly matches app (range 60–120, avg 82)** |
-| Heart rate `--full` (multi-day, raw) | 2413 pts / 55 / 153 / 85.3 (spans >1 day; not a same-day compare) |
+| Cross-check with mi-health-lab samples (check 4) | not done; open (end-of-run checklist §4) |
+| Heart-rate day used | D-1 |
+| Heart rate windowed: n / min / max / avg | range matches the app exactly; mean within rounding |
+| Heart rate `--full` (multi-day, raw) | completes; spans more than one day (not a same-day compare) |
 | bpm scaling | correct — raw bpm, NOT ×5 |
-| **Calories: matches app? (y/n)** | **NO — mismatch.** App calorie ring (195/490/453/576 for 10-14..10-11) ≠ step-report `calories` (103/171/261/302) ≠ `calories` daily-report key (365/292/1/485). App's calorie metric is a different, not-yet-identified quantity (likely total/active energy incl. BMR). FOLLOW-UP, not a chain bug. |
+| **Calories: matches app? (y/n)** | **NO — mismatch.** On the same days (D-3…D), the app calorie ring, the step report's `calories` and the `calories` daily-report key differed from each other. App's calorie metric is a different, not-yet-identified quantity (likely total/active energy incl. BMR). FOLLOW-UP, not a chain bug. |
 | Outcome | **PASS** for the core read chain (auth, steps, distance, raw heart-rate parse/accuracy). Calories semantics = follow-up. |
-| Notes | Resting HR (77) and sleep HR (65) the app shows are separate derived metrics (HR daily report / sleep report) — not in the raw-HR domain; future domains. No tokens or raw per-day health values committed here. |
+| Notes | Resting HR and sleep HR the app shows are separate derived metrics (HR daily report / sleep report) — not in the raw-HR domain; future domains. No tokens or raw per-day health values committed here. |
 
 ### Follow-ups surfaced by this run
 1. **Calories semantics** — identify which cloud key/metric backs the app's calorie display; until then, rename/annotate `StepRecord.calories` so it is not mistaken for the app's figure (design anti-goal: don't let a B field silently mislead).

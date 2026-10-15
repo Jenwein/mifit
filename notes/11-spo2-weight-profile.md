@@ -28,7 +28,7 @@
 - `spo2_total`、`spo2_time_total` 一次都没出现。
 - 每一行都满足 `min_spo2 ≤ avg_spo2 ≤ max_spo2`，都在 70–100 之间，像百分比。`lack_spo2_count` 一直是 `0`，含义（APK `lackTimes`）未核实。
 - `latest_spo2.time − dbTime = +28800`：`time` 是"把本地钟点当 UTC 写"的平移时钟，与 `latest_hr` 相同（notes/08 §1.1），不是真实时刻。
-- 日均是服务端自己的 `avg_spo2`，不是当天各点的简单平均（notes/04 §4：日均 95 ≠ 点均 96）。SDK 不重算、不拟合。
+- 日均是服务端自己的 `avg_spo2`，不是当天各点的简单平均（notes/04 §4：日均与点均不同）。SDK 不重算、不拟合。
 - 进入 B 层（`Spo2DailySummary`）的只有 `avg_spo2`、`max_spo2`、`min_spo2`（`0`、缺失、负数、非数 → `None`）；`lack_spo2_count`、`latest_spo2` 和两个 total 只留在 `raw`。
 
 **原始 `spo2`**（`get_fitness_data_by_time`）

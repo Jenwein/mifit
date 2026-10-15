@@ -281,7 +281,7 @@ Tasks 1–2 do not depend on this task. The controller runs it later, with the u
    - `min_hrm` stays `raw`-only, because the roadmap does not list it.
    - `total_cal` stays `raw`-only until Task 3 shows which calorie figure the app displays. B carries `calories` as `active_kcal`, because the live relation makes it the active energy.
 4. **`duration_s` is `duration` (moving time),** not end − start. Pace and speed agree with it, and the APK's validity check uses it. Task 3 confirms that the app shows it.
-5. **The sport table covers only the account's four types** (roadmap: "先覆盖你实际做过的类型").
+5. **The sport table covers only the four types verified so far.**
    - The names come from Health Connect's exercise-type vocabulary, matching the app's own Health Connect mapping (design §12.1).
    - Unknown types are kept, with `sport=None` and their source number, and get no note: an unmapped type is expected, not an error.
    - notes/10 §4 names the APK classes that hold the full table.

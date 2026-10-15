@@ -35,7 +35,7 @@ M4 给了"每次运动一行"的汇总。用户在 app 里还能看到每次运�
 5. 测试全部离线、用合成数据；仓库里不出现真实文件。
 
 ### 非目标（本期不做，以后可以做）
-- 其它 `proto_type`（本账号的爬楼机 300、力量训练 308 都是 `proto_type` 8 自由训练，无 GPS）和其它 `fileType`（1 report、3 hrr）。对它们 M6 不发 FDS 请求，只在结果里说明（§12）。
+- 其它 `proto_type`（例如爬楼机 300、力量训练 308，都是 `proto_type` 8 自由训练，无 GPS）和其它 `fileType`（1 report、3 hrr）。对它们 M6 不发 FDS 请求，只在结果里说明（§12）。
 - 本账号没有的文件版本：record v9（跑）/ v6、v7（骑）、GPS v3–v5 等。遇到时只解析头部并加 note（§12）。`schemas.zip` 里有这些版本的定义，见 §15 D2 的后续路径。
 - 新线路（`CloudSyncLineRouter.isNewWebLine()` 为真时走的 `HealthKitDataRequest.genFDSDownloadUrl`）和毫秒时间戳的 10 字节文件键（`genDataIdKeyBytes` 的 ≥13 位分支）。我们读的是旧线路（line 1，与 M1–M5 相同），时间都是秒。
 - 路线文件（`getRouteFDSUrl` / `downloadRoute`）、ECG、体温等其它 FDS 内容。

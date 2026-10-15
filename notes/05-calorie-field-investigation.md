@@ -1,6 +1,6 @@
 # 卡路里字段定位（2026-10-14，真机）
 
-目标：找出小米运动健康 app「卡路里」环显示值（真机实测：10-14=195, 10-13=490, 10-12=453, 10-11=576 千卡）对应的云端字段。
+目标：找出小米运动健康 app「卡路里」环显示值（真机实测 4 天）对应的云端字段。
 
 ## 结论（definitive）
 
@@ -8,14 +8,14 @@
 
 ## 查到的真实云端卡路里数据
 
-1. **步数报告自带 `calories`**（`get_aggregated_fitness_data_by_time`, tag=`daily_report`, key=`steps` 的 value 里）：走路卡路里。10-14..10-11 = 103/171/261/302。← 我们现在 `StepRecord.calories` 读的就是这个。
-2. **`calories` 日报**（同端点, key=`calories`）：value `{calories:N}`。按 UTC 日 = 365/292/1/485。
+1. **步数报告自带 `calories`**（`get_aggregated_fitness_data_by_time`, tag=`daily_report`, key=`steps` 的 value 里）：走路卡路里。← 我们现在 `StepRecord.calories` 读的就是这个。
+2. **`calories` 日报**（同端点, key=`calories`）：value `{calories:N}`。
 3. **每日消耗** `GET app/v1/diet/user_consumption`（GET，query 参数 `data`，@Secret pathPrefix=""，host hlth.io.mi.com），请求体 `HeatConsumptionNewRequest{time:int}`（当日 epoch 秒；非毫秒、非日期串，否则报 `invalid time`），响应 `HeatConsumptionData{basal:float, exercise:float, intake:float}`：
-   - `basal` = 基础代谢 BMR（恒定 ≈1907.5，来自个人资料）
-   - `exercise` = 活动消耗（云端值；= 上面 calories 日报那套，891/365/292/1 之类，随 time 落在哪个本地日而变）
-   - `intake` = 饮食摄入（本账号为 0）
+   - `basal` = 基础代谢 BMR（恒定，来自个人资料）
+   - `exercise` = 活动消耗（云端值；= 上面 calories 日报那套，随 time 落在哪个本地日而变）
+   - `intake` = 饮食摄入
 
-三者与 app 环（195/490/453/576）在任何时区错位下都对不上（如 10-11：cloud exercise=1 vs app 576）。证明 app 用的是设备端合成/未同步的手机侧数据。
+三者与 app 环在任何时区错位下都对不上（有一天云端 `exercise` 几乎为 0，app 环却明显不为 0）。证明 app 用的是设备端合成/未同步的手机侧数据。
 
 ## 相关代码链（APK v3.59.1）
 - `HeatViewModel.getDailyConsumption/getHeatConsumptionData(LocalDate)` → `WeightDataRequest.getHeatConsumptionData(HeatConsumptionNewRequest)` → `WeightApiService.getHeatConsumptionData(data)` `@kub("diet/user_consumption")`（kub=GET）。

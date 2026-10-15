@@ -6,7 +6,7 @@
 ## 一、结论一致性：高度吻合（等于第三方独立印证）
 
 对方独立得出的结论和我们（notes/01、02）**逐条一致**：
-- 本地库路径需 root：真机上 `run-as` 被拒（app 非 debuggable）、databases 目录 `Permission denied`。→ 和我们"不 root 读不到"一致，且是在**用户真机（Xiaomi 15 / HyperOS / 未 root）上实测确认**的。
+- 本地库路径需 root：真机上 `run-as` 被拒（app 非 debuggable）、databases 目录 `Permission denied`。→ 和我们"不 root 读不到"一致，且是在**用户真机（未 root）上实测确认**的。
 - Health Connect 权限未授予、小米 HealthKit app 未安装。→ 和我们排除路径 C 一致。
 - 云端路径 B：`hlth.io.mi.com/app/v1/...`、sid `miothealth`、Cookie `serviceToken`+`cUserId`、签名用 `security`(ssecurity)、地区路由。→ 和我们 + kevinkwee **三方一致**。
 - 签名算法逐字节一致：nonce(12 字节=8 随机+4 字节分钟桶,大端,base64) → `K=SHA256(b64dec(security)+b64dec(nonce))` → RC4(丢前 1024 字节、字段间连续状态) → SHA1 签名 → 响应用新 RC4 解密。→ **三方一致**，签名这块可以当定论了。
