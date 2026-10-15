@@ -16,9 +16,11 @@ Limits of the guard: it only covers code that runs in the test process while a
 test function executes. It does not cover module import time, fixtures with a
 broader scope than ``function``, or child processes. On Windows it also blocks
 asyncio and ``socket.socketpair`` (whose fallback there uses ``connect``), so a
-future async test would need a loopback allowance.
+test that runs an event loop (the MCP server tests) asks for the ``allow_loopback``
+fixture: it lets ``connect`` reach loopback addresses only, and nothing else.
 """
 
+import ipaddress
 import socket
 import sys
 from pathlib import Path
@@ -30,8 +32,21 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 
+# Saved before any test patches it, for ``allow_loopback``.
+_REAL_CONNECT = socket.socket.connect
+
+
 def _refuse(*args, **kwargs):
     raise RuntimeError("tests must not use the network")
+
+
+def _is_loopback(address) -> bool:
+    if not isinstance(address, tuple) or not address:
+        return False
+    try:
+        return ipaddress.ip_address(address[0]).is_loopback
+    except ValueError:
+        return False
 
 
 @pytest.fixture(autouse=True)
@@ -55,3 +70,20 @@ def _no_network(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", _refuse)
     monkeypatch.setattr(socket.socket, "connect", _refuse)
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+
+
+@pytest.fixture
+def allow_loopback(monkeypatch):
+    """Let sockets ``connect`` to loopback addresses only, for an event loop.
+
+    On Windows, asyncio's self-pipe is a ``socketpair`` that connects to 127.0.0.1;
+    under the guard every event loop fails to start. Name resolution,
+    ``create_connection`` and every other address stay refused.
+    """
+
+    def connect(sock, address, *args, **kwargs):
+        if _is_loopback(address):
+            return _REAL_CONNECT(sock, address, *args, **kwargs)
+        _refuse()
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
