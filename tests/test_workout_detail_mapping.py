@@ -17,12 +17,13 @@ from mifit.models.workout_detail import TrackPoint, WorkoutDetail, WorkoutSample
 T = 1700000000
 RUN = 22
 RIDE = 23
+INITIAL_ALTITUDE = 50.0  # stays in the decoded input; altitude is not mapped to B
 
 
-def seg(resume, points, initial_altitude=50.0):
+def seg(resume, points):
     """A decoded record segment starting at ``resume`` and holding ``points``."""
     return {
-        "initialAltitude": initial_altitude,
+        "initialAltitude": INITIAL_ALTITUDE,
         "recordCount": len(points),
         "resumeTimestamp": resume,
         "pauseType": 1,

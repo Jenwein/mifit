@@ -45,7 +45,8 @@ def fixture_values():
 
 
 def figures(**overrides):
-    """A decoded daily value with only the three mapped figures, then overrides."""
+    """A decoded daily value with the three stress levels only (no ``stress_scale``),
+    then overrides."""
     value = {"avg_stress": 35, "max_stress": 80, "min_stress": 12}
     value.update(overrides)
     return value
@@ -212,7 +213,8 @@ def test_row_with_every_figure_missing_still_gives_a_record():
 def test_raw_keeps_decoded_values_untouched():
     result = fetch_stress_daily(PagedFake(load_fixture()), START, END, tz=UTC)
 
-    # The band durations (stress_scale) stay in raw as the service sent them.
+    # raw keeps every decoded value as the service sent it, ``stress_scale``
+    # included (the mapped band minutes are a view of it).
     assert result.raw == fixture_values()
     assert "stress_scale" in result.raw[0]
 
@@ -293,14 +295,22 @@ def test_band_minutes_keep_zero_and_drop_unusable_values():
         ),
         (
             DAY_2,
-            figures(stress_scale={"relax": -5, "mild": float("nan"), "moderate": None}),
+            figures(
+                stress_scale={
+                    "relax": -5,
+                    "mild": float("nan"),
+                    "moderate": None,
+                    "severe": -0.5,
+                }
+            ),
         ),
     )
 
     result = fetch_stress_daily(PagedFake(payload), START, END, tz=UTC)
 
-    # ``0`` minutes is a real value; a float is truncated; a string, a bool, a
-    # negative, a non-finite or missing value is no value.
+    # ``0`` minutes is a real value; a float is truncated; a string, a bool, any
+    # negative (a fraction such as -0.5 included), a non-finite or missing value is
+    # no value.
     assert [bands(r) for r in result.records] == [
         (0, 45, None, None),
         (None, None, None, None),
