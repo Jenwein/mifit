@@ -5,6 +5,39 @@ All notable changes to mifit are listed here. The format follows
 0.x, a minor version can still change or remove parts of the API; the
 "Breaking" list of each version says what.
 
+## 0.3.0 — 2026-10-15
+
+mifit now serves your data to AI assistants: `mifit mcp` is a Model Context
+Protocol server that runs on your own computer.
+
+### Added
+
+- `mifit mcp`: a read-only MCP server on stdin/stdout for AI assistants (Claude
+  Desktop, Claude Code, Cursor, VS Code, ...). One tool per checked domain
+  (`get_steps`, `get_calories`, `get_activity`, `get_heart_rate_daily`,
+  `get_sleep`, `get_spo2_daily`, `get_stress_daily`, `get_weight`,
+  `get_workouts`, `get_heart_rate`, `get_spo2`, `get_workout_detail`), plus
+  `get_status` and `get_profile`. Results are the B-layer `records`, never
+  `raw`, with local ISO 8601 times. Setup: README, "Use with an AI assistant
+  (MCP)".
+- Limits per call: 92 days for the daily tools, 31 for `get_calories` (the
+  service answers one day per request), 7 for heart-rate and SpO2 samples and
+  for sleep stage timelines. Dense results are cut down to at most 500 rows
+  (buckets, picked samples, every nth GPS point) and the notes say how. Results
+  are kept in memory for 5 minutes.
+- `--allow-gps`: GPS tracks stay off unless the server is started with it and
+  the tool is asked for one.
+- `login_start` / `login_status`: log in by QR code from the assistant, without
+  a terminal.
+
+### Changed
+
+- New dependency: `mcp>=2.3,<3`, the official MCP Python SDK (it brings
+  pydantic, starlette, uvicorn and others). Only `mifit mcp` imports it.
+- `qrcode>=7.4` became `qrcode[png]>=7.4`, for the login QR image.
+- `mifit.jsonsafe` holds the CLI's JSON clean-up (records as dicts, NaN as
+  `null`), shared with the MCP server.
+
 ## 0.2.0 — 2026-10-15
 
 No version was ever tagged or published before this one: `0.1.0` is the version

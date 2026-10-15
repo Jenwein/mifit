@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mifit"
-version = "0.2.0"
+version = "0.3.0"
 description = "Read your own Mi Fitness data from the Xiaomi cloud."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES"]
 requires-python = ">=3.12"
-keywords = ["mi-fitness", "xiaomi", "health", "fitness", "wearable", "sleep", "heart-rate"]
+keywords = [
+    "mi-fitness", "xiaomi", "health", "fitness", "wearable", "sleep", "heart-rate",
+    "mcp", "model-context-protocol",
+]
 # No License classifier: the `license` expression above replaces it (PEP 639).
 classifiers = [
     "Development Status :: 3 - Alpha",

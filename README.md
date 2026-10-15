@@ -3,8 +3,10 @@
 [![CI](https://github.com/Jenwein/mifit/actions/workflows/ci.yml/badge.svg)](https://github.com/Jenwein/mifit/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/mifit)](https://pypi.org/project/mifit/)
 
+<!-- mcp-name: io.github.jenwein/mifit -->
+
 Read your own Mi Fitness (小米运动健康) data from the Xiaomi cloud: a small
-Python library and a command-line tool.
+Python library, a command-line tool and an MCP server for AI assistants.
 
 The Mi Fitness app syncs your steps, heart rate, sleep and more to the Xiaomi
 cloud, but Xiaomi offers no public API for individuals. mifit signs in to your
@@ -77,6 +79,83 @@ permissions.
 
 If Xiaomi asks for an extra security confirmation, `mifit login` prints a URL:
 open it, confirm, then run `mifit login` again.
+
+## Use with an AI assistant (MCP)
+
+`mifit mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server: AI assistants such as Claude Desktop, Claude Code, Cursor and VS Code
+start it on your computer and read your Mi Fitness data when you ask them about
+it ("how did I sleep last week?").
+
+**What leaves your computer.** The results of the tools the assistant calls are
+sent to the assistant's model provider, like the rest of the conversation. The
+login stays in `~/.mifit` on this computer: the server runs locally on
+stdin/stdout, opens no network port, never puts a credential in a result, and
+only reads. GPS tracks are off: the server gives a workout's route only when it
+was started with `--allow-gps` *and* the assistant asks for it, and a route
+shows where you were, including where you live.
+
+**Log in once**, in a terminal:
+
+```bash
+uvx mifit login
+```
+
+(or `mifit login` after `uv tool install mifit`). Without a terminal, ask the
+assistant to log you in: it calls `login_start`, which returns the QR code to
+scan with the Xiaomi or Mi Fitness app.
+
+**Add the server to your assistant.** `uvx` (part of
+[uv](https://docs.astral.sh/uv/)) downloads and runs mifit when needed:
+
+```bash
+claude mcp add --scope user mifit -- uvx mifit mcp
+```
+
+```jsonc
+// Claude Desktop: %APPDATA%\Claude\claude_desktop_config.json
+// (macOS: ~/Library/Application Support/Claude/claude_desktop_config.json)
+{"mcpServers": {"mifit": {"command": "uvx", "args": ["mifit", "mcp"]}}}
+
+// Cursor: ~/.cursor/mcp.json
+{"mcpServers": {"mifit": {"type": "stdio", "command": "uvx", "args": ["mifit", "mcp"]}}}
+
+// VS Code: .vscode/mcp.json
+{"servers": {"mifit": {"command": "uvx", "args": ["mifit", "mcp"]}}}
+```
+
+After `uv tool install mifit`, the command can be `mifit` with the argument
+`mcp` instead. To allow GPS tracks, add `--allow-gps` after `mcp`
+(`["mifit", "mcp", "--allow-gps"]`).
+
+**Tools.** Each reads one kind of data; dates are local calendar days.
+
+| Tool | What it reads | Per call |
+|---|---|---|
+| `get_status` | today's date, the time zone, the login state, the GPS setting (nothing from the cloud) | — |
+| `get_steps` | steps and distance per day | 92 days |
+| `get_calories` | calories per day: resting, active, intake, total | 31 days |
+| `get_activity` | activity count, minutes and calories per day | 92 days |
+| `get_heart_rate_daily` | heart rate per day: average, maximum, minimum, resting | 92 days |
+| `get_sleep` | sleep per day with its sessions; stage timelines on request | 92 days (7 with stages) |
+| `get_spo2_daily` | blood oxygen per day | 92 days |
+| `get_stress_daily` | stress level per day and the minutes in each stress band | 92 days |
+| `get_weight` | weighings | 92 days |
+| `get_workouts` | workouts | 92 days |
+| `get_heart_rate` | heart-rate samples, in buckets beyond 500 | 7 days |
+| `get_spo2` | blood-oxygen readings, in buckets beyond 500 | 7 days |
+| `get_workout_detail` | one workout's per-second samples (outdoor runs and rides), and its GPS track with `--allow-gps` | one workout, ≤ 500 rows |
+| `get_profile` | height, weight and daily goals | — |
+| `login_start` | log in by QR code (returns the code) | — |
+| `login_status` | how that login stands | — |
+
+Results are the `records` of the Python API with local times
+(`2026-10-07T23:12:00+08:00`) instead of Unix seconds, never `raw`. Dense data
+is cut down to at most 500 rows and the notes say how. A result is kept for
+five minutes, so asking again sends no new requests.
+
+Ask in your own words; the assistant picks the tools. For example: "Did my
+resting heart rate go up this month?"
 
 ## Export
 

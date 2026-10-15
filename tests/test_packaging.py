@@ -11,6 +11,7 @@ import pytest
 
 import mifit
 from mifit import cli
+from mcp_fakes import P2_TOOLS
 from support import load_release_tool
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,3 +114,38 @@ def test_changelog_0_2_0_lists_the_packaging():
         (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.2.0"
     )
     assert "### Packaging" in section and "uv tool install mifit" in section
+
+
+# The MCP Registry checks this comment in the README of the PyPI version it lists.
+MCP_NAME_MARKER = "<!-- mcp-name: io.github.jenwein/mifit -->"
+
+
+def test_readme_carries_the_mcp_registry_marker():
+    assert _readme().count(MCP_NAME_MARKER) == 1
+
+
+def test_readme_mcp_section():
+    section = _section(_readme(), "Use with an AI assistant (MCP)")
+    for text in (
+        "uvx mifit mcp",
+        "claude mcp add --scope user mifit -- uvx mifit mcp",
+        "claude_desktop_config.json",
+        ".cursor/mcp.json",
+        ".vscode/mcp.json",
+        "--allow-gps",
+        "model provider",
+        "login_start",
+        "uvx mifit login",
+    ):
+        assert text in section, text
+    for name in P2_TOOLS:
+        assert f"`{name}`" in section, name
+
+
+def test_version_is_0_3_0_with_its_changelog():
+    assert _pyproject()["project"]["version"] == "0.3.0"
+    release = load_release_tool()
+    notes = release.changelog_section(
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.0"
+    )
+    assert "mifit mcp" in notes and "--allow-gps" in notes and "mcp>=2.3,<3" in notes
