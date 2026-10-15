@@ -110,6 +110,10 @@ STRESS_DAY = StressDailySummary(
     avg_stress_level=35,
     max_stress_level=80,
     min_stress_level=None,
+    relaxed_min=600,
+    mild_min=300,
+    moderate_min=0,
+    severe_min=None,
 )
 WEIGHT = WeightRecord(epoch_s=1790812800, weight_kg=70.5, bmi=None)
 PROFILE = UserProfile(height_cm=175.0, weight_kg=70.0, step_goal=8000, calorie_goal_kcal=None)

@@ -14,16 +14,17 @@ days (``days.report_window``).
 The value is the app's ``CloudStressReport`` (``avg_stress``, ``max_stress``,
 ``min_stress`` and ``stress_scale``). One complete day checked against its raw
 ``stress`` points (notes/domain-catalog.md) gave the minimum, the maximum and the
-rounded mean of those points, in 1-100. ``stress_scale`` (the time per stress band)
-stays in ``raw`` only, because the unit of its durations is unverified. The figures
-have not yet been compared with what the app shows.
+rounded mean of those points, in 1-100. ``stress_scale`` holds the time per stress
+band under ``relax``, ``mild``, ``moderate`` and ``severe``. Both were checked against
+the app (2026-10-15): the three levels match the app's, and the band durations are
+minutes, matching the app's time per band.
 """
 
 from __future__ import annotations
 
 from datetime import tzinfo
 
-from mifit.domains.base import DomainResult, as_positive_int, register
+from mifit.domains.base import DomainResult, as_int, as_positive_int, register
 from mifit.domains.daily_report import fetch_daily_summaries
 from mifit.models.stress import StressDailySummary
 from mifit.transport import Transport
@@ -43,10 +44,12 @@ def fetch_stress_daily(
     A window with no rows gives an empty result, never a fabricated figure. A row
     whose outer ``time`` is missing or unusable is skipped with a note (its decoded
     value is still kept in ``raw``). A figure that is absent, ``0``, negative or not
-    a number becomes ``None``: ``0`` is treated as "not measured". A row whose
-    figures are all missing still gives a record, with every figure ``None``. A
-    read that stalled on an unusable cursor ends with a note saying days may be
-    missing.
+    a number becomes ``None``: ``0`` is treated as "not measured". Band minutes
+    differ: ``0`` minutes is a real value and stays ``0``; an absent, negative or
+    non-number value becomes ``None``, and so do all four when ``stress_scale`` is
+    not an object. A row whose figures are all missing still gives a record, with
+    every figure ``None``. A read that stalled on an unusable cursor ends with a
+    note saying days may be missing.
     """
     return fetch_daily_summaries(
         t,
@@ -60,10 +63,24 @@ def fetch_stress_daily(
 
 
 def _summary(day: str, epoch_s: int, value: dict) -> StressDailySummary:
+    scale = value.get("stress_scale")
+    if not isinstance(scale, dict):
+        scale = {}
     return StressDailySummary(
         date=day,
         epoch_s=epoch_s,
         avg_stress_level=as_positive_int(value.get("avg_stress")),
         max_stress_level=as_positive_int(value.get("max_stress")),
         min_stress_level=as_positive_int(value.get("min_stress")),
+        relaxed_min=_band_minutes(scale.get("relax")),
+        mild_min=_band_minutes(scale.get("mild")),
+        moderate_min=_band_minutes(scale.get("moderate")),
+        severe_min=_band_minutes(scale.get("severe")),
     )
+
+
+def _band_minutes(raw: object) -> int | None:
+    """Minutes in one stress band: ``0`` is a real value; absent, negative or not a
+    number gives ``None`` (``as_int`` rules)."""
+    minutes = as_int(raw)
+    return minutes if minutes is not None and minutes >= 0 else None

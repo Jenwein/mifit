@@ -26,7 +26,7 @@ Python objects, so you can build on it.
 | `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
 | `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
 | `spo2` | raw SpO2 readings | `Spo2Point` | pending |
-| `stress_daily` | stress level per day: average, highest, lowest (time per stress band in `raw` only) | `StressDailySummary` | pending |
+| `stress_daily` | stress level per day: average, highest, lowest, and minutes in each stress band (relaxed, mild, moderate, severe) | `StressDailySummary` | pending |
 | `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
 | `profile` (its own command: `mifit profile`) | height, weight, daily step and calorie goals | `UserProfile` | pending |
 | `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data or daily-report key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |

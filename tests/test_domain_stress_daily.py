@@ -55,6 +55,10 @@ def triple(record):
     return (record.avg_stress_level, record.max_stress_level, record.min_stress_level)
 
 
+def bands(record):
+    return (record.relaxed_min, record.mild_min, record.moderate_min, record.severe_min)
+
+
 def test_stress_daily_domain_is_registered():
     assert REGISTRY["stress_daily"] is fetch_stress_daily
 
@@ -92,6 +96,10 @@ def test_maps_day_figures():
         avg_stress_level=35,
         max_stress_level=80,
         min_stress_level=12,
+        relaxed_min=600,
+        mild_min=300,
+        moderate_min=60,
+        severe_min=5,
     )
     assert result.notes == []
 
@@ -105,6 +113,11 @@ def test_second_day_without_lowest_figure_keeps_the_rest():
         avg_stress_level=28,
         max_stress_level=66,
         min_stress_level=None,
+        relaxed_min=700,
+        mild_min=200,
+        moderate_min=30,
+        # The fixture's ``severe: 0`` is a real zero minutes, kept.
+        severe_min=0,
     )
 
 
@@ -176,7 +189,7 @@ def test_float_figures_are_truncated():
 
 
 def test_row_with_every_figure_missing_still_gives_a_record():
-    payload = payload_with_rows((DAY_1, {"stress_scale": {"relax": 600}}))
+    payload = payload_with_rows((DAY_1, {"stress_scale": {}}))
 
     result = fetch_stress_daily(PagedFake(payload), START, END, tz=UTC)
 
@@ -187,6 +200,10 @@ def test_row_with_every_figure_missing_still_gives_a_record():
             avg_stress_level=None,
             max_stress_level=None,
             min_stress_level=None,
+            relaxed_min=None,
+            mild_min=None,
+            moderate_min=None,
+            severe_min=None,
         )
     ]
     assert result.notes == []
@@ -259,7 +276,54 @@ def test_unverified_fields_stay_out_of_the_summary():
         "avg_stress_level",
         "max_stress_level",
         "min_stress_level",
+        "relaxed_min",
+        "mild_min",
+        "moderate_min",
+        "severe_min",
     }
+
+
+def test_band_minutes_keep_zero_and_drop_unusable_values():
+    payload = payload_with_rows(
+        (
+            DAY_1,
+            figures(
+                stress_scale={"relax": 0, "mild": 45.9, "moderate": "30", "severe": True}
+            ),
+        ),
+        (
+            DAY_2,
+            figures(stress_scale={"relax": -5, "mild": float("nan"), "moderate": None}),
+        ),
+    )
+
+    result = fetch_stress_daily(PagedFake(payload), START, END, tz=UTC)
+
+    # ``0`` minutes is a real value; a float is truncated; a string, a bool, a
+    # negative, a non-finite or missing value is no value.
+    assert [bands(r) for r in result.records] == [
+        (0, 45, None, None),
+        (None, None, None, None),
+    ]
+    assert [triple(r) for r in result.records] == [(35, 80, 12), (35, 80, 12)]
+    assert result.notes == []
+
+
+@pytest.mark.parametrize(
+    "scale",
+    [ABSENT, None, [600, 300, 60, 5], "600"],
+    ids=["absent", "null", "list", "string"],
+)
+def test_band_minutes_are_none_without_a_scale_object(scale):
+    value = figures() if scale is ABSENT else figures(stress_scale=scale)
+    payload = payload_with_rows((DAY_1, value))
+
+    result = fetch_stress_daily(PagedFake(payload), START, END, tz=UTC)
+
+    (record,) = result.records
+    assert bands(record) == (None, None, None, None)
+    assert triple(record) == (35, 80, 12)
+    assert result.notes == []
 
 
 def test_empty_window_yields_no_records_and_no_notes():

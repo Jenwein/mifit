@@ -355,8 +355,8 @@ class MiFit:
         """Daily stress summaries from ``start`` to ``end`` (inclusive days).
 
         One record per local day with stress data, giving the day's average,
-        highest and lowest stress level as the service's daily report states them.
-        The time spent in each stress band stays in ``raw``.
+        highest and lowest stress level as the service's daily report states them,
+        and the minutes spent in each stress band (relaxed, mild, moderate, severe).
         """
         return fetch_stress_daily(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)

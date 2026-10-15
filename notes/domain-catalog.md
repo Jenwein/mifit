@@ -105,7 +105,7 @@
 - **`daily_mark`**：每个本地日、每个 key 一行，`value` 只有 `has_data`，是"哪天哪个 key 有数据"的索引。本账号出现的 key：`steps`、`calories`、`heart_rate`、`intensity`、`sleep`、`spo2`、`stress`、`valid_stand`、`headset`。`headset` 在这里有行，`daily_report` 里却没有。
 - **`goal`**：只在 `daily_fitness` 下；外层 `time` 也是 UTC 零点，等于 `value.date_time`。只在 A 层（设计 §2 反目标）：`MiFit.daily_report("goal", …, tag="daily_fitness")`。
 - **单日一致性**（一个完整本地日，只记布尔）：
-  - `stress`：`min_stress ≤ avg_stress ≤ max_stress`，都在 1–100；`max_stress`、`min_stress` 分别是当天原始 `stress` 点的最大、最小值，`avg_stress` 是原始点均值四舍五入（当天原始点完整，没有 ≤ 0 的点）；`stress_scale` 四档之和 ≤ 1440。这就是 `stress_daily` 的依据；`stress_scale`（各档时长，单位未核实）只在 A 层。
+  - `stress`：`min_stress ≤ avg_stress ≤ max_stress`，都在 1–100；`max_stress`、`min_stress` 分别是当天原始 `stress` 点的最大、最小值，`avg_stress` 是原始点均值四舍五入（当天原始点完整，没有 ≤ 0 的点）；`stress_scale` 四档之和 ≤ 1440。这就是 `stress_daily` 的依据；`stress_scale`（各档时长）的单位已对 app 核实为分钟，四档也进 B 层（§5）。
   - `valid_stand.count` = 当天有原始 `valid_stand` 区间的不同本地小时数（≠ 区间个数），在 0–24 内。
   - `intensity.duration` = 当天原始 `intensity` 的行数，在 0–1440 内。
   - `calories.calories` = `diet/user_consumption` 的 `exercise`（SDK 的 `consumption.active_kcal`）；≠ 同日 `steps` 日汇总的 `calories`，≠ `exercise + basal`。
@@ -212,7 +212,7 @@
 - **其余没有数据的 key**（§3 `本账号` 列为 `无`）：可能是本账号的设备或功能没有产出（体温、血压、血糖、心电、女性健康、噪音……），也可能服务端不认识。换设备、开功能或换账号时再探；有了行，要补真机字段，并把值类后的"？"去掉。
 - **只有较早数据的 key**：`training_load`、`vo2_max`、`dynamic`、`high_heart_rate`、`grade_prediction`、`running_ability_index` 最近 7 天没有行，`vitality` 只有零星几行，含义都没法对照；有新数据（如做过运动）后再看。
 - **汇总 key**：`daily_report` 里 APK 的另外 8 个 key（`vo2_max`、`blood_pressure`、`energy`、`pai`、`blood_sugar`、`headset`、`weight`、`menstruation`）本账号 7 天没有行；`headset` 在 `daily_mark` 有行、在 `daily_report` 没有，原因未知。
-- **`stress_scale` 的单位**：四档之和 ≤ 1440，像分钟，未核实，只在 A 层。
+- **`stress_scale` 的单位**：单位已对 app 核实为分钟（2026-10-15），四档进 B 层：`stress_daily` 的 `relaxed_min` / `mild_min` / `moderate_min` / `severe_min`。
 - **首桶丢失的范围**：只查了 4 个密集 key、一个东八区账号；其他 key、其他时区未验证（`raw_window` 对全部 key 都提前一天，不受影响）。
 - **未探测的接口**：`*_by_watermark`、`get_stat_data_by_time`、医疗与项目数据，以及 APK `FitnessApiService` 里的 `getRelative*`、`getSportSummary`、`getBatchSportSummary`、`getLatestSportReport`、`getSportCategories`、`getCurWeekTrainingPlan` 等。
 - **`get_latest_fitness_data` 值不值得封装**：枚举时最省（一次 10 个 key），但目前没有用户需求；三个 tag 的只带 tag 读取（app 自己的同步方式）也一样。有需求再做，做之前先定它返回什么。
