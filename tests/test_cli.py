@@ -82,10 +82,10 @@ SLEEP = SleepRecord(
 CONSUMPTION = ConsumptionRecord(
     date="2026-10-01",
     epoch_s=1790812800,
-    resting_kcal=1907.5,
-    active_kcal=365.0,
+    resting_kcal=1500.5,
+    active_kcal=250.0,
     intake_kcal=0.0,
-    total_kcal=2272.5,
+    total_kcal=1750.5,
 )
 HEART_RATE_POINT = HeartRatePoint(epoch_s=1790812860, bpm=71, kind=None)
 HR_DAY = HeartRateDailySummary(
@@ -189,7 +189,7 @@ class FakeMiFit:
         self.calls.append(("consumption", start, end, {}))
         return DomainResult(
             records=[CONSUMPTION],
-            raw=[{"basal": 1907.5, "exercise": 365, "intake": 0}],
+            raw=[{"basal": 1500.5, "exercise": 250, "intake": 0}],
             notes=[],
         )
 
@@ -809,7 +809,7 @@ def test_export_non_finite_record_field_becomes_null(fake_mifit, monkeypatch, tm
     assert rc == 0
     data = json.loads(out.read_text(encoding="utf-8"), parse_constant=_reject)
     assert data["records"][0]["resting_kcal"] is None
-    assert data["records"][0]["active_kcal"] == 365.0
+    assert data["records"][0]["active_kcal"] == 250.0
     assert data["notes"] == [
         "Replaced 1 non-finite number(s) (NaN or Infinity) with null: "
         "strict JSON has no such values."

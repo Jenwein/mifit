@@ -52,7 +52,7 @@ class FakeTransport(Transport):
         return scripted
 
 
-def envelope(basal=1907.5, exercise=365, intake=0):
+def envelope(basal=1500.5, exercise=250, intake=0):
     """A decrypted payload in the live shape: business data under ``result``."""
     return {
         "code": 0,
@@ -66,7 +66,7 @@ def test_registered_under_consumption():
 
 
 def test_one_day_maps_fields():
-    transport = FakeTransport({DAY_1: envelope(1907.5, 365, 0)})
+    transport = FakeTransport({DAY_1: envelope(1500.5, 250, 0)})
 
     result = fetch_consumption(transport, DAY_1, DAY_1, tz=UTC)
 
@@ -74,13 +74,13 @@ def test_one_day_maps_fields():
         ConsumptionRecord(
             date="2025-10-14",
             epoch_s=DAY_1,
-            resting_kcal=1907.5,
-            active_kcal=365,
+            resting_kcal=1500.5,
+            active_kcal=250,
             intake_kcal=0,
-            total_kcal=2272.5,
+            total_kcal=1750.5,
         )
     ]
-    assert result.raw == [{"basal": 1907.5, "exercise": 365, "intake": 0}]
+    assert result.raw == [{"basal": 1500.5, "exercise": 250, "intake": 0}]
     assert result.notes == []
 
 
@@ -258,48 +258,48 @@ def test_values_read_from_result_wrapper():
         "basal": 1.0,
         "exercise": 2.0,
         "intake": 3.0,
-        "result": {"basal": 1907.5, "exercise": 365, "intake": 120},
+        "result": {"basal": 1500.5, "exercise": 250, "intake": 120},
     }
     transport = FakeTransport({DAY_1: payload})
 
     result = fetch_consumption(transport, DAY_1, DAY_1, tz=UTC)
 
     (record,) = result.records
-    assert record.resting_kcal == 1907.5
-    assert record.active_kcal == 365
+    assert record.resting_kcal == 1500.5
+    assert record.active_kcal == 250
     assert record.intake_kcal == 120
-    assert result.raw == [{"basal": 1907.5, "exercise": 365, "intake": 120}]
+    assert result.raw == [{"basal": 1500.5, "exercise": 250, "intake": 120}]
 
 
 def test_payload_without_result_wrapper_falls_back_to_top_level():
     transport = FakeTransport(
-        {DAY_1: {"basal": 1907.5, "exercise": 365, "intake": 0}}
+        {DAY_1: {"basal": 1500.5, "exercise": 250, "intake": 0}}
     )
 
     result = fetch_consumption(transport, DAY_1, DAY_1, tz=UTC)
 
     (record,) = result.records
-    assert record.resting_kcal == 1907.5
-    assert record.total_kcal == 2272.5
+    assert record.resting_kcal == 1500.5
+    assert record.total_kcal == 1750.5
 
 
 def test_zero_intake_is_a_value_not_missing():
-    transport = FakeTransport({DAY_1: envelope(1907.5, 0, 0)})
+    transport = FakeTransport({DAY_1: envelope(1500.5, 0, 0)})
 
     result = fetch_consumption(transport, DAY_1, DAY_1, tz=UTC)
 
     (record,) = result.records
     assert record.intake_kcal == 0
     assert record.active_kcal == 0
-    assert record.total_kcal == 1907.5
+    assert record.total_kcal == 1500.5
     assert result.notes == []
 
 
 def test_total_is_none_unless_resting_and_active_are_both_present():
     transport = FakeTransport(
         {
-            DAY_1: {"code": 0, "result": {"basal": 1907.5, "intake": 250}},
-            DAY_2: {"code": 0, "result": {"exercise": 365}},
+            DAY_1: {"code": 0, "result": {"basal": 1500.5, "intake": 250}},
+            DAY_2: {"code": 0, "result": {"exercise": 250}},
         }
     )
 
@@ -307,14 +307,14 @@ def test_total_is_none_unless_resting_and_active_are_both_present():
 
     first, second = result.records
     assert (first.resting_kcal, first.active_kcal, first.intake_kcal) == (
-        1907.5,
+        1500.5,
         None,
         250,
     )
     assert first.total_kcal is None
     assert (second.resting_kcal, second.active_kcal, second.intake_kcal) == (
         None,
-        365,
+        250,
         None,
     )
     assert second.total_kcal is None

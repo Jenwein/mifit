@@ -128,7 +128,7 @@ def test_steps_delegates_to_domain(build):
 CONSUMPTION_PAYLOAD = {
     "code": 0,
     "message": "success",
-    "result": {"basal": 1907.5, "exercise": 365, "intake": 0},
+    "result": {"basal": 1500.5, "exercise": 250, "intake": 0},
 }
 
 
@@ -146,10 +146,10 @@ def test_consumption_delegates_to_domain(build):
         ConsumptionRecord(
             date=local_day.isoformat(),
             epoch_s=local_midnight,
-            resting_kcal=1907.5,
-            active_kcal=365,
+            resting_kcal=1500.5,
+            active_kcal=250,
             intake_kcal=0,
-            total_kcal=2272.5,
+            total_kcal=1750.5,
         )
     ]
     # One local day in the window: one per-day call, at that day's local midnight,
