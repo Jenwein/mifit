@@ -14,18 +14,18 @@
 | M1 | 核心闭环：传输 + 扫码登录 + 步数 + 原始心率 | — | ✅ 完成（真机核对 PASS） |
 | M1+ | 卡路里（consumption） | — | ✅ 完成（真机核对 PASS，日期修复已复测） |
 | M2 | "日"的语义统一 + 睡眠 | 中 | ✅ 完成（M2a + M2b，真机核对 PASS） |
-| **M3** | **心率日汇总（静息心率等）+ 原始心率完整性限时调查** | 中 | ✅ 实现完成（2026-10-14），待真机核对（心率日汇总） |
-| M4 | 运动记录汇总（运动列表） | 中 | ✅ 实现完成（2026-10-14），待真机核对 |
-| M5 | 血氧 + 体重/身体成分 + 用户档案 | 中 | ✅ 实现完成（2026-10-14），待真机核对 |
-| M6 | 运动明细 + GPS 轨迹（FDS） | 大，需单独设计文档 | ✅ 实现完成（2026-10-15），待真机核对 |
-| M7 | 长尾数据域：枚举 key、建数据域目录 | 中，持续 | ✅ 一轮完成（2026-10-15）；目录 notes/domain-catalog.md 持续维护；stress_daily 待真机核对 |
+| **M3** | **心率日汇总（静息心率等）+ 原始心率完整性限时调查** | 中 | ✅ 完成；2026-10-15 已真机核对（PASS） |
+| M4 | 运动记录汇总（运动列表） | 中 | ✅ 完成；2026-10-15 已真机核对（PASS；`total_cal` 核实为总卡路里，加入 B 层 `total_kcal`） |
+| M5 | 血氧 + 体重/身体成分 + 用户档案 | 中 | ✅ 完成；2026-10-15 已真机核对（PASS；目标活动时间进 B 层；身体成分无数据源，只在 A 层） |
+| M6 | 运动明细 + GPS 轨迹（FDS） | 大，需单独设计文档 | ✅ 完成；2026-10-15 已真机核对（部分：海拔移回 A 层，步频 0 改为保留） |
+| M7 | 长尾数据域：枚举 key、建数据域目录 | 中，持续 | ✅ 一轮完成；`stress_daily` 2026-10-15 已真机核对（PASS，各档时长进 B 层）；候选 key 未核对（app 里没找到对应页面）；目录 notes/domain-catalog.md 持续维护 |
 
 横向工作（不占主线顺序，按触发点插入）：
 
 | # | 横向工作 | 何时做 |
 |---|---|---|
 | T1 | 合规与仓库卫生：LICENSE（MIT）、MIT 署名、README | ✅ 完成（2026-10-14）；历史审计见 notes/07（只报告，未改写历史）；2026-10-15 按 notes/07 §5 的决定在后续提交里删去健康数字和手机型号，未改写历史 |
-| T2 | 会话寿命与自动续期 | ✅ 实现完成（2026-10-14），待真机核对（需重新 `mifit login` 一次以保存 passToken） |
+| T2 | 会话寿命与自动续期 | ✅ 完成；2026-10-15 已真机核对（续期可用；寿命下界 ≥ 22 h，观察中） |
 | T3 | 长区间 / 全量导出：分块、节流、断点续传 | ✅ 实现完成（2026-10-14）：分块串行读取、超过 92 天需 --long、--resume 断点续传 |
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
@@ -40,18 +40,18 @@
 - **数据域**（除标注外均已真机核对）：
   - `steps`：日步数、距离与 app 一致（`step_calories` 是步数报告自带的走路卡路里，不是 app 的卡路里环）。
   - `heart_rate`：原始心率点，单日区间和均值与 app 一致；按时间窗读取已补全（M3：起点提前一天再过滤，见 notes/08；多页读取也已真机核对）；`--full` 为不带起点、往回翻页的读法，触顶（10 页）时有提示。
-  - `heart_rate_daily`：日汇总的平均 / 最高 / 最低 / 静息心率（`avg_bpm` / `max_bpm` / `min_bpm` / `resting_bpm`）；待真机核对。
+  - `heart_rate_daily`：日汇总的平均 / 最高 / 最低 / 静息心率（`avg_bpm` / `max_bpm` / `min_bpm` / `resting_bpm`）。
   - `consumption`：`active_kcal` 等于 app 的活动卡路里，`resting_kcal` 为 BMR；按本地零点请求（与 app 一致）。
-  - `workouts`：每次运动一条（`Workout`：开始 / 结束时刻、时区偏移、运动类型的中立名、时长、距离、活动卡路里、平均 / 最高心率、步数；0 或缺失记为 `None`，时区偏移除外：0 即 UTC，照实保留）；待真机核对（notes/10）。
-  - `workout_detail`：每次运动的逐秒样本（`WorkoutSample`）与 GPS 轨迹（`TrackPoint`），户外跑 / 骑（record v8 / v5、GPS v2）；待真机核对（notes/12）。
-  - `spo2_daily`：日汇总的平均 / 最高 / 最低血氧（`Spo2DailySummary`：`avg_spo2_pct` / `max_spo2_pct` / `min_spo2_pct`，日均直接取服务端的值，不重算；0 或缺失为 `None`）；待真机核对（notes/11）。
-  - `spo2`：原始全天血氧点（`Spo2Point`）；与原始心率一样起点提前一天再过滤（共享的 `raw_window`）；待真机核对。
-  - `stress_daily`：日汇总的平均 / 最高 / 最低压力（`StressDailySummary`：`avg_stress_level` / `max_stress_level` / `min_stress_level`，1–100 的压力指数，直接取服务端的值；0 或缺失为 `None`；各档时长 `stress_scale` 只留在 `raw`）；待真机核对（notes/domain-catalog.md）。
-  - `weight`：体重记录（`WeightRecord`：时刻、kg、BMI），身体成分只留在 `raw`；待真机核对。
-  - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标），`raw` 是完整档案（含个人标识）；待真机核对。
+  - `workouts`：每次运动一条（`Workout`：开始 / 结束时刻、时区偏移、运动类型的中立名、时长、距离、活动卡路里、总卡路里 `total_kcal`、平均 / 最高心率、步数；0 或缺失记为 `None`，时区偏移除外：0 即 UTC，照实保留）（notes/10）。
+  - `workout_detail`：每次运动的逐秒样本（`WorkoutSample`）与 GPS 轨迹（`TrackPoint`），户外跑 / 骑（record v8 / v5、GPS v2）；样本字段：时刻、心率、累计距离、累计步数、步频、配速、骑行速度，海拔只在 `raw`（notes/12）。
+  - `spo2_daily`：日汇总的平均 / 最高 / 最低血氧（`Spo2DailySummary`：`avg_spo2_pct` / `max_spo2_pct` / `min_spo2_pct`，日均直接取服务端的值，不重算；0 或缺失为 `None`）（notes/11）。
+  - `spo2`：原始全天血氧点（`Spo2Point`）；与原始心率一样起点提前一天再过滤（共享的 `raw_window`）。
+  - `stress_daily`：日汇总的平均 / 最高 / 最低压力（`StressDailySummary`：`avg_stress_level` / `max_stress_level` / `min_stress_level`，1–100 的压力指数，直接取服务端的值；0 或缺失为 `None`；各档时长 `relaxed_min` / `mild_min` / `moderate_min` / `severe_min`，单位分钟，`0` 照实保留）（notes/domain-catalog.md）。
+  - `weight`：体重记录（`WeightRecord`：时刻、kg、BMI），身体成分只留在 `raw`。
+  - `MiFit.profile()` / `mifit profile`：用户档案（`UserProfile`：身高、体重、每日步数目标与卡路里目标、目标活动时间 `activity_goal_min`），`raw` 是完整档案（含个人标识）。
   - `MiFit.raw(key, ...)`：任意原始 key 的透传读取。
   - `MiFit.raw_window(key, ...)` / `MiFit.daily_report(key, ..., tag=...)` / `mifit raw <key> [--daily [--tag TAG]]`：任意 key 的通用 A 层读取。原始 key 起点提前一天再按窗口过滤，汇总 key 按步数的日窗口；`records` 为空，`raw` 是服务端的行（`value` 已解码）。已知的 key 见 notes/domain-catalog.md。
-- 测试 1195 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；测试数据全为合成值）。
+- 测试 1213 个通过、2 个跳过（装上 `test` extra；跳过的 2 个需要 `time.tzset`，Windows 上没有，CI 的 Linux 上会跑），全部离线（假 Transport；测试数据全为合成值）。
 
 ---
 
@@ -62,7 +62,7 @@
 | ~~steps 的日界语义只在东八区成立~~ → **已修（M2a）**：窗口改为按日汇总键左开右闭构造，与时区无关（notes/06）。 | — | ✅ M2a |
 | consumption 当初的教训：自己推"服务端怎么切日"会推错；照抄 app 发什么才稳。 | 方法论 | M2a 起所有日汇总域 |
 | ~~原始心率按时间窗查询会漏点（根因未知）；`--full` 有 10 页上限，触顶时没有提示。~~ → **已修（M3）**：根因是服务端丢掉键在 / 早于 `start_time` 的那个约 2 h 桶；修法是起点提前一天再按窗口过滤（notes/08）；`--full` 触顶时现在有提示。 | — | ✅ M3 |
-| 会话多久过期、能否用 passToken 自助续期，都未验证（T2 之前一遇 401 就提示重新扫码）。 → **已实现（T2），待真机核对；寿命观测中**：passToken→serviceLogin→STS 续期、401 时自动续期一次、生命周期日志（notes/09）。 | 续期是否真有效、真实寿命，仍待真机核对和日志观测。 | T2 |
+| 会话多久过期、能否用 passToken 自助续期，都未验证（T2 之前一遇 401 就提示重新扫码）。 → **已实现并真机核对（T2，2026-10-15）**：passToken→serviceLogin→STS 续期、401 时自动续期一次、生命周期日志（notes/09）。续期真机可用（强制 401 → 续期一次，`created_at` 不变，不重复续期）；寿命下界 ≥ 22 h；自然过期仍通过会话日志观测（notes/09 §5，[清单 1 节](verification/2026-10-15-end-of-run-checklist.md)）。 | 真实寿命仍待日志观测。 | T2 |
 | ~~移植自 kevinkwee/Mi-Fitness-Sync（MIT）的签名/传输逻辑没有保留署名；仓库无 LICENSE、无 README~~ → **已修（T1）**：LICENSE（MIT）、THIRD_PARTY_NOTICES、4 个源文件头署名、README。 | — | ✅ T1 |
 | ~~夏令时用例在本机因缺 tzdata 被跳过。~~ → **已修（T4）**：`pip install -e ".[test]"` 装上 tzdata，Windows 本机也跑夏令时用例；CI 在 Linux 上跑全部测试，测试里禁止联网。 | — | ✅ T4 |
 | ~~sleep 审查遗留 Minor ①–⑧~~ → **已修（sleep 加固，2026-10-14）**：①畸形数据跳过并记 note（不可哈希的 state 记为 unknown）；②相同起止的重复原始会话优先取有分期的；③`raw` 只含日汇总和实际匹配上的原始会话（已删除、加宽窗口带出的不再混入；全部原始会话用 `MiFit.raw("sleep", …)`）；④分期列表按会话复制；⑤没有会话时不发原始请求；⑥补 UTC−5 原始窗口测试；⑦重写该测试使断言可失败；⑧原始请求的 ApiError 保留日汇总并记 note，AuthError 照常抛出。另：`score` 移出 B 层，只留在 `raw`（`sleep_score`）：app 只显示等级，数值未核对（设计 §2 反目标）。 | — | ✅ sleep 加固 |
@@ -102,7 +102,8 @@
 - 上次核对时 app 显示的静息心率和睡眠心率要能对上（睡眠心率可能来自 M2 的睡眠报告）。
 - **完整性限时调查**（建议 1 个工作单元，到时间就停，结论写进 notes）：对照 app 的 `pullFullPullFitnessData` 读法，比较窗口查询和全量翻页的点数，尝试定位漏点原因；同时让 `--full` 触顶时给出提示（这一项放到 T3 也可以）。
 - 完成标准：静息心率和日均、日最高、日最低与 app 一致；完整性问题要么定位，要么形成书面"已知限制"。
-- **结果（2026-10-14）✅（待真机核对）**：`MiFit.heart_rate_daily()` / `mifit export heart_rate_daily` 产出 `HeartRateDailySummary`（avg / max / min / resting），待真机核对（日均、范围、静息心率对照 app）。完整性已定位并修复：服务端丢掉键在 / 早于 `start_time` 的那个约 2 h 桶，窗口读取改为起点提前一天再过滤，3/3 天与不带起点的读取逐行一致（notes/08）；`--full` 触顶 10 页时现在有提示。带起点的多页窗口读取也已真机核对：3 天的窗口分 2 页，窗口内 269/269 行与不带起点的读取逐行一致（notes/08 §4）。范围上有意收窄：各心率区间时长、异常心率次数、`latest_hr` 含义未核实，只留在 `raw`，不进 B 层；`resting_heart_rate` / `single_heart_rate` 没有专门的数据域，用 `MiFit.raw` 读取。
+- **结果（2026-10-14）✅**：`MiFit.heart_rate_daily()` / `mifit export heart_rate_daily` 产出 `HeartRateDailySummary`（avg / max / min / resting）。完整性已定位并修复：服务端丢掉键在 / 早于 `start_time` 的那个约 2 h 桶，窗口读取改为起点提前一天再过滤，3/3 天与不带起点的读取逐行一致（notes/08）；`--full` 触顶 10 页时现在有提示。带起点的多页窗口读取也已真机核对：3 天的窗口分 2 页，窗口内 269/269 行与不带起点的读取逐行一致（notes/08 §4）。范围上有意收窄：各心率区间时长、异常心率次数、`latest_hr` 含义未核实，只留在 `raw`，不进 B 层；`resting_heart_rate` / `single_heart_rate` 没有专门的数据域，用 `MiFit.raw` 读取。
+- **真机核对（2026-10-15）**：3 个完整日的日均 / 最高 / 最低 / 静息心率与 app 完全相等；一天的原始点范围与日汇总、app 相等，点的简单均值与日均在取整误差内；app 的心率页不显示区间时长和异常提醒（未核对，仍只在 `raw`）。[清单 2.1 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ### M4 — 运动记录汇总
 
@@ -111,7 +112,8 @@
 - 运动类型：小米的类型编号 → 中立运动类型的映射表放在映射层。先覆盖核实过的类型，其余保留原始编号。
 - 完成标准：你最近的几次运动，列表条数和核心字段与 app 运动记录页一致。
 - 前置：T2（会话续期）最好在这之前有结论，因为运动历史往往要长区间拉取。
-- **结果（2026-10-14）✅（待真机核对）**：`MiFit.workouts()` / `mifit export workouts` 产出 `Workout`（开始 / 结束、时区偏移、中立运动类型、时长、距离、活动卡路里 `active_kcal`、平均 / 最高心率、步数；0 或缺失为 `None`，时区偏移除外：0 即 UTC，照实保留），运动类型只映射了已核实的 4 个编号，其余 `sport` 为 `None` 并保留 `source_sport_code`；`total_cal`（含静息消耗，app 显示哪一个卡路里待真机核对）、最低心率、心率区间、配速 / 步频等留在 `raw`。按开始时刻选行（服务端规则 `start_time < time <= end_time`，客户端再过滤），最多读 20 页，触顶时结果带提示建议缩短范围（notes/10）；app 对照推迟到收尾的真机核对会话。
+- **结果（2026-10-14）✅**：`MiFit.workouts()` / `mifit export workouts` 产出 `Workout`（开始 / 结束、时区偏移、中立运动类型、时长、距离、活动卡路里 `active_kcal`、平均 / 最高心率、步数；0 或缺失为 `None`，时区偏移除外：0 即 UTC，照实保留），运动类型只映射了已核实的 4 个编号，其余 `sport` 为 `None` 并保留 `source_sport_code`；最低心率、心率区间、配速 / 步频等留在 `raw`（`total_cal` 见下面的核对）。按开始时刻选行（服务端规则 `start_time < time <= end_time`，客户端再过滤），最多读 20 页，触顶时结果带提示建议缩短范围（notes/10）。
+- **真机核对（2026-10-15）**：条数、运动名、开始时刻（到分钟）、距离、活动卡路里、平均 / 最高心率、步数与 app 一致；`duration_s`：app 显示扣除暂停的时长，等于 `duration_s`（含暂停的“结束 − 开始”不同）；app 同时显示活动卡路里（`calories`）和总卡路里（`total_cal`）→ 后者加入 B 层 `total_kcal`；按月分块的长区间读取，条数与 app 一致，无提示。[清单 2.2 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ### M5 — 血氧 + 体重/身体成分 + 用户档案
 
@@ -121,7 +123,8 @@
 - 完成标准：血氧日汇总与 app 一致；体重记录条数和数值与 app 历史一致。身体成分能核对到哪一步取决于你是否有体脂秤数据。
 - 需要你：告诉我你有没有体脂秤或手动记录过体重；没有的话，体重只做到"能读、结构正确"。
 - 可调：血氧和心率日汇总走同一路径，想提前的话可以并进 M3。
-- **结果（2026-10-14）✅（待真机核对）**：key 与入口已找到（notes/11）：血氧日汇总 `key=spo2`（`tag=daily_report`），原始 `spo2` / `single_spo2` / `low_spo2`，体重 key 为 `weight`（APK `FitnessPersistKey.Weight`），都走现有接口；用户档案是单独的接口 `healthapp/user/get_miot_user_profile`（不带 `data` 参数，签名路径去掉 `healthapp/` 前缀），`Transport.get_json` 为此加了 `base_path` 关键字并接受 `data_obj=None`。原始 `spo2` 有与原始心率相同的首桶丢失，经共享的 `domains/raw_window.py`（起点提前一天再过滤）修正，`heart_rate` 行为不变，`weight` 也经它读取。B 层：`MiFit.spo2_daily()` → `Spo2DailySummary`（服务端的日均 / 最高 / 最低，不重算、不拟合；`lack_spo2_count`、`latest_spo2` 只留在 `raw`），`MiFit.spo2()` → `Spo2Point`，`MiFit.weight()` → `WeightRecord`（时刻、kg、BMI）；身体成分只进 A 层，本账号上全为 0；`MiFit.profile()` / `mifit profile` 的 B 层只有身高、体重、每日步数目标和卡路里目标（`UserProfile`），睡眠 / 站立目标、目标列表和个人标识只留在 `raw`。`single_spo2` / `low_spo2` 用 `MiFit.raw` 读取。app 对照推迟到收尾的真机核对会话。
+- **结果（2026-10-14）✅**：key 与入口已找到（notes/11）：血氧日汇总 `key=spo2`（`tag=daily_report`），原始 `spo2` / `single_spo2` / `low_spo2`，体重 key 为 `weight`（APK `FitnessPersistKey.Weight`），都走现有接口；用户档案是单独的接口 `healthapp/user/get_miot_user_profile`（不带 `data` 参数，签名路径去掉 `healthapp/` 前缀），`Transport.get_json` 为此加了 `base_path` 关键字并接受 `data_obj=None`。原始 `spo2` 有与原始心率相同的首桶丢失，经共享的 `domains/raw_window.py`（起点提前一天再过滤）修正，`heart_rate` 行为不变，`weight` 也经它读取。B 层：`MiFit.spo2_daily()` → `Spo2DailySummary`（服务端的日均 / 最高 / 最低，不重算、不拟合；`lack_spo2_count`、`latest_spo2` 只留在 `raw`），`MiFit.spo2()` → `Spo2Point`，`MiFit.weight()` → `WeightRecord`（时刻、kg、BMI）；身体成分只进 A 层，本账号上全为 0；`MiFit.profile()` / `mifit profile` 的 B 层只有身高、体重、每日步数目标和卡路里目标（`UserProfile`；目标活动时间见下面的核对），睡眠 / 站立目标、目标列表的其余项和个人标识只留在 `raw`。`single_spo2` / `low_spo2` 用 `MiFit.raw` 读取。
+- **真机核对（2026-10-15）**：`spo2_daily` 的日均 / 最高 / 最低（有数据的日子一致；无数据的一天服务端不返回日汇总，app 也无数据）、`spo2` 的首末点时刻、范围和全天曲线形态（窗口起点的第一个桶没有丢）、`weight` 的条数、时刻、kg 和 BMI、`profile` 的身高、体重、步数目标和卡路里目标都与 app 一致；目标列表第 4 项 = app 的“目标活动时间”（分钟）→ 加入 B 层 `activity_goal_min`；睡眠目标在 app 里没找到；体重没有数据源（只有手动导入），身体成分全 0 → 继续只留在 A 层。[清单 2.3–2.6 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ### M6 — 运动明细 + GPS（FDS）
 
@@ -130,7 +133,8 @@
 - 范围建议：先做 `record`（逐秒明细，proto 0）和 `gps`（proto 2），只覆盖 1–2 种运动；其余 proto_type 按需补。
 - 新依赖：AES 需要引入一个加密库（如 `cryptography`），到时在设计文档里定。
 - 完成标准：一次运动的轨迹点数、起止时间、距离与 app 轨迹页一致；逐秒心率曲线形态与 app 一致。
-- **结果（2026-10-15）✅（待真机核对）**：链路为运动列表（与 `workouts` 共用 `sport_rows`）→ `healthapp/service/gen_download_url`（签名路径 `/service/gen_download_url`；每次运动一次请求，带 record、GPS 两项）→ 预签名 URL → 独立的下载器（不带 Cookie、会话或 netrc 凭据，不跟随重定向，只认 200，主机须在 `.fds.api.xiaomi.com` 下，正文上限 16 MiB，与 `Transport` 同样节流）→ JSON 字符串里的 base64url → AES-128-CBC（固定 IV）→ 8 字节头 + 有效性标志，头部的时间戳、时区、协议号须与汇总一致才解析。新增硬依赖 `cryptography>=42`（只在 `fds/cipher.py` 里导入）。只启用真机见过的三种布局（D1）：跑 record v8（协议 22）、骑 record v5（协议 23）、GPS v2；其它运动（如爬楼机、力量训练，协议 8）不发 FDS 请求，其它版本只给头部，都带 note。`MiFit.workout_detail()` / `mifit export workout_detail` 每次运动一条 `WorkoutDetail(workout, samples, track)`：B 层 `WorkoutSample`（逐秒：真实 Unix 秒、心率、累计距离、累计步数、步频、配速、骑行速度、海拔）和 `TrackPoint`（时刻、纬度、经度）；海拔暂进 B，跑步极值与汇总差 2–3 m，待真机定（spec §16 Q4），其余（逐秒卡路里、步幅、冲击力、垂直振幅、段字段、GPS 精度与速度等）只留 A 层（`raw` 用 `schemas.zip` 的字段名、存储值不缩放）。一次调用至多读 10 次支持的运动（超出加 note），分块读取按周（`week`）；`--no-track` / `track=False` 不请求 GPS 文件。URL、`obj_key`、`sid` 不进任何输出。本机真实文件闸门通过（D25，不联网）：4/4 份文件走到末尾、无剩余字节、无异常，头部与汇总一致；跑步步数、骑行卡路里、心率最大 / 最小值与汇总相等，距离与汇总的比值 1.000，轨迹长度 / 距离 0.99（跑）、1.02（骑），丢点 0；用保存的列表、链接答复和下载正文离线重放整条链路，得 2 条带样本和轨迹的明细，另 2 条只有“不支持”的 note。事实见 notes/12；app 对照推迟到收尾的真机核对会话（spec §14、§16）。
+- **结果（2026-10-15）✅**：链路为运动列表（与 `workouts` 共用 `sport_rows`）→ `healthapp/service/gen_download_url`（签名路径 `/service/gen_download_url`；每次运动一次请求，带 record、GPS 两项）→ 预签名 URL → 独立的下载器（不带 Cookie、会话或 netrc 凭据，不跟随重定向，只认 200，主机须在 `.fds.api.xiaomi.com` 下，正文上限 16 MiB，与 `Transport` 同样节流）→ JSON 字符串里的 base64url → AES-128-CBC（固定 IV）→ 8 字节头 + 有效性标志，头部的时间戳、时区、协议号须与汇总一致才解析。新增硬依赖 `cryptography>=42`（只在 `fds/cipher.py` 里导入）。只启用真机见过的三种布局（D1）：跑 record v8（协议 22）、骑 record v5（协议 23）、GPS v2；其它运动（如爬楼机、力量训练，协议 8）不发 FDS 请求，其它版本只给头部，都带 note。`MiFit.workout_detail()` / `mifit export workout_detail` 每次运动一条 `WorkoutDetail(workout, samples, track)`：B 层 `WorkoutSample`（逐秒：真实 Unix 秒、心率、累计距离、累计步数、步频、配速、骑行速度、海拔）和 `TrackPoint`（时刻、纬度、经度）；海拔暂进 B，跑步极值与汇总差 2–3 m，待真机定（spec §16 Q4），核对后移回 A 层，其余（逐秒卡路里、步幅、冲击力、垂直振幅、段字段、GPS 精度与速度等）只留 A 层（`raw` 用 `schemas.zip` 的字段名、存储值不缩放）。一次调用至多读 10 次支持的运动（超出加 note），分块读取按周（`week`）；`--no-track` / `track=False` 不请求 GPS 文件。URL、`obj_key`、`sid` 不进任何输出。本机真实文件闸门通过（D25，不联网）：4/4 份文件走到末尾、无剩余字节、无异常，头部与汇总一致；跑步步数、骑行卡路里、心率最大 / 最小值与汇总相等，距离与汇总的比值 1.000，轨迹长度 / 距离 0.99（跑）、1.02（骑），丢点 0；用保存的列表、链接答复和下载正文离线重放整条链路，得 2 条带样本和轨迹的明细，另 2 条只有“不支持”的 note。事实见 notes/12（spec §14、§16）。
+- **真机核对（2026-10-15）**：一次户外跑、一次户外骑。轨迹起止与记录起止一致（差 < 10 s）；运动中各段的轨迹长度与记录距离在 3% 内；本机无底图 SVG 与 app 的地图轨迹形状一致；心率曲线形态与平均 / 最高（跑步还有最低）一致（app 不显示骑行的最低心率）；每公里配速（扣除暂停）和骑行最高速度与 app 一致，停车时 app 的速度图为 0（Q6：`speed_mps = 0.0` 保留）。差异两处：平均步频，app 把步频为 0 的秒数算在内，逐秒值正确 → 步频 0 改为保留；海拔，骑行极值与 app 相差约 0.1 m，跑步极值相差 2–3 m（最低值超过 3 m 的标准）→ `altitude_m` 移回 A 层（只在 `raw`）。暂停的位置在 app 里没找到（未核对）。Q4、Q6、Q8、Q9、Q10 已答，Q1–Q3、Q5、Q7 仍开放（notes/12 §10）。[清单 2.7 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ### M7 — 长尾数据域
 
@@ -138,7 +142,8 @@
 - 产出一份受控的**数据域目录**（建议 `notes/domain-catalog.md`）：key ↔ 接口 ↔ value 结构 ↔ 是否核对 ↔ 是否有 B 层。
 - 默认只做 A 层（通过 `raw` 或一个通用透传数据域）；只有核对过含义的才加 B 层。
 - 持续进行，不追求一次完备（设计 §6"全量"的操作性定义）。
-- **结果（2026-10-15）✅ 一轮完成（`stress_daily` 待真机核对）**：枚举方法是 APK 常量表（`FitnessPersistKey` 的 224 个常量 = 约 170 个运动标签 + 51 个健康 key + `passion_cheer`）加 37 次只读调用（只带 tag 的汇总读取、`get_latest_fitness_data` 每批 10 个 key、7 天原始读取、首桶核对和单日一致性核对），只记 key 名、字段名、分桶的行数和布尔。51 个健康 key 里本账号有数据的原始 key 23 个，其余 28 个与 `data_collector` 没有行（分不出是没有数据还是服务端不认识）；汇总 key 9 个，分在三个 tag 下（`daily_report` 8 个、`daily_fitness` 的 `goal`，`daily_mark` 是每天每个 key 的 `has_data` 索引）。通用 A 层读取 `MiFit.raw_window` / `MiFit.daily_report` / `mifit raw` 能读任何 key：原始 key 一律提前一天请求再过滤，因为首桶丢失已在查过的 4 个 key 上全部证实（`heart_rate`、`spo2`、`stress`、`calories`）。新 B 域 `stress_daily`（`StressDailySummary`，日均 / 最高 / 最低压力）：依据是一天的内部一致（三个数恰是当天原始点的最小、最大和均值四舍五入），app 对照待做；各档时长 `stress_scale` 只留在 `raw`。候选（只在 A 层，等 app 对照）：`valid_stand`（站立小时数？）、`intensity`（中高强度分钟数？）、`calories`（一天里等于 `consumption.active_kcal`）。目录 notes/domain-catalog.md 记录 key ↔ 接口 ↔ 值字段 ↔ 本账号有无数据 ↔ 核对状态 ↔ B 层，守卫测试 `tests/test_domain_catalog.py` 保证每个已注册的数据域都在目录里、目录里没有 Unix 时间戳。目录持续维护，不追求一次完备。
+- **结果（2026-10-15）✅ 一轮完成**：枚举方法是 APK 常量表（`FitnessPersistKey` 的 224 个常量 = 约 170 个运动标签 + 51 个健康 key + `passion_cheer`）加 37 次只读调用（只带 tag 的汇总读取、`get_latest_fitness_data` 每批 10 个 key、7 天原始读取、首桶核对和单日一致性核对），只记 key 名、字段名、分桶的行数和布尔。51 个健康 key 里本账号有数据的原始 key 23 个，其余 28 个与 `data_collector` 没有行（分不出是没有数据还是服务端不认识）；汇总 key 9 个，分在三个 tag 下（`daily_report` 8 个、`daily_fitness` 的 `goal`，`daily_mark` 是每天每个 key 的 `has_data` 索引）。通用 A 层读取 `MiFit.raw_window` / `MiFit.daily_report` / `mifit raw` 能读任何 key：原始 key 一律提前一天请求再过滤，因为首桶丢失已在查过的 4 个 key 上全部证实（`heart_rate`、`spo2`、`stress`、`calories`）。新 B 域 `stress_daily`（`StressDailySummary`，日均 / 最高 / 最低压力）：依据是一天的内部一致（三个数恰是当天原始点的最小、最大和均值四舍五入），app 对照后来做了（见下面的核对），各档时长 `stress_scale` 起初只留在 `raw`。候选（只在 A 层）：`valid_stand`（站立小时数？）、`intensity`（中高强度分钟数？）、`calories`（一天里等于 `consumption.active_kcal`）。目录 notes/domain-catalog.md 记录 key ↔ 接口 ↔ 值字段 ↔ 本账号有无数据 ↔ 核对状态 ↔ B 层，守卫测试 `tests/test_domain_catalog.py` 保证每个已注册的数据域都在目录里、目录里没有 Unix 时间戳。目录持续维护，不追求一次完备。
+- **真机核对（2026-10-15）**：`stress_daily` 的日均 / 最高 / 最低压力与 app 一致；`stress_scale` 各档的单位是分钟（与 app 的各档时长和占比一致）→ 四个档的分钟数加入 B 层。候选 key `valid_stand`、`intensity`、`calories`：app 里没找到对应页面，仍未核对。[清单 2.8 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ---
 
@@ -155,7 +160,8 @@
 - 现在就开始观察：记录每次登录时间和首次 401 的时间，先得到真实的有效期。
 - 调研：能否用 `passToken` 重新走 STS 换新的 serviceToken，而不必重新扫码（notes/04 指出续期依赖账号 SDK，不能只靠 serviceToken + ssecurity）。
 - 实现目标：过期时自动续期一次；续不了再提示扫码。401 也可能是签名错误，不能无限重试（设计 §3：最多 3 次）。
-- **结果（2026-10-14）✅（待真机核对）**：会话保存 passToken / deviceId / 续期时间，`renew_session` 走 passToken→serviceLogin→STS，传输层遇 401 自动续期一次并重试（每请求最多 1 次、每个 Transport 最多 3 次），`~/.mifit/session-log.jsonl` 记录生命周期（只有事件名、UTC 时间和时长）。目前观察到的有效期至少 7 小时，自然过期时间将从会话日志读出；续期本身和新 deviceId 下的扫码登录尚未真机核对，当前已存会话没有 passToken，需重新 `mifit login` 一次。
+- **结果（2026-10-14）✅**：会话保存 passToken / deviceId / 续期时间，`renew_session` 走 passToken→serviceLogin→STS，传输层遇 401 自动续期一次并重试（每请求最多 1 次、每个 Transport 最多 3 次），`~/.mifit/session-log.jsonl` 记录生命周期（只有事件名、UTC 时间和时长）。自然过期时间将从会话日志读出。
+- **真机核对（2026-10-15）**：带 deviceId 的扫码登录正常；强制一次 401 后日志依次为 `unauthorized`、`renewed`，`renewed_at` 有值，`created_at` 不变，下一次导出没有新事件；T2 之前的旧会话（没有 passToken）登录约 22 h 后仍可读 → serviceToken 寿命下界 ≥ 22 h，尚未观测到自然过期，观察继续（notes/09 §5）。[清单 1 节](verification/2026-10-15-end-of-run-checklist.md)。
 
 ### T3 长区间 / 全量导出
 - 默认分块（按周或按月）+ 串行 + 带抖动的延时（设计 §3 风控默认值），全量导出需要显式开启。
@@ -185,8 +191,8 @@
 | 每个里程碑的真机核对 | 按我列的清单在 app 里读数（每次约 5–10 分钟） |
 | 会话过期时 | 重新 `mifit login` 扫码 |
 | M5 | ~~告知体重/体脂秤数据情况~~ → ✅ 已答（2026-10-14）：账号上的体重记录为 1–10 条，身体成分全 0 → 只做到能读、结构正确 |
-| M6 开工前 | ~~评审 FDS 设计文档；告知你常做的运动类型~~ → ✅ 已答（2026-10-14）：设计按控制方裁定批准（自主运行）；常做的运动类型（以及固件会不会产出新版本文件）挪到收尾的真机会话里问（spec §16 Q9） |
-| M7 | 真机核对时读 app 的压力日均/最高/最低、站立小时数、中高强度分钟数、活动卡路里 |
+| M6 开工前 | ~~评审 FDS 设计文档；告知你常做的运动类型~~ → ✅ 已答（2026-10-14）：设计按控制方裁定批准（自主运行）；常做的运动类型（以及固件会不会产出新版本文件）挪到收尾的真机会话里问（spec §16 Q9）。Q9 已答（2026-10-15）：维持现状，户外步行 / 徒步、游泳、室内跑等以后有真实文件时再补布局表 |
+| M7 | ~~真机核对时读 app 的压力日均/最高/最低、站立小时数、中高强度分钟数、活动卡路里~~ → ✅ 已做（2026-10-15）：压力日汇总与各档时长一致；站立小时数、中高强度分钟数、活动卡路里在 app 里没找到对应页面，候选 key 仍未核对 |
 
 ---
 

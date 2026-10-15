@@ -1,6 +1,6 @@
 # 收尾真机核对清单（M3–M7、T2）
 
-**状态：** 2026-10-15 已核对（第 1、2 节结果见各表；第 3 节已决定，见文末）。自主运行实现了路线图的全部条目，所有 app 对照都推迟到这一次与你一起的会话。本文只是步骤清单，不含读数、读数日期、id 或账号事实。
+**状态：** 2026-10-15 已核对（第 1、2 节结果见各表；第 3 节已决定，见文末）。自主运行实现了路线图的全部条目，所有 app 对照都推迟到这一次与你一起的会话。本清单即这次核对的正式记录，不另写各域核对文档（2026-10-15 决定）；只记 PASS / 差异 / 未核对和原因，不含读数、读数日期或 id。
 
 **规则**
 
@@ -239,7 +239,7 @@ mifit raw calories --daily --from D-3 --to D-1 --json "$HOME\mifit-verify\calori
 
 ## 4. 核对完成后的收尾（我来做）
 
-- 按各计划写正式核对文档：`verification/<日期>-<名称>-live.md`，名称分别是 hr-daily、session-renewal、workouts、spo2-weight-profile、workout-detail 和 m7。写法按第 3 节第 1 项的选择，默认只写一致或不一致。
+- 按各计划写正式核对文档：`verification/<日期>-<名称>-live.md`，名称分别是 hr-daily、session-renewal、workouts、spo2-weight-profile、workout-detail 和 m7。写法按第 3 节第 1 项的选择，默认只写一致或不一致。→ 2026-10-15 决定：不另写，本清单即核对记录。
 - 不通过的 B 字段移出 B 层（留在 `raw`）或改名，模型、域、测试和 CLI 一起改。已经预见到的情况：`active_kcal` 改为 `total_kcal`（2.2）；`duration_s` 只改 docstring（2.2）；`altitude_m` 挪回 A 层（2.7 第 8 项）；`speed_mps` 的 0 改为 `None`（Q6）。
 - README 的 "What it reads today" 表：通过的行把 `pending` 改为 `yes`；部分通过的行写明哪个字段只在 `raw` 里。再补上 workouts 的已知限制，把 Q8 记为已知限制。
 - 路线图：§0 状态（待真机核对改为完成或部分完成）；§1 数据域清单；§2 的会话一行（续期已核对或被拒，以及寿命下界）；§3 M3–M7 和 §4 T2 的结果行；§6 需要你参与的节点。

@@ -104,7 +104,8 @@
 - **`weight`、`single_spo2`、`low_spo2` 是否按桶**：都没测（`weight` 的记录太少，测不出；`low_spo2` 没有行）。`weight` 和 `spo2` 的域无论如何都走提前一天的读取；`MiFit.raw` 不做修正，保持服务端原样。
 - **原始 `max_spo2` / `min_spo2` key**：APK 里有，未探测。
 - **`low_spo2` 的形状**：本账号没有行，未见。
-- **档案**：`daily_sleep_goal` 的单位，`regular_goal_list` 中 `field` 4 的含义。
+- **档案**：`regular_goal_list` 中 `field` 4 已回答（目标活动时间，分钟 → `activity_goal_min`，§3）；`daily_sleep_goal` 的单位仍未决：睡眠目标页面在 app 里没找到。
+- **核对结果（2026-10-15，[清单 2.3–2.6 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）**：`spo2_daily`、`spo2`、`weight` 和 `profile` 与 app 一致。身体成分：没有体重数据源（只有手动导入），全为 0，继续只留在 `raw`。
 
 ## 5. SDK 落地
 

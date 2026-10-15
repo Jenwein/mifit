@@ -2,7 +2,7 @@
 
 目的：T2。弄清会话存了什么、app 自己怎样在 serviceToken 过期后续期，并把 `auth/renew.py::renew_session` 实现的请求/响应对应关系记下来，作为后续真机核对（T2 Task 5）和寿命观测的依据。
 
-本文只有字段名、类名、方法名和合成示例，不含任何真实 token、id 或健康数值。§1–§4 的 APK 结论全部是静态分析（`tools/rea.sh inspect-android-method`，输出留在 scratch，不入库），**续期本身尚未真机验证**。
+本文只有字段名、类名、方法名和合成示例，不含任何真实 token、id 或健康数值。§1–§4 的 APK 结论全部是静态分析（`tools/rea.sh inspect-android-method`，输出留在 scratch，不入库），续期本身已在 2026-10-15 真机核对（§5）。
 
 ## 1. 会话里存了什么；为什么 T2 之前的会话不能续期
 
@@ -68,15 +68,16 @@
 
 ## 4. 未知项
 
-- **passToken 是否绑定 deviceId**：app 每次都带哈希后的设备 id；我们每次登录生成一个随机 `device_id`，登录（QR `loginUrl`、长轮询）和续期都发同一个。服务器是否校验二者一致、换 deviceId 是否会让 passToken 失效，未知。T2 之前的会话没有 device_id。
+- **passToken 是否绑定 deviceId**：app 每次都带哈希后的设备 id；我们每次登录生成一个随机 `device_id`，登录（QR `loginUrl`、长轮询）和续期都发同一个。2026-10-15 真机核对：登录和续期用同一个 `device_id`，都成功（[清单 1 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。换一个 deviceId 是否会让 passToken 失效，仍未知。T2 之前的会话没有 device_id。
 - **passToken 寿命**：未知。app 在 `InvalidCredentialException`（对应 `code=70016`）时要求重新登录；我们同样报 `RenewalError` 并提示 `mifit login`。
 - **过期 401 与签名 401 能否区分**：notes/04 §3——签名/鉴权错误也返回 HTTP 401（业务 code=0）。目前不知道过期时的 401 响应是否有不同之处。因此 T2 的策略是：只在 401 时续期，每个请求最多 1 次、每个 Transport 最多 3 次；续期后**仍然** 401 视为签名问题，该 Transport 停止续期（Task 4）。
-- **`serviceLogin` 在 `_json=true` + passToken cookie 下是否直接回 JSON**：静态分析如此（`loginByPassToken` 走 `processLoginContent`），但未真机验证；若服务器改回 302 跳转，我们按设计报 `RenewalError`，不跟随。
+- **`serviceLogin` 在 `_json=true` + passToken cookie 下是否直接回 JSON**：静态分析如此（`loginByPassToken` 走 `processLoginContent`），2026-10-15 的真机续期已确认直接回 JSON（[清单 1 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）；若服务器改回 302 跳转，我们按设计报 `RenewalError`，不跟随。
 - **区域**：续期结果里的区域提示被忽略，沿用会话里存的 `region`。
 
 ## 5. 寿命观测
 
 - **2026-10-14**：03:18Z 扫码登录，同日约 10:20Z 会话仍可用 → serviceToken 寿命 **≥ 7 h**。尚未观察到过期。
+- **2026-10-15**（真机核对，[清单 1 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）：T2 之前的旧会话（没有 passToken）在登录约 22 h 后仍可读 → serviceToken 寿命 **≥ 22 h**，尚未观察到自然过期。扫码登录带 deviceId 正常。强制一次 401（把 `service_token` 换成无效值）：日志 `unauthorized` → `renewed`，`renewed_at` 有值，`created_at` 不变；下一次导出没有新事件。
 - 自动续期会把过期对用户隐藏，所以寿命靠 `~/.mifit/session-log.jsonl`（T2 Task 3 引入）观测。每行一个 JSON 对象，只有四个键：
 
   ```json
@@ -91,4 +92,4 @@
   - `renew_unavailable` = 会话本身不能续期（没有 passToken 或 user id，例如 T2 之前的旧会话），没有发任何请求，**不**说明 passToken 寿命；`renew_network_error` = 续期因网络故障（OSError）没有完成，下一次 401 会再试；故障可能出在 serviceLogin 已接受 passToken 之后的 STS 一步，所以它不说明 passToken 是否有效。这两个事件和 `renew_failed` 区分开，就是为了不把它们当成 passToken 过期。
   - **注意**：签名错误的 401（notes/04 §3，业务 code=0）同样会记 `unauthorized`→`renewed`，在日志上和 token 过期一模一样——续期换来新 token、重试成败都不影响这对记录已经写下。所以单独一条 `token_age_s` 不能直接当 serviceToken 寿命；要多次观测到相近的 `token_age_s` 才可信。
 
-（Task 3–5 在此追加：日志格式落地、真机续期结果、自然过期的观测。）
+（自然过期和 passToken 寿命的观测继续在此追加。）

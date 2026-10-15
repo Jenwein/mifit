@@ -53,7 +53,7 @@
   - `未探测`：这一格本轮没测（缘由写在该节的说明里）。
 - `已核对`：
   - `app 已核对`：与 app 显示的数字对过（`docs/superpowers/verification/`）；
-  - `待真机核对`：已进 B 层，等收尾的 app 对照；
+  - `待真机核对`：已进 B 层，等 app 对照；
   - `内部一致（1 天）`：在一个完整本地日上与另一来源对上（只记布尔，见该节说明），还没对 app；
   - `—`：没有核对。
 - `B 层`：进了 B 层的写数据域名（反引号）；`候选` = 含义有线索，等 app 对照；`—` = 只在 A 层。
@@ -81,10 +81,10 @@
 | key | 接口 | APK 值类 | 值字段（顶层） | 本账号 | 已核对 | B 层 |
 |---|---|---|---|---|---|---|
 | `steps` | daily_report | `CloudStepReport` | `steps, distance, calories` | 7 天 1–10 | app 已核对 | `steps` |
-| `heart_rate` | daily_report | `CloudHrReport` | `avg_hr, max_hr, min_hr, avg_rhr, abnormal_hr_count`，五个 `*_hr_zone_duration`，`latest_hr`（object） | 7 天 1–10 | 待真机核对 | `heart_rate_daily` |
+| `heart_rate` | daily_report | `CloudHrReport` | `avg_hr, max_hr, min_hr, avg_rhr, abnormal_hr_count`，五个 `*_hr_zone_duration`，`latest_hr`（object） | 7 天 1–10 | app 已核对 | `heart_rate_daily` |
 | `sleep` | daily_report | `CloudSleepReport` | `total_duration, sleep_deep_duration, sleep_light_duration, sleep_awake_duration, sleep_score, sleep_stage, avg_hr, avg_spo2, max_hr?, min_hr?, day_sleep_evaluation, long_sleep_evaluation, segment_details`（list of object） | 7 天 1–10 | app 已核对 | `sleep` |
-| `spo2` | daily_report | `CloudSpo2Report` | `avg_spo2, max_spo2, min_spo2, lack_spo2_count, latest_spo2`（object） | 7 天 1–10 | 待真机核对 | `spo2_daily` |
-| `stress` | daily_report | `CloudStressReport` | `avg_stress, max_stress, min_stress`（int），`stress_scale`（object：`relax, mild, moderate, severe`） | 7 天 1–10 | 待真机核对 | `stress_daily` |
+| `spo2` | daily_report | `CloudSpo2Report` | `avg_spo2, max_spo2, min_spo2, lack_spo2_count, latest_spo2`（object） | 7 天 1–10 | app 已核对 | `spo2_daily` |
+| `stress` | daily_report | `CloudStressReport` | `avg_stress, max_stress, min_stress`（int），`stress_scale`（object：`relax, mild, moderate, severe`） | 7 天 1–10 | app 已核对 | `stress_daily` |
 | `calories` | daily_report | `CloudCaloriesReport` | `calories`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
 | `intensity` | daily_report | `CloudHMStrengthReport` | `duration`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
 | `valid_stand` | daily_report | `CloudStandReport` | `count`（int） | 7 天 1–10 | 内部一致（1 天） | 候选 |
@@ -109,7 +109,7 @@
   - `valid_stand.count` = 当天有原始 `valid_stand` 区间的不同本地小时数（≠ 区间个数），在 0–24 内。
   - `intensity.duration` = 当天原始 `intensity` 的行数，在 0–1440 内。
   - `calories.calories` = `diet/user_consumption` 的 `exercise`（SDK 的 `consumption.active_kcal`）；≠ 同日 `steps` 日汇总的 `calories`，≠ `exercise + basal`。
-- **候选**：`valid_stand`（站立小时数？）和 `intensity`（中高强度分钟数？）等 app 对照；`calories` 与 B 层已有的 `consumption.active_kcal` 相同，进 B 也不添新东西。
+- **候选**：`valid_stand`（站立小时数？）和 `intensity`（中高强度分钟数？）等 app 对照；`calories` 与 B 层已有的 `consumption.active_kcal` 相同，进 B 也不添新东西。2026-10-15 收尾核对时 app 里没找到对应页面，仍未核对（[清单 2.8 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。
 
 ## 3. 原始 key
 
@@ -118,9 +118,9 @@
 | key | 接口 | APK 值类 | 值字段（顶层） | 本账号 | 已核对 | B 层 |
 |---|---|---|---|---|---|---|
 | `heart_rate` | raw | `HrItem` | `time, bpm, type` | 7 天 >10 | app 已核对 | `heart_rate` |
-| `spo2` | raw | `Spo2Item` | `time, spo2` | 7 天 >10 | 待真机核对 | `spo2` |
+| `spo2` | raw | `Spo2Item` | `time, spo2` | 7 天 >10 | app 已核对 | `spo2` |
 | `sleep` | raw | `SleepSegmentReport` | `bedtime, wake_up_time, duration, timezone, items?`（list of object），`sleep_deep_duration, sleep_light_duration, sleep_awake_duration, awake_count, device_bedtime, device_wake_up_time, is_uncomplete, protoTime, version` | 未探测 | app 已核对 | `sleep` |
-| `weight` | raw | `WeightItem` | `time, weight, bmi`，身体成分字段（`body_fat_rate, muscle_rate, …`） | 仅较早数据 | 待真机核对 | `weight` |
+| `weight` | raw | `WeightItem` | `time, weight, bmi`，身体成分字段（`body_fat_rate, muscle_rate, …`） | 仅较早数据 | app 已核对 | `weight` |
 | `steps` | raw | `StepItem` | `time, steps, distance, calories`（int 或 float） | 7 天 >10 | — | — |
 | `resting_heart_rate` | raw | `RestHrItem` | `date_time, bpm` | 7 天 1–10 | — | — |
 | `single_heart_rate` | raw | `HrItem` | `time, bpm` | 未探测 | — | — |
@@ -206,9 +206,9 @@
 
 ## 5. 未决与下一步
 
-- **候选 key 的 app 对照**（M7 Task 5，收尾的真机会话）：在 app 里读几天的压力日均 / 最高 / 最低（核对 `stress_daily`）、站立小时数（`valid_stand.count`）、中高强度分钟数（`intensity.duration`）和活动卡路里（`calories`）。
-  - 对上的标 `app 已核对`，以后一轮再考虑进 B。
-  - `stress_daily` 哪个数对不上，就退出 B，只留在 `raw`。
+- **候选 key 的 app 对照**：已做（2026-10-15，收尾[清单 2.8](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）。
+  - `stress_daily` 的日均 / 最高 / 最低和各档时长都对上（`app 已核对`）。
+  - `valid_stand` / `intensity` / `calories` 仍是候选：app 里没找到对应页面，所以没有核对。以后找到页面，对上的标 `app 已核对`，再考虑进 B。
 - **其余没有数据的 key**（§3 `本账号` 列为 `无`）：可能是本账号的设备或功能没有产出（体温、血压、血糖、心电、女性健康、噪音……），也可能服务端不认识。换设备、开功能或换账号时再探；有了行，要补真机字段，并把值类后的"？"去掉。
 - **只有较早数据的 key**：`training_load`、`vo2_max`、`dynamic`、`high_heart_rate`、`grade_prediction`、`running_ability_index` 最近 7 天没有行，`vitality` 只有零星几行，含义都没法对照；有新数据（如做过运动）后再看。
 - **汇总 key**：`daily_report` 里 APK 的另外 8 个 key（`vo2_max`、`blood_pressure`、`energy`、`pai`、`blood_sugar`、`headset`、`weight`、`menstruation`）本账号 7 天没有行；`headset` 在 `daily_mark` 有行、在 `daily_report` 没有，原因未知。

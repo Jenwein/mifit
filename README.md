@@ -19,21 +19,20 @@ Python objects, so you can build on it.
 |---|---|---|---|
 | `steps` | steps and distance per day | `StepRecord` | yes |
 | `heart_rate` | raw heart-rate samples | `HeartRatePoint` | yes |
-| `heart_rate_daily` | heart rate per day: average, maximum, minimum, resting | `HeartRateDailySummary` | pending |
+| `heart_rate_daily` | heart rate per day: average, maximum, minimum, resting | `HeartRateDailySummary` | yes |
 | `consumption` | calories per day: resting, active, intake, total | `ConsumptionRecord` | yes |
 | `sleep` | sleep per day: totals, stage minutes, sessions with their stage timeline | `SleepRecord` → `SleepSession` → `SleepStage` | yes; the sleep score could not be checked and is in `raw` only |
-| `workouts` | one entry per workout: start and end, sport, duration, distance, active and total calories, average and maximum heart rate, steps | `Workout` | pending |
-| `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | pending |
-| `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | pending |
-| `spo2` | raw SpO2 readings | `Spo2Point` | pending |
-| `stress_daily` | stress level per day: average, highest, lowest, and minutes in each stress band (relaxed, mild, moderate, severe) | `StressDailySummary` | pending |
-| `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | pending |
-| `profile` (its own command: `mifit profile`) | height, weight, daily step, calorie and activity-time goals | `UserProfile` | pending |
+| `workouts` | one entry per workout: start and end, sport, duration, distance, active and total calories, average and maximum heart rate, steps | `Workout` | yes |
+| `workout_detail` | per workout (outdoor runs and rides): per-second samples (heart rate, cumulative distance and steps, cadence, pace or speed) and the GPS track | `WorkoutDetail` → `WorkoutSample` / `TrackPoint` | yes (one outdoor run, one ride); altitude is in `raw` only: the run's was a few metres off the app's |
+| `spo2_daily` | blood oxygen (SpO2) per day: average, maximum, minimum | `Spo2DailySummary` | yes |
+| `spo2` | raw SpO2 readings | `Spo2Point` | yes |
+| `stress_daily` | stress level per day: average, highest, lowest, and minutes in each stress band (relaxed, mild, moderate, severe) | `StressDailySummary` | yes |
+| `weight` | weight entries: time, weight, BMI (body composition in `raw` only) | `WeightRecord` | yes; body composition could not be checked and is in `raw` only |
+| `profile` (its own command: `mifit profile`) | height, weight, daily step, calorie and activity-time goals | `UserProfile` | yes |
 | `raw` (CLI: `mifit raw`; Python: `client.raw`, `raw_window`, `daily_report`) | the rows of any fitness-data or daily-report key, as the service sends them | none: the service's rows, uninterpreted | not applicable: nothing is interpreted |
 
 "Checked against the app" means the values were compared with what the Mi
-Fitness app shows, on one real account (China region, UTC+8). "Pending" means
-implemented and tested offline, but not yet compared with the app. More is
+Fitness app shows, on one real account (China region, UTC+8). More is
 planned. Meanwhile, `mifit raw` (in Python `raw_window` and `daily_report`)
 returns the rows of any other key of the fitness-data or (with `--daily`)
 daily-report endpoint, uninterpreted.
@@ -80,8 +79,7 @@ mifit export <domain> --from YYYY-MM-DD --to YYYY-MM-DD [--json PATH] [--full] [
 
 - `<domain>`: `consumption`, `heart_rate`, `heart_rate_daily`, `sleep`,
   `spo2`, `spo2_daily`, `steps`, `stress_daily`, `weight`, `workouts` or `workout_detail`
-  (per-second samples and GPS track of outdoor runs and rides; not yet checked
-  against the app).
+  (per-second samples and GPS track of outdoor runs and rides).
 - `--from` / `--to`: first and last day, inclusive, as local calendar days.
 - `--json PATH`: write to a file instead of standard output.
 - `--full`: `heart_rate` only; page backwards through the history instead of
@@ -287,20 +285,26 @@ client, the renewal uses a fresh `requests.Session` of its own.
 - **A read the service breaks off says so.** When the service reports more
   pages but sends no usable cursor to fetch them, the read stops there and
   `notes` says that rows in the range may be missing.
-- **Workout detail is new.** `workout_detail` is pending a check against the
-  app. It covers outdoor runs and rides in the file formats seen so far
-  (record file versions 8 and 5, GPS file version 2); other sports and
-  formats are reported in `notes`. One call reads the detail of at most 10
-  workouts (long ranges are read a week per chunk). A GPS track shows where
+- **Workout detail reads outdoor runs and rides only.** It covers the file
+  formats seen so far (record file versions 8 and 5, GPS file version 2).
+  Walks, hikes, swims, indoor runs and other sports, and other file versions,
+  get a note and no samples: each needs a real file and a hand-written layout
+  table first. Altitude is in `raw` only. One call reads the detail of at most
+  10 workouts (long ranges are read a week per chunk). A GPS track shows where
   you were, including where you live: `--no-track` (`track=False`) leaves it
   out. The download links and keys never appear in the output.
+- **Workout files outside the China region are untested.** Files download
+  only from hosts under `.fds.api.xiaomi.com`, the host seen on a China-region
+  account. A link to another host is refused with a note, and that workout
+  keeps its summary without samples or track.
 - **Read-only.** mifit never writes, changes or deletes anything in your
   account.
 - **Sessions expire.** On an HTTP 401, mifit renews the session once from the
   stored passToken and retries the request. When that fails, or the session
   was saved before renewal existed (it has no passToken), run `mifit login`
-  again. How long sessions really last is still being observed: logins, 401s
-  and renewals are logged (event, time and ages only) to
+  again. Renewal was checked live on 2026-10-15. The lifetime without renewal
+  is still being observed and is at least 22 hours so far: logins, 401s and
+  renewals are logged (event, time and ages only) to
   `~/.mifit/session-log.jsonl`. (An HTTP 401 can also mean the request
   signature was refused; a 401 right after a renewal is taken to mean that and
   is not retried.)

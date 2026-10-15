@@ -147,8 +147,8 @@ SDK 的做法（`fetch_workouts`）：
 
 ### 5.3 未决
 
-- **`calories` 与 `total_cal`**：关系见 §2.3，但 app 的运动详情页显示的是哪一个，要在 Task 3 对真机核。核实前 `active_kcal` 只取 `calories`。
-- **`duration` 与 `end − start`**：差值在有暂停时是几分钟，`duration` 是移动时间。`Workout` 两个都给，不互相推算。
+- **`calories` 与 `total_cal`**：**已核实**（2026-10-15，[清单 2.2 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）：app 两个都显示，`calories` 是活动卡路里（`active_kcal`），`total_cal` 是总卡路里（`total_kcal`）。关系见 §2.3。
+- **`duration` 与 `end − start`**：**已核实**（2026-10-15，[清单 2.2 节](../docs/superpowers/verification/2026-10-15-end-of-run-checklist.md)）：app 显示的时长扣除暂停，等于 `duration_s`；“结束 − 开始”含暂停，差值在有暂停时是几分钟。`Workout` 两个都给，不互相推算。
 - **区间时长**：各 `hrm_*_duration` 之和约等于 `duration`，但区间阈值因用户而异，所以只留 A 层。
 - **`deleted` 和 `cheat_info`**：APK 行类里有，真机从未见过。SDK 把真值的 `deleted` 当作已删除并忽略（按字段名推断，未见实例）；`cheat_info` 不处理。
 - **每次运动的明细**（逐点心率、轨迹、分段）：不在这个接口里，走 FDS，属于 M6。
