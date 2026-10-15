@@ -97,6 +97,9 @@ def test_dist_problems_empty_for_a_clean_build(tmp_path):
         "mifit-0.2.0/out.json.partial",
         "mifit-0.2.0/session.json",
         "mifit-0.2.0/.superpowers/ledger.md",
+        "mifit-0.2.0/src/mifit/account.session.json",
+        "mifit-0.2.0/secrets/key.txt",
+        "mifit-0.2.0/private/notes.md",
     ],
 )
 def test_dist_problems_flag_private_paths(tmp_path, member):

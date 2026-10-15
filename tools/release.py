@@ -28,9 +28,11 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PRIVATE_DIRS = frozenset({"evidence", "work", "reference", "target", ".mifit", ".superpowers"})
+PRIVATE_DIRS = frozenset(
+    {"evidence", "work", "reference", "target", ".mifit", ".superpowers", "secrets", "private"}
+)
 """Path components that never belong in a release: research data, local
-scratch, sessions and the orchestration ledger (all git-ignored)."""
+scratch, sessions, credentials and the orchestration ledger (all git-ignored)."""
 
 CONSOLE_SCRIPT = "mifit = mifit.cli:main"
 
@@ -74,7 +76,7 @@ def _private(member: str) -> bool:
     path = PurePosixPath(member)
     return (
         any(part in PRIVATE_DIRS for part in path.parts)
-        or member.endswith(".partial")
+        or member.endswith((".partial", ".session.json"))
         or path.name == "session.json"
     )
 
