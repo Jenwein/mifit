@@ -361,6 +361,8 @@ mifit export workout_detail --from 2026-10-01 --to 2026-10-14 [--json out.json] 
 
 ## 8. B 层模型（中立命名）
 
+> 2026-10-15：海拔移到 A 层、步频 0 保留，见 notes/12 §10。
+
 ```python
 @dataclass
 class WorkoutSample:

@@ -330,7 +330,7 @@ Four parts, one commit each. Every part follows TDD: write the failing tests, th
     - `git grep -n -i -F -f work/post-verification/phone.txt`
     - `git grep -n -E "2026-10-(0[1-9]|1[0-3])" -- docs/superpowers/verification/2026-10-14-*.md`
     - `git grep -n -E "(^|[^0-9-])10-(0[1-9]|1[0-4])([^0-9]|$)" -- docs/superpowers/verification/2026-10-14-*.md notes/05-calorie-field-investigation.md docs/superpowers/plans/2026-10-14-mifit-sleep-domain.md`
-    - `git grep -n "本账号的爬楼机\|账号上出现过的四个\|the account's four types" -- . ':!docs/superpowers/plans/2026-10-15-mifit-post-verification.md'`
+    - `git grep -n -E "账号上出现过的|本账号的[^，。 ]{0,12}(运动|训练|类型)|the account's [a-z -]*types" -- . ':!docs/superpowers/plans/2026-10-15-mifit-post-verification.md' ':!notes/07-history-audit.md'` (sentences that list sport types as seen on the account; notes/07 is left out because its §5 decision names the removal itself)
   - Also check that `python -m pytest -q` still gives 1213 passed, 2 skipped, that `git status` shows nothing under `work/`, and that the files are LF.
 - [ ] **Step 9: Commit** `git commit -am "docs: remove real health figures, the phone model and the account's sport types (notes/07 §5 decisions)"`
 
@@ -451,7 +451,7 @@ Four parts, one commit each. Every part follows TDD: write the failing tests, th
    - Bucketed counts (`1–10`, `>10`) stay, following the precedent of `e9f0ee3`.
 7. **Verification docs keep their language.** English docs say "match" / "differ". Reading dates become `D`-relative, and the run date stays. The page structure and the outcomes are unchanged.
 8. **Synthetic consumption values:** BMR `1500.5`, active `250`, total `1750.5`. The BMR keeps a fraction so float handling is still exercised.
-9. **Sport-type wording:** decision 6 is applied to every current sentence that names the account's non-GPS sport types: notes/10 §4/§5.3, the roadmap's M6 result, FDS spec §2 and M4 plan Decision 5. Without that, the same fact would stay public elsewhere. Run and ride mentions stay, because the shipped layouts already imply them.
+9. **Sport-type wording:** decision 6 is applied to every current sentence that lists sport types drawn from the real data: notes/10 §4/§5.3, the roadmap's M6 result, FDS spec §2 and M4 plan Decision 5. Without that, the same listing would stay public elsewhere. Run and ride mentions stay, because the shipped layouts already imply them.
 10. **The checklist is the verification record.** No per-domain `*-live.md` docs are written. Its filled-in remarks stay as approved, except the count of monthly chunks: that count reveals how long the account has existed, so it goes. Qualitative facts the user chose to record (no weight data source, a day not worn) stay.
 11. **core-read-live check 4 is not done here.** It needs a live export and the private mi-health-lab samples outside the repo. Task 2 records it as "not done; open", and it stays open in checklist §4.
 12. **notes/09 §4 is updated with §5**, because the live run answers two of its unknowns (the serviceLogin JSON answer, and the deviceId on login and renewal).

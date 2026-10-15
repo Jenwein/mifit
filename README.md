@@ -37,6 +37,9 @@ planned. Meanwhile, `mifit raw` (in Python `raw_window` and `daily_report`)
 returns the rows of any other key of the fitness-data or (with `--daily`)
 daily-report endpoint, uninterpreted.
 
+What changed in each version, breaking changes included, is in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Install
 
 Requires Python 3.12 or later.

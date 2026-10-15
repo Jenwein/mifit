@@ -15,7 +15,7 @@ Run 2026-10-14 against the user's real account (cached QR session, UTC+8), using
 | Night deep / light / awake (min) | match | match | none | ✅ |
 | Nap session | match | match | match | ✅ The app shows naps as "小睡", on a separate time-range view |
 | `avg_hr_bpm` | match | match | `None` | ✅ Matches the app's sleep average HR |
-| `score` | present | present | present | ⚠ The app shows no number, only a rating ("一般"), apparently because a setting is off. Not verifiable here. |
+| `score` | present | present | present | ⚠ The app shows only a rating, no number, apparently because a setting is off. Not verifiable here. |
 | Day D-3 | no record: no data that day; the SDK invents no zeros | | | ✅ |
 
 - **Stage timeline:** the items of the D night add up exactly to the reported deep, light and awake minutes. The timeline is consistent with the totals the user confirmed. A point-by-point visual check of the app's chart is optional and wasn't required for PASS.
