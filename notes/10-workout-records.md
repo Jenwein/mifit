@@ -135,6 +135,7 @@ SDK 的做法（`fetch_workouts`）：
 | `duration` | `duration_s` | 正数，否则 `None` |
 | `distance` | `distance_m` | 同上 |
 | `calories` | `active_kcal` | 同上 |
+| `total_cal` | `total_kcal` | 同上 |
 | `avg_hrm` / `max_hrm` | `avg_hr_bpm` / `max_hr_bpm` | 同上 |
 | `steps` | `steps` | 同上 |
 
@@ -142,7 +143,7 @@ SDK 的做法（`fetch_workouts`）：
 
 ### 5.2 只留在 `raw`（A 层）
 
-`min_hrm`、`total_cal`、各 `hrm_*_duration`、配速/速度/步频/步幅/身高类字段、训练效果/负荷/最大摄氧量/恢复、`proto_type`、`version`、`value.time`，以及其余没进上表的键。原因：含义未核实（设计 §2 反目标）。
+`min_hrm`、各 `hrm_*_duration`、配速/速度/步频/步幅/身高类字段、训练效果/负荷/最大摄氧量/恢复、`proto_type`、`version`、`value.time`，以及其余没进上表的键。原因：含义未核实（设计 §2 反目标）。
 
 ### 5.3 未决
 

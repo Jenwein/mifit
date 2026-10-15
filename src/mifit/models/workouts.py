@@ -25,8 +25,9 @@ class Workout:
     ``duration_s`` is the recorded workout time and can be shorter than
     ``end_epoch_s - start_epoch_s``, because paused time is not counted.
     ``distance_m`` is in metres. ``active_kcal`` is the energy burned by the
-    activity, without resting energy. ``avg_hr_bpm`` and ``max_hr_bpm`` are beats
-    per minute.
+    activity, without resting energy; ``total_kcal`` adds the resting energy burned
+    during the workout. The app shows both, as active and total calories.
+    ``avg_hr_bpm`` and ``max_hr_bpm`` are beats per minute.
 
     Any figure is ``None`` when the source did not report it, never a made-up zero.
     """
@@ -39,6 +40,7 @@ class Workout:
     duration_s: int | None
     distance_m: int | None
     active_kcal: int | None
+    total_kcal: int | None
     avg_hr_bpm: int | None
     max_hr_bpm: int | None
     steps: int | None

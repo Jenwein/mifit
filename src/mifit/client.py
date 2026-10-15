@@ -292,8 +292,8 @@ class MiFit:
 
         One record per workout that started between the start of ``start`` and the
         end of ``end`` (local days). Each record gives the sport, start and end,
-        duration, distance, active calories, average and maximum heart rate and
-        steps; the full source report for each workout is in ``raw``.
+        duration, distance, active and total calories, average and maximum heart
+        rate and steps; the full source report for each workout is in ``raw``.
         """
         return fetch_workouts(
             self._transport, to_epoch_s(start), to_epoch_s(end, end_of_day=True)

@@ -122,6 +122,7 @@ WORKOUT = Workout(
     duration_s=2400,
     distance_m=5000,
     active_kcal=350,
+    total_kcal=410,
     avg_hr_bpm=148,
     max_hr_bpm=170,
     steps=6000,

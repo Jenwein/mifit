@@ -95,6 +95,7 @@ def expected_run(**changes):
             duration_s=2700,
             distance_m=6000,
             active_kcal=400,
+            total_kcal=470,
             avg_hr_bpm=150,
             max_hr_bpm=175,
             steps=7000,
@@ -140,6 +141,7 @@ def test_maps_core_fields():
             duration_s=1200,
             distance_m=None,
             active_kcal=150,
+            total_kcal=180,
             avg_hr_bpm=110,
             max_hr_bpm=140,
             steps=None,
@@ -153,6 +155,7 @@ def test_maps_core_fields():
             duration_s=2700,
             distance_m=6000,
             active_kcal=400,
+            total_kcal=470,
             avg_hr_bpm=150,
             max_hr_bpm=175,
             steps=7000,
@@ -206,6 +209,9 @@ def test_absent_or_zero_figures_become_none():
         (run_value(distance=ABSENT), {"distance_m": None}),
         (run_value(steps=0), {"steps": None}),
         (run_value(calories=0), {"active_kcal": None}),
+        (run_value(calories=ABSENT), {"active_kcal": None}),
+        (run_value(total_cal=0), {"total_kcal": None}),
+        (run_value(total_cal=ABSENT), {"total_kcal": None}),
         (run_value(avg_hrm=0), {"avg_hr_bpm": None}),
         (run_value(max_hrm=-1), {"max_hr_bpm": None}),
         (run_value(duration=0), {"duration_s": None}),
@@ -225,6 +231,7 @@ def test_non_numeric_figures_become_none():
         "duration",
         "distance",
         "calories",
+        "total_cal",
         "avg_hrm",
         "max_hrm",
         "steps",
@@ -247,6 +254,7 @@ def test_non_numeric_figures_become_none():
         duration_s=None,
         distance_m=None,
         active_kcal=None,
+        total_kcal=None,
         avg_hr_bpm=None,
         max_hr_bpm=None,
         steps=None,
@@ -367,7 +375,7 @@ def test_raw_keeps_decoded_values_untouched():
 
     assert result.raw == [STRENGTH_VALUE, RUN_VALUE]
     # Fields the workout model leaves out are all still there.
-    for key in ("total_cal", "min_hrm", "proto_type", "hrm_aerobic_duration"):
+    for key in ("min_hrm", "proto_type", "hrm_aerobic_duration"):
         assert key in result.raw[1]
 
 
@@ -396,6 +404,7 @@ def test_unverified_fields_stay_out_of_workout():
         "duration_s",
         "distance_m",
         "active_kcal",
+        "total_kcal",
         "avg_hr_bpm",
         "max_hr_bpm",
         "steps",

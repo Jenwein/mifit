@@ -27,12 +27,12 @@ more: one entry here plus one line in the sport-type test (notes/10 §4). A type
 with no entry still gives a record, with ``sport=None`` and its number in
 ``source_sport_code``.
 
-Only verified fields reach ``Workout``. Everything else stays in ``raw`` because
-its meaning is unverified (design §2): the minimum heart rate, the total energy
-(it adds resting energy; which of the two energy figures the app shows is still to
-check), the heart-rate zone durations, pace, speed, cadence and stride figures,
-training-effect and load figures, and the format and version numbers. See
-notes/10 for the shapes and the open points.
+Only verified fields reach ``Workout``. Both energy figures, the active one and
+the total one that adds resting energy, were checked against the app (2026-10-15),
+which shows both. Everything else stays in ``raw`` because its meaning is
+unverified (design §2): the minimum heart rate, the heart-rate zone durations, pace,
+speed, cadence and stride figures, training-effect and load figures, and the format
+and version numbers. See notes/10 for the shapes and the open points.
 """
 
 from __future__ import annotations
@@ -205,6 +205,7 @@ def to_workout(value: dict) -> Workout | None:
         duration_s=as_positive_int(value.get("duration")),
         distance_m=as_positive_int(value.get("distance")),
         active_kcal=as_positive_int(value.get("calories")),
+        total_kcal=as_positive_int(value.get("total_cal")),
         avg_hr_bpm=as_positive_int(value.get("avg_hrm")),
         max_hr_bpm=as_positive_int(value.get("max_hrm")),
         steps=as_positive_int(value.get("steps")),
