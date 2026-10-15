@@ -102,6 +102,23 @@ jobs:
           test "$(mifit --version)" = "mifit ${{ needs.build.outputs.version }}"
           mifit --help
           python -c "import mifit; assert mifit.__version__ == '${{ needs.build.outputs.version }}'"
+      - name: The MCP server answers over stdio
+        run: |
+          python - <<'EOF'
+          import json, subprocess
+          msgs = [
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "0"}}},
+              {"jsonrpc": "2.0", "method": "notifications/initialized"},
+              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+          ]
+          proc = subprocess.run(["mifit", "mcp"], input="".join(json.dumps(m) + "\n" for m in msgs),
+                                capture_output=True, text=True, timeout=120)
+          assert proc.returncode == 0, proc.stderr
+          replies = [json.loads(line) for line in proc.stdout.splitlines()]
+          assert [r["id"] for r in replies] == [1, 2], replies
+          names = {t["name"] for t in replies[1]["result"]["tools"]}
+          assert "get_status" in names, names
+          EOF
 
   publish-pypi:
     name: Publish to PyPI

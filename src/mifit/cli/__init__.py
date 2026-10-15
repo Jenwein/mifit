@@ -1,6 +1,7 @@
 """Command-line interface for mifit.
 
-The commands are ``mifit login``, ``mifit export``, ``mifit profile`` and ``mifit raw``.
+The commands are ``mifit login``, ``mifit export``, ``mifit profile``, ``mifit raw`` and
+``mifit mcp``.
 ``login`` runs the QR login, shows the code in the terminal and stores the session.
 ``export`` reads one domain (steps, heart rate, heart rate daily, consumption, sleep,
 spo2, spo2 daily, stress daily, activity daily, weight, workouts, workout detail) for a
@@ -10,8 +11,10 @@ same way; its ``raw`` is the whole profile, personal details included, for the u
 own eyes. ``raw`` reads one key of the fitness-data endpoint, any key, and writes the
 rows as the service sent them, with ``value`` decoded (``records`` is empty; see
 ``notes/domain-catalog.md``); ``--daily`` reads the key's daily report instead. It is
-one paged read, never chunked and without ``--resume``. ``mifit --version`` prints the
-installed version (``mifit.__version__``).
+one paged read, never chunked and without ``--resume``. ``mcp`` serves the data to AI
+assistants as a read-only MCP server on stdin/stdout (``mifit.mcp_server``); GPS tracks
+need ``--allow-gps``. ``mifit --version`` prints the installed version
+(``mifit.__version__``).
 
 A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
 workout detail, 31 days for the rest, or ``--chunk``) is read chunk by chunk through
@@ -533,6 +536,19 @@ def _cmd_raw(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# mcp
+# ---------------------------------------------------------------------------
+
+
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    # Imported here, so the other commands never load the MCP SDK.
+    from mifit import mcp_server
+
+    mcp_server.run(allow_gps=args.allow_gps)
+    return _EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
@@ -656,6 +672,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     raw.set_defaults(handler=_cmd_raw)
+
+    mcp = commands.add_parser(
+        "mcp", help="run the MCP server for AI assistants (stdio, read-only)"
+    )
+    mcp.add_argument(
+        "--allow-gps",
+        action="store_true",
+        help="let get_workout_detail return GPS tracks when asked (they show where you were)",
+    )
+    mcp.set_defaults(handler=_cmd_mcp)
     return parser
 
 

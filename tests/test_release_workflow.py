@@ -116,6 +116,11 @@ def test_smoke_installs_the_built_wheel_on_three_systems_without_checkout():
     assert "mifit --version" in _runs(job)
 
 
+def test_smoke_runs_the_mcp_server_over_stdio():
+    runs = _runs(JOBS["smoke"])
+    assert '["mifit", "mcp"]' in runs and "tools/list" in runs and "get_status" in runs
+
+
 def test_github_release_follows_the_pypi_publish():
     job = JOBS["github-release"]
     assert job["permissions"] == {"contents": "write"}
