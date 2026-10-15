@@ -26,7 +26,7 @@ from typing import Annotated, Any
 
 import anyio
 from mcp.server import MCPServer
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Context, Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -45,6 +45,7 @@ from mifit.mcp_server.errors import (
     NOT_LOGGED_IN,
     ToolFailure,
 )
+from mifit.mcp_server.login import LoginFlow
 from mifit.mcp_server.present import (
     encode,
     iso_time,
@@ -58,6 +59,7 @@ from mifit.mcp_server.resample import samples_block, series_block, track_block
 
 __all__ = [
     "INSTRUCTIONS",
+    "LOGIN_ANNOTATIONS",
     "PRIVACY_NOTE",
     "READ_ANNOTATIONS",
     "SERVER_NAME",
@@ -70,6 +72,7 @@ SERVER_NAME = "mifit"
 INSTRUCTIONS = """\
 mifit reads the user's own Mi Fitness (Xiaomi) health data from the Xiaomi cloud. All tools are read-only.
 Call get_status first: it gives today's local date, the time zone and whether the user is logged in.
+If the user is not logged in, call login_start and show them the QR code it returns.
 Dates are local calendar days in YYYY-MM-DD form; work out "yesterday" or "last week" from get_status.
 Start with the daily tools (get_steps, get_sleep, get_heart_rate_daily, ...); use get_heart_rate, get_spo2 and get_workout_detail only when the detail is needed.
 Limits per call: 92 days for daily tools (31 for get_calories), 7 days for get_heart_rate, get_spo2 and sleep stages; dense results are cut down to at most 500 rows and the notes say how.
@@ -83,6 +86,12 @@ PRIVACY_NOTE = (
 
 READ_ANNOTATIONS = ToolAnnotations(
     read_only_hint=True, open_world_hint=True, idempotent_hint=True
+)
+
+# The login tools write the session file (``~/.mifit``), so they are not read-only;
+# they only ever add a login, never remove anything.
+LOGIN_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, open_world_hint=True
 )
 
 logger = logging.getLogger("mifit.mcp_server")
@@ -143,6 +152,7 @@ class _Tools:
         tz: tzinfo | None,
         now: Callable[[], datetime],
         session_loader: Callable[[], Any],
+        login: Any,
     ) -> None:
         self.access = access
         self.cache = cache
@@ -150,6 +160,7 @@ class _Tools:
         self.tz = tz
         self.now = now
         self.session_loader = session_loader
+        self.login = login
 
     async def cached(self, key: Hashable, make: Callable[[], Awaitable[str]]) -> str:
         """The cached answer for ``key``, or ``make()``'s, stored if it succeeds."""
@@ -311,6 +322,8 @@ class _Tools:
         else:
             status["logged_in"] = False
             status["session"] = None
+        status["login"] = self.login.view().status
+        if not status["logged_in"]:
             status["next_step"] = problem
         status["gps_enabled"] = self.allow_gps
         status["privacy"] = PRIVACY_NOTE
@@ -406,6 +419,7 @@ def build_server(
     now: Callable[[], datetime] | None = None,
     clock: Callable[[], float] = time.monotonic,
     session_loader: Callable[[], Any] | None = None,
+    login_factory: Callable[[Callable[[], None]], Any] | None = None,
 ) -> MCPServer:
     """The MCP server with every tool registered.
 
@@ -414,6 +428,9 @@ def build_server(
     times are shown in (the machine's by default); ``now`` gives the aware current
     time for ``get_status``; ``clock`` drives the cache; ``session_loader`` reads the
     stored session for ``get_status`` (``mifit.auth.session.load_session``).
+    ``login_factory(on_success)`` makes the QR login of ``login_start`` (a
+    ``LoginFlow`` by default); ``on_success`` drops the server's client, so the next
+    read opens the newly saved session.
     """
 
     def default_factory() -> Any:
@@ -425,13 +442,19 @@ def build_server(
     def default_now() -> datetime:
         return datetime.now(tz) if tz is not None else datetime.now().astimezone()
 
+    def default_login(on_success: Callable[[], None]) -> LoginFlow:
+        return LoginFlow(on_success=on_success)
+
+    access = Access(client_factory or default_factory)
+    login = (login_factory or default_login)(access.reset)
     state = _Tools(
-        Access(client_factory or default_factory),
+        access,
         TtlCache(clock=clock),
         allow_gps=allow_gps,
         tz=tz,
         now=now or default_now,
         session_loader=session_loader or default_loader,
+        login=login,
     )
     server = MCPServer(SERVER_NAME, version=mifit.__version__, instructions=INSTRUCTIONS)
 
@@ -443,13 +466,39 @@ def build_server(
         with tool_errors("get_profile"):
             return await state.cached(("get_profile",), state.profile_text)
 
-    def add(fn: Callable[..., Any], name: str, title: str, description: str) -> None:
+    async def login_start() -> Any:
+        with tool_errors("login_start"):
+            view = await anyio.to_thread.run_sync(login.start)
+            text = encode(
+                {
+                    "tool": "login_start",
+                    "status": view.status,
+                    "message": view.message,
+                    "login_url": view.login_url,
+                }
+            )
+            if view.png:
+                return [text, Image(data=view.png, format="png")]
+            return text
+
+    async def login_status() -> str:
+        with tool_errors("login_status"):
+            view = login.view()
+            return encode({"tool": "login_status", "status": view.status, "message": view.message})
+
+    def add(
+        fn: Callable[..., Any],
+        name: str,
+        title: str,
+        description: str,
+        annotations: ToolAnnotations = READ_ANNOTATIONS,
+    ) -> None:
         server.add_tool(
             fn,
             name=name,
             title=title,
             description=description,
-            annotations=READ_ANNOTATIONS,
+            annotations=annotations,
             structured_output=False,
         )
 
@@ -457,4 +506,12 @@ def build_server(
     for tool in tools.DATA_TOOLS:
         add(_FACTORIES[tool.kind](state, tool), tool.name, tool.title, tool.description)
     add(get_profile, "get_profile", "Profile", tools.PROFILE_DESCRIPTION)
+    add(
+        login_start, "login_start", "Log in by QR code", tools.LOGIN_START_DESCRIPTION,
+        LOGIN_ANNOTATIONS,
+    )
+    add(
+        login_status, "login_status", "Login status", tools.LOGIN_STATUS_DESCRIPTION,
+        LOGIN_ANNOTATIONS,
+    )
     return server

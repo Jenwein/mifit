@@ -20,7 +20,7 @@ __all__ = [
     "failure_for",
 ]
 
-LOGIN_ADVICE = "Run `mifit login` in a terminal, then try again."
+LOGIN_ADVICE = "Run `mifit login` in a terminal or call login_start, then try again."
 NOT_LOGGED_IN = "Not logged in to Mi Fitness. " + LOGIN_ADVICE
 GPS_DISABLED = "GPS is disabled on this server; the user can start it with --allow-gps."
 

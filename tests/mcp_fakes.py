@@ -16,6 +16,7 @@ from mcp import Client
 from mifit.auth.session import Session
 from mifit.domains.base import DomainResult
 from mifit.mcp_server import tools
+from mifit.mcp_server.login import LoginView
 from mifit.models.activity import ActivityDailySummary
 from mifit.models.consumption import ConsumptionRecord
 from mifit.models.heart_rate import HeartRateDailySummary, HeartRatePoint
@@ -40,6 +41,9 @@ RAW_MARKER = "SYNTH-RAW-MARKER"
 """In every canned ``raw``: the server must never give ``raw``."""
 
 P1_TOOLS = frozenset({"get_status", "get_profile", *(t.name for t in tools.DATA_TOOLS)})
+P2_TOOLS = P1_TOOLS | {"login_start", "login_status"}
+
+LOGIN_URL = "https://account.xiaomi.com/synthetic/mcp-login?t=synthetic-login"
 
 DAY = 1790784000  # 2026-10-01 00:00 +08:00
 WORKOUT = Workout(
@@ -197,6 +201,25 @@ class FakeClient:
 
     def profile(self):
         return self._answer("profile")
+
+
+class FakeLogin:
+    """Stands in for ``LoginFlow``: ``start`` turns the view into ``start_view``."""
+
+    def __init__(self, start_view=None, view=None):
+        self.start_view = start_view or LoginView(
+            "pending", "Scan the QR code.", LOGIN_URL, b"\x89PNG synthetic"
+        )
+        self.current = view or LoginView("idle", "No login in progress.")
+        self.starts = 0
+
+    def start(self):
+        self.starts += 1
+        self.current = self.start_view
+        return self.current
+
+    def view(self):
+        return self.current
 
 
 async def _call(client, name, args, progress):

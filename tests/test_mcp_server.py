@@ -11,23 +11,28 @@ import requests
 
 import mifit
 from mcp_fakes import (
-    P1_TOOLS,
+    LOGIN_URL,
+    P2_TOOLS,
     PROFILE,
     RAW_MARKER,
     SECRETS,
     WORKOUT,
     FakeClient,
+    FakeLogin,
     call_tool,
     call_tools_at_once,
     list_tools,
+    make_session,
     payload,
     server_info,
     text_of,
 )
+from mifit.auth.qr import QrChallenge
 from mifit.chunks import plan_chunks
-from mifit.errors import ApiError, AuthError, RenewalError
+from mifit.errors import ApiError, AuthError, NotificationRequiredError, RenewalError
 from mifit.mcp_server import errors, tools
 from mifit.mcp_server import server as server_module
+from mifit.mcp_server.login import LoginFlow, LoginView
 from mifit.mcp_server.present import present_record, without_stages
 from mifit.mcp_server.server import build_server
 from mifit.models.workout_detail import WorkoutDetail
@@ -63,7 +68,9 @@ class CountingFactory:
         return self.outcome
 
 
-def build(fake, *, allow_gps=False, factory=None, clock=None, loader=None):
+def build(fake, *, allow_gps=False, factory=None, clock=None, loader=None, login=None):
+    """A server on ``fake``; its login is ``login`` (a ``login_factory``), or a
+    ``FakeLogin``, so no test starts a real login."""
     return build_server(
         factory if factory is not None else (lambda: fake),
         allow_gps=allow_gps,
@@ -71,7 +78,41 @@ def build(fake, *, allow_gps=False, factory=None, clock=None, loader=None):
         now=lambda: NOW,
         clock=clock if clock is not None else Clock(),
         session_loader=loader if loader is not None else (lambda: fake.session),
+        login_factory=login if login is not None else (lambda on_success: FakeLogin()),
     )
+
+
+class FakeAccount:
+    """The account service and session store behind a real ``LoginFlow``: the QR
+    login approves at once, or asks for a security confirmation."""
+
+    LP_URL = "https://account.xiaomi.com/longPolling/synthetic?SYNTH-LP-SECRET"
+    NOTE_URL = "https://account.xiaomi.com/synthetic/confirm?SYNTH-NOTE-SECRET"
+
+    def __init__(self, tmp_path, *, confirm=False):
+        self.tmp_path = tmp_path
+        self.confirm = confirm
+        self.saved = []
+        self.opened = []
+
+    def flow(self, on_success):
+        return LoginFlow(
+            on_success=on_success,
+            qr_path=self.tmp_path / "login-qr.png",
+            opener=lambda target: self.opened.append(target) or True,
+            spawn=lambda job: job(),  # the approval arrives at once
+            request=lambda http, sid, *, device_id: QrChallenge(LOGIN_URL, LOGIN_URL, self.LP_URL),
+            poll=self.poll,
+            exchange=lambda result, sid, http, *, device_id: make_session(),
+            save=self.saved.append,
+            record=lambda event, session: None,
+            http_factory=object,
+        )
+
+    def poll(self, challenge, http, *, device_id):
+        if self.confirm:
+            raise NotificationRequiredError(self.NOTE_URL)
+        return "login-result"
 
 
 def args_for(name):
@@ -104,9 +145,11 @@ def test_instructions_text():
 
 def test_tools_list(fake):
     listed = {t.name: t for t in list_tools(build(fake))}
-    assert set(listed) == P1_TOOLS
+    assert set(listed) == P2_TOOLS
     for tool in listed.values():
         assert tool.description and tool.title and tool.output_schema is None
+        if tool.name.startswith("login_"):
+            continue
         a = tool.annotations
         assert (a.read_only_hint, a.idempotent_hint, a.open_world_hint) == (True, True, True)
     assert listed["get_status"].description == tools.STATUS_DESCRIPTION
@@ -147,7 +190,7 @@ def test_daily_tools(fake, tool):
 
 def test_no_raw_in_any_output(fake):
     server = build(fake)
-    for name in P1_TOOLS:
+    for name in P2_TOOLS:
         result = call_tool(server, name, args_for(name))
         assert not result.is_error, (name, text_of(result))
         assert RAW_MARKER not in text_of(result), name
@@ -344,7 +387,7 @@ def test_no_credential_in_any_output(caplog):
     fake = FakeClient()
     server = build(fake, allow_gps=True)
     seen.append(json.dumps([t.model_dump(mode="json") for t in list_tools(server)]))
-    for name in P1_TOOLS:
+    for name in P2_TOOLS:
         seen.append(text_of(call_tool(server, name, args_for(name))))
     for exc in (
         RenewalError("refused"),
@@ -403,6 +446,7 @@ def test_get_status_logged_in(fake):
         "timezone": "UTC+08:00",
         "logged_in": True,
         "session": {"login_age": "1d00h", "token_age": "1d00h", "auto_renew": True},
+        "login": "idle",
         "gps_enabled": False,
         "privacy": server_module.PRIVACY_NOTE,
     }
@@ -438,3 +482,103 @@ def test_get_profile(fake):
     data = payload(call_tool(build(fake), "get_profile"))
     assert data == {"tool": "get_profile", "records": [present_record(PROFILE)], "notes": []}
     assert fake.calls == [("profile", None, None, {})]
+
+
+def test_instructions_point_to_login_start():
+    lines = server_module.INSTRUCTIONS.splitlines()
+    assert lines[2] == (
+        "If the user is not logged in, call login_start and show them the QR code it returns."
+    )
+
+
+def test_login_tools_listed_with_write_annotations(fake):
+    listed = {t.name: t for t in list_tools(build(fake))}
+    for name in ("login_start", "login_status"):
+        a = listed[name].annotations
+        assert (a.read_only_hint, a.destructive_hint, a.open_world_hint) == (False, False, True)
+        assert listed[name].input_schema["properties"] == {}
+    start = listed["login_start"].description
+    assert "QR code" in start and "Xiaomi or Mi Fitness app" in start and "get_status" in start
+
+
+def test_login_start_returns_text_and_the_qr_image(fake):
+    login = FakeLogin()
+    out = call_tool(build(fake, login=lambda on_success: login), "login_start")
+    assert not out.is_error
+    assert [block.type for block in out.content] == ["text", "image"]
+    assert out.content[1].mime_type == "image/png"
+    assert json.loads(out.content[0].text) == {
+        "tool": "login_start",
+        "status": "pending",
+        "message": "Scan the QR code.",
+        "login_url": LOGIN_URL,
+    }
+    assert login.starts == 1
+
+
+def test_login_start_without_a_qr_code_returns_text_only(fake):
+    login = FakeLogin(start_view=LoginView("failed", "Login failed: bad."))
+    out = call_tool(build(fake, login=lambda on_success: login), "login_start")
+    assert [block.type for block in out.content] == ["text"]
+    assert payload(out)["status"] == "failed" and payload(out)["login_url"] is None
+
+
+def test_login_status_and_get_status_show_the_login(fake):
+    login = FakeLogin(view=LoginView("succeeded", "Logged in."))
+    server = build(fake, login=lambda on_success: login)
+    assert payload(call_tool(server, "login_status")) == {
+        "tool": "login_status",
+        "status": "succeeded",
+        "message": "Logged in.",
+    }
+    assert payload(call_tool(server, "get_status"))["login"] == "succeeded"
+    assert login.starts == 0
+
+
+def test_login_tools_are_not_cached(fake):
+    login = FakeLogin()
+    server = build(fake, login=lambda on_success: login)
+    call_tool(server, "login_start")
+    call_tool(server, "login_start")
+    assert login.starts == 2
+
+
+def test_not_logged_in_mentions_login_start(fake):
+    server = build(fake, factory=CountingFactory(AuthError("No valid session.")))
+    assert "call login_start" in text_of(call_tool(server, "get_steps", ONE_DAY))
+    assert errors.LOGIN_ADVICE == (
+        "Run `mifit login` in a terminal or call login_start, then try again."
+    )
+
+
+def test_success_switches_the_client(tmp_path):
+    old, new = FakeClient(), FakeClient(make_session(created_at="2026-10-15T01:00:00Z"))
+    clients = iter([old, new])
+    factory_calls = []
+
+    def factory():
+        factory_calls.append(True)
+        return next(clients)
+
+    account = FakeAccount(tmp_path)
+    server = build(old, factory=factory, login=account.flow)
+    assert not call_tool(server, "get_steps", ONE_DAY).is_error
+    started = payload(call_tool(server, "login_start"))
+    assert started["status"] == "succeeded" and account.saved
+    assert not call_tool(server, "get_steps", {"start_date": "2026-10-02"}).is_error
+    assert len(factory_calls) == 2  # the login dropped the old client
+    assert [c[0] for c in old.calls] == ["steps"] and [c[0] for c in new.calls] == ["steps"]
+
+
+def test_login_tools_hide_the_long_poll_and_confirmation_urls(tmp_path, fake):
+    account = FakeAccount(tmp_path, confirm=True)
+    server = build(fake, login=account.flow)
+    texts = [
+        text_of(call_tool(server, "login_start")),
+        text_of(call_tool(server, "login_status")),
+        text_of(call_tool(server, "get_status")),
+    ]
+    assert json.loads(texts[1])["status"] == "confirmation_required"
+    assert account.opened[-1] == account.NOTE_URL  # opened here, never sent
+    for text in texts:
+        assert "SYNTH-LP-SECRET" not in text and "SYNTH-NOTE-SECRET" not in text

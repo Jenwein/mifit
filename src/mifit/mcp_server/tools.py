@@ -30,6 +30,8 @@ __all__ = [
     "INCLUDE_TRACK_DOC",
     "INTERVAL_MIN_DOC",
     "INTERVAL_S_DOC",
+    "LOGIN_START_DESCRIPTION",
+    "LOGIN_STATUS_DESCRIPTION",
     "PROFILE_DESCRIPTION",
     "SERIES_MAX_DAYS",
     "SLEEP_STAGES_MAX_DAYS",
@@ -288,6 +290,23 @@ STATUS_DESCRIPTION = (
     "counted in, whether the user is logged in to Mi Fitness (with the age of the "
     "login, never the login itself), whether GPS tracks are enabled, and the server "
     "version. Reads nothing from the cloud."
+)
+
+LOGIN_START_DESCRIPTION = (
+    "Log the user in to Mi Fitness by QR code, on this computer. Only needed when "
+    "get_status says the user is not logged in, or a tool says the session expired. "
+    "Returns the QR code as an image and its login_url: the user scans the code with "
+    "the Xiaomi or Mi Fitness app and approves the login (or opens login_url on a phone "
+    "signed in to the Xiaomi account). The QR image is also opened on this computer. "
+    "Then call login_status. A second call while a login is waiting returns the same "
+    "code."
+)
+
+LOGIN_STATUS_DESCRIPTION = (
+    "How the QR login started by login_start stands: pending (waiting for the user to "
+    "approve), succeeded (the data tools work now), failed, confirmation_required "
+    "(Xiaomi wants a security confirmation; a page was opened on this computer) or "
+    "expired (call login_start again)."
 )
 
 PROFILE_DESCRIPTION = (

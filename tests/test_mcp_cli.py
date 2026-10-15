@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import mifit
-from mcp_fakes import P1_TOOLS
+from mcp_fakes import P2_TOOLS
 from mifit import cli, mcp_server
 from mifit.mcp_server.server import INSTRUCTIONS
 
@@ -73,7 +73,7 @@ def test_stdout_carries_only_json_rpc():
         mifit.__version__,
     )
     assert init["instructions"] == INSTRUCTIONS
-    assert {t["name"] for t in replies[1]["result"]["tools"]} == P1_TOOLS
+    assert {t["name"] for t in replies[1]["result"]["tools"]} == P2_TOOLS
     assert "MCP server on stdio (GPS tracks off)" in proc.stderr
 
 
