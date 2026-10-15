@@ -330,7 +330,7 @@ Four parts, one commit each. Every part follows TDD: write the failing tests, th
     - `git grep -n -i -F -f work/post-verification/phone.txt`
     - `git grep -n -E "2026-10-(0[1-9]|1[0-3])" -- docs/superpowers/verification/2026-10-14-*.md`
     - `git grep -n -E "(^|[^0-9-])10-(0[1-9]|1[0-4])([^0-9]|$)" -- docs/superpowers/verification/2026-10-14-*.md notes/05-calorie-field-investigation.md docs/superpowers/plans/2026-10-14-mifit-sleep-domain.md`
-    - `git grep -n -E "账号上出现过的|本账号的[^，。 ]{0,12}(运动|训练|类型)|the account's [a-z -]*types" -- . ':!docs/superpowers/plans/2026-10-15-mifit-post-verification.md' ':!notes/07-history-audit.md'` (sentences that list sport types as seen on the account; notes/07 is left out because its §5 decision names the removal itself)
+    - `git grep -n -E "账号上出现过的|本账号的.{0,40}(运动|训练|类型)|the account's [a-z -]*types" -- . ':!docs/superpowers/plans/2026-10-15-mifit-post-verification.md' ':!notes/07-history-audit.md'` (sentences that list sport types as seen on the account; notes/07 is left out because its §5 decision names the removal itself)
   - Also check that `python -m pytest -q` still gives 1213 passed, 2 skipped, that `git status` shows nothing under `work/`, and that the files are LF.
 - [ ] **Step 9: Commit** `git commit -am "docs: remove real health figures, the phone model and the account's sport types (notes/07 §5 decisions)"`
 

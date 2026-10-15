@@ -20,7 +20,7 @@
 - ⑥ The only raw-window test uses `tz=UTC`. CI's machine zone is UTC and the dev machine's is UTC+8, so a test in either zone cannot catch a dropped `tz`; a third zone can.
 - ⑦ In `test_extra_raw_sessions_are_ignored`, `starts` is built from daily sessions, which never come from raw rows, so `assert ... not in starts` cannot fail.
 - ⑧ `consumption` catches `ApiError` per day and notes it; `AuthError` and `requests` exceptions propagate. `sleep()` catches nothing around the raw read.
-- ⑨ `SleepRecord.score` maps `sleep_score`. The live check could not see a number (the app shows only a rating), and the score is also present on a nap-only day (live: 40; fixture: 45), where what the app would show is unknown.
+- ⑨ `SleepRecord.score` maps `sleep_score`. The live check could not see a number (the app shows only a rating), and the score is also present on a nap-only day (live: a score was present on a nap-only day; the fixture has one too), where what the app would show is unknown.
 
 ## Global Constraints
 
