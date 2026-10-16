@@ -121,6 +121,9 @@ def test_smoke_runs_the_mcp_server_over_stdio():
     assert '["mifit", "mcp"]' in runs and "tools/list" in runs and "get_status" in runs
     # The server writes UTF-8; the Windows runner's locale code page is not.
     assert 'encoding="utf-8"' in runs
+    # Like a client, it waits for each reply before closing stdin: the server stops
+    # at the end of stdin and drops requests still in flight.
+    assert "subprocess.Popen(" in runs and "stdout.readline()" in runs
 
 
 def test_github_release_follows_the_pypi_publish():

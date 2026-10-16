@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import mifit
@@ -32,11 +33,47 @@ HANDSHAKE = [
     },
     {"jsonrpc": "2.0", "method": "notifications/initialized"},
     {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_status", "arguments": {}}},
 ]
 
 
 def _env():
     return {**os.environ, "PYTHONPATH": str(SRC)}
+
+
+def _serve(*args, messages):
+    """Talk to ``mifit mcp`` as a client does: send each message, wait for the reply
+    to each request, and close stdin only after the last reply. (The server stops at
+    the end of stdin and drops requests still in flight, so writing everything and
+    closing at once loses replies at random.)
+
+    Returns the exit code, the replies in order, whatever stdout held after them,
+    and stderr.
+    """
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "mifit.cli", "mcp", *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env=_env(),
+        cwd=ROOT,
+    )
+    watchdog = threading.Timer(120, proc.kill)
+    watchdog.start()
+    try:
+        replies = []
+        for message in messages:
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            if "id" in message:
+                replies.append(json.loads(proc.stdout.readline()))
+        proc.stdin.close()
+        rest, err = proc.communicate()
+    finally:
+        watchdog.cancel()
+    return proc.returncode, replies, rest, err
 
 
 def test_mcp_command_passes_the_gps_flag(monkeypatch):
@@ -54,20 +91,13 @@ def test_mcp_command_is_in_the_help(capsys):
 
 
 def test_stdout_carries_only_json_rpc():
-    proc = subprocess.run(
-        [sys.executable, "-m", "mifit.cli", "mcp"],
-        input="".join(json.dumps(m) + "\n" for m in HANDSHAKE),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=_env(),
-        cwd=ROOT,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stderr
-    replies = [json.loads(line) for line in proc.stdout.splitlines()]
-    assert [r["id"] for r in replies] == [1, 2]
+    code, replies, rest, err = _serve(messages=HANDSHAKE)
+    assert code == 0, err
+    assert rest == ""  # nothing on stdout but the replies
+    assert [r["id"] for r in replies] == [1, 2, 3]
     assert all(r["jsonrpc"] == "2.0" for r in replies)
+    status = json.loads(replies[2]["result"]["content"][0]["text"])
+    assert status["tool"] == "get_status" and status["logged_in"] is False
     init = replies[0]["result"]
     assert (init["serverInfo"]["name"], init["serverInfo"]["version"]) == (
         "mifit",
@@ -78,7 +108,7 @@ def test_stdout_carries_only_json_rpc():
     # The protocol stream is UTF-8 whatever the console code page.
     descriptions = {t["name"]: t["description"] for t in replies[1]["result"]["tools"]}
     assert "活力指标" in descriptions["get_activity"]
-    assert "MCP server on stdio (GPS tracks off)" in proc.stderr
+    assert "MCP server on stdio (GPS tracks off)" in err
 
 
 def test_the_gps_flag_reaches_the_server_line():
