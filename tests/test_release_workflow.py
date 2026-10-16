@@ -55,6 +55,7 @@ def test_jobs():
         "smoke",
         "publish-pypi",
         "publish-testpypi",
+        "publish-mcp-registry",
         "github-release",
     }
 
@@ -64,9 +65,10 @@ TAG_PUSH = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
 def test_only_the_publish_jobs_can_mint_an_oidc_token():
     minted = {n for n, j in JOBS.items() if j.get("permissions", {}).get("id-token") == "write"}
-    assert minted == {"publish-pypi", "publish-testpypi"}
+    assert minted == {"publish-pypi", "publish-testpypi", "publish-mcp-registry"}
     assert JOBS["publish-pypi"]["permissions"] == {"id-token": "write"}
     assert JOBS["publish-testpypi"]["permissions"] == {"id-token": "write"}
+    assert JOBS["publish-mcp-registry"]["permissions"] == {"id-token": "write"}
 
 
 def test_only_the_github_release_job_can_write_to_the_repository():
@@ -131,6 +133,51 @@ def test_github_release_follows_the_pypi_publish():
     assert job["permissions"] == {"contents": "write"}
     assert "publish-pypi" in job["needs"] and job["if"] == TAG_PUSH
     assert "tools/release.py notes" in _runs(job) and "gh release create" in _runs(job)
+
+
+MCP_PUBLISHER = (
+    "https://github.com/modelcontextprotocol/registry/releases/download/"
+    "v1.8.1/mcp-publisher_linux_amd64.tar.gz"
+)
+MCP_PUBLISHER_SHA256 = "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+
+
+def test_build_job_uploads_the_dists_and_server_json():
+    uploads = {
+        s["with"]["name"]: s["with"]["path"]
+        for s in _steps(JOBS["build"])
+        if s.get("uses", "").startswith("actions/upload-artifact")
+    }
+    assert uploads == {"dist": "dist/", "server-json": "server.json"}
+
+
+def test_registry_job_follows_the_pypi_publish_on_tags():
+    job = JOBS["publish-mcp-registry"]
+    assert job["if"] == TAG_PUSH and set(job["needs"]) == {"build", "publish-pypi"}
+
+
+def test_registry_job_runs_a_pinned_checked_publisher_on_the_built_server_json():
+    job = JOBS["publish-mcp-registry"]
+    assert not [u for u in _uses(job) if u.startswith("actions/checkout")]
+    downloads = [
+        s for s in _steps(job) if s.get("uses", "").startswith("actions/download-artifact")
+    ]
+    assert [d["with"]["name"] for d in downloads] == ["server-json"]
+    runs = _runs(job)
+    assert MCP_PUBLISHER in runs and MCP_PUBLISHER_SHA256 in runs and "sha256sum --check" in runs
+    assert "releases/latest" not in runs
+    assert "mcp-publisher validate registry/server.json" in runs
+    assert "mcp-publisher login github-oidc" in runs
+    assert "mcp-publisher publish registry/server.json" in runs
+
+
+def test_registry_publish_retries_while_pypi_catches_up():
+    [step] = [
+        s for s in _steps(JOBS["publish-mcp-registry"]) if "publish registry/" in s.get("run", "")
+    ]
+    run = step["run"]
+    assert "for attempt in" in run and "sleep 20" in run
+    assert run.index("for attempt in") < run.index("login github-oidc")  # a fresh token per try
 
 
 def test_every_checkout_drops_its_credentials():
