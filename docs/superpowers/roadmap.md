@@ -30,7 +30,7 @@
 | T4 | CI（Linux 上跑测试，含夏令时用例） | ✅ 完成（2026-10-14）：GitHub Actions，ubuntu-latest × Python 3.12/3.13/3.14；`test` extra 带 tzdata |
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
 | R | 发布到 PyPI：打包元数据、`mifit --version`、标签触发的发布流水线（Trusted Publishing）、GitHub Release | ✅ 0.2.0 已发布到 PyPI（2026-10-15，Trusted Publishing，带 PEP 740 证明；GitHub Release `v0.2.0`）；计划 [2026-10-15-mifit-release-pypi](plans/2026-10-15-mifit-release-pypi.md) |
-| P | MCP 服务：`mifit mcp`，本机 stdio、只读，每个已核对的数据域一个工具 | 实现完成，待发布 0.3.0（计划 [2026-10-15-mifit-mcp-server](plans/2026-10-15-mifit-mcp-server.md)） |
+| P | MCP 服务：`mifit mcp`，本机 stdio、只读，每个已核对的数据域一个工具 | ✅ 0.3.0 已发布到 PyPI（2026-10-16，带 PEP 740 证明；GitHub Release `v0.3.0`）；真机：各日数据工具与 `mifit export` 逐字段一致，`get_calories` 31 天约 42 s；用户在自己 AI 客户端里的核对（设计 §5.12）跳过；计划 [2026-10-15-mifit-mcp-server](plans/2026-10-15-mifit-mcp-server.md) |
 | E | 生态登记：官方 MCP Registry、Claude Desktop 一键安装包（`.mcpb`）、各客户端配置 | 设计完成，待计划 |
 
 主线顺序沿用设计 §4.6/§10：步数 → 睡眠 → 心率 → 运动记录 → 血氧、体重 → FDS 明细 → 其余。唯一的插入是 M2 开头的"日语义统一"（理由见 M2）。
