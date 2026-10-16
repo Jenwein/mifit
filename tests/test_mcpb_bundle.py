@@ -17,6 +17,7 @@ import pytest
 
 import mifit.cli
 from mcp_fakes import P2_TOOLS
+from mifit.mcp_server import errors, server, tools
 from support import load_script
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,25 @@ def test_gps_switch_is_off_by_default():
         False,
     )
     assert "where you live" in option["description"]
+
+
+SWITCH = MANIFEST["user_config"]["allow_gps"]["title"]
+
+
+@pytest.mark.parametrize(
+    "name", ["GPS_DISABLED", "PRIVACY_NOTE", "INCLUDE_TRACK_DOC", "get_workout_detail"]
+)
+def test_every_gps_hint_names_the_flag_and_the_extensions_switch(name):
+    # An extension user cannot pass --allow-gps; they turn on the switch instead.
+    texts = {
+        "GPS_DISABLED": errors.GPS_DISABLED,
+        "PRIVACY_NOTE": server.PRIVACY_NOTE,
+        "INCLUDE_TRACK_DOC": tools.INCLUDE_TRACK_DOC,
+        "get_workout_detail": {t.name: t.description for t in tools.DATA_TOOLS}[
+            "get_workout_detail"
+        ],
+    }
+    assert "--allow-gps" in texts[name] and SWITCH in texts[name]
 
 
 def test_manifest_lists_the_servers_tools():

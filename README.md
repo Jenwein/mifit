@@ -93,7 +93,8 @@ login stays in `~/.mifit` on this computer: the server runs locally on
 stdin/stdout, opens no network port, never puts a credential in a result, and
 only reads your health data (the login tools save the new session to
 `~/.mifit`). GPS tracks are off: the server gives a workout's route only when it
-was started with `--allow-gps` *and* the assistant asks for it, and a route
+was started with `--allow-gps` (in the Claude Desktop extension: when its
+**Allow GPS tracks** switch is on) *and* the assistant asks for it, and a route
 shows where you were, including where you live.
 
 **Log in once**, in a terminal:

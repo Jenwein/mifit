@@ -144,6 +144,8 @@ def test_readme_mcp_section():
         assert f"`{name}`" in section, name
     # The privacy paragraph must not claim more than is true: login writes a file.
     assert "the login tools save the new session" in " ".join(section.split())
+    # ... and names the extension's GPS switch, since its users cannot pass a flag.
+    assert "**Allow GPS tracks** switch is on" in " ".join(section.split())
 
 
 def test_version_is_0_3_1_with_its_changelog():

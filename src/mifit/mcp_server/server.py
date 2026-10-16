@@ -80,7 +80,8 @@ The figures were checked against the Mi Fitness app. Tell the user what the note
 PRIVACY_NOTE = (
     "Tool results are sent to the AI assistant's model provider. The Mi Fitness login "
     "stays on this computer; GPS tracks are only available when the server was started "
-    "with --allow-gps."
+    "with --allow-gps (in the Claude Desktop extension: when its Allow GPS tracks switch "
+    "is on)."
 )
 
 READ_ANNOTATIONS = ToolAnnotations(
@@ -433,7 +434,8 @@ def build_server(
     """The MCP server with every tool registered.
 
     ``client_factory`` opens the client (``mifit.MiFit``, from the stored session, by
-    default); ``allow_gps`` is the server's GPS gate (``--allow-gps``); ``tz`` the zone
+    default); ``allow_gps`` is the server's GPS gate (``--allow-gps``, or the Claude
+    Desktop extension's "Allow GPS tracks" switch); ``tz`` the zone
     times are shown in (the machine's by default); ``now`` gives the aware current
     time for ``get_status``; ``clock`` drives the cache; ``session_loader`` reads the
     stored session for ``get_status`` (``mifit.auth.session.load_session``).

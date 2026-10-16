@@ -22,7 +22,10 @@ __all__ = [
 
 LOGIN_ADVICE = "Run `mifit login` in a terminal or call login_start, then try again."
 NOT_LOGGED_IN = "Not logged in to Mi Fitness. " + LOGIN_ADVICE
-GPS_DISABLED = "GPS is disabled on this server; the user can start it with --allow-gps."
+GPS_DISABLED = (
+    "GPS is disabled on this server. The user can allow it with the Allow GPS tracks "
+    "switch of the Claude Desktop extension, or by starting the server with --allow-gps."
+)
 
 
 class ToolFailure(Exception):

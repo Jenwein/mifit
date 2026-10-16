@@ -278,9 +278,10 @@ DATA_TOOLS: tuple[DataTool, ...] = (
         "cycling); a gap in time is a pause. At most 500 rows: a longer workout is "
         "shown as one recorded second every few seconds (picked, not averaged), "
         "chosen automatically unless interval_s is given. track (the GPS route: time, "
-        "latitude_deg, longitude_deg; at most 500 points) is only given when the "
-        "server was started with --allow-gps and include_track is true: a track "
-        "shows where the user was. "
+        "latitude_deg, longitude_deg; at most 500 points) is only given when GPS is "
+        "allowed (the server was started with --allow-gps, or the Claude Desktop "
+        "extension's Allow GPS tracks switch is on) and include_track is true: a "
+        "track shows where the user was. "
         + _CHECKED,
     ),
 )
@@ -338,7 +339,8 @@ INTERVAL_S_DOC = (
     "let the server choose the smallest that fits in 500 rows."
 )
 INCLUDE_TRACK_DOC = (
-    "Include the GPS track. Only possible when the server was started with --allow-gps; "
+    "Include the GPS track. Only possible when GPS is allowed (the server was started "
+    "with --allow-gps, or the Claude Desktop extension's Allow GPS tracks switch is on); "
     "a track shows where the user was."
 )
 
