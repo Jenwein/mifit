@@ -1,0 +1,50 @@
+{
+  "manifest_version": "0.4",
+  "name": "mifit",
+  "display_name": "mifit (Mi Fitness data)",
+  "version": "0.3.0",
+  "description": "Your own Mi Fitness (Xiaomi) health data for Claude: sleep, heart rate, steps, workouts. Read-only.",
+  "long_description": "Unofficial: not affiliated with Xiaomi. mifit reads your own Mi Fitness data from the Xiaomi cloud when you ask Claude about it (\"how did I sleep last week?\"). The results of its tools go to Claude's model provider, like the rest of the chat. Your login stays in ~/.mifit on this computer. If you are not logged in, ask Claude to log you in: it shows a QR code (login_start) to scan with the Xiaomi or Mi Fitness app. GPS routes are off unless you turn on Allow GPS tracks, and a route shows where you were, including where you live.",
+  "author": {"name": "mifit contributors", "url": "https://github.com/Jenwein/mifit"},
+  "repository": {"type": "git", "url": "https://github.com/Jenwein/mifit"},
+  "homepage": "https://github.com/Jenwein/mifit",
+  "support": "https://github.com/Jenwein/mifit/issues",
+  "license": "MIT",
+  "keywords": ["mi-fitness", "xiaomi", "health", "sleep", "heart-rate"],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "src/server.py", "${user_config.allow_gps}"]
+    }
+  },
+  "user_config": {
+    "allow_gps": {
+      "type": "boolean",
+      "title": "Allow GPS tracks",
+      "description": "Let Claude read a workout's GPS route when you ask for it. A route shows where you were, including where you live. Off by default.",
+      "default": false,
+      "required": false
+    }
+  },
+  "tools": [
+    {"name": "get_status", "description": "Today's date, the time zone, the login state, the GPS setting (nothing from the cloud)"},
+    {"name": "get_steps", "description": "Steps and distance per day"},
+    {"name": "get_calories", "description": "Calories per day: resting, active, intake, total"},
+    {"name": "get_activity", "description": "Activity count, minutes and calories per day"},
+    {"name": "get_heart_rate_daily", "description": "Heart rate per day: average, maximum, minimum, resting"},
+    {"name": "get_sleep", "description": "Sleep per day with its sessions; stage timelines on request"},
+    {"name": "get_spo2_daily", "description": "Blood oxygen per day"},
+    {"name": "get_stress_daily", "description": "Stress level per day and the minutes in each stress band"},
+    {"name": "get_weight", "description": "Weighings"},
+    {"name": "get_workouts", "description": "Workouts"},
+    {"name": "get_heart_rate", "description": "Heart-rate samples, in buckets beyond 500"},
+    {"name": "get_spo2", "description": "Blood-oxygen readings, in buckets beyond 500"},
+    {"name": "get_workout_detail", "description": "One workout's per-second samples (outdoor runs and rides), and its GPS track with Allow GPS tracks on"},
+    {"name": "get_profile", "description": "Height, weight and daily goals"},
+    {"name": "login_start", "description": "Log in by QR code (returns the code)"},
+    {"name": "login_status", "description": "How that login stands"}
+  ],
+  "compatibility": {"platforms": ["darwin", "linux", "win32"], "runtimes": {"python": ">=3.12"}}
+}

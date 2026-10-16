@@ -22,14 +22,18 @@ ABSENT = object()
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_release_tool() -> ModuleType:
-    """``tools/release.py`` as a module (``tools/`` is not a package)."""
-    spec = importlib.util.spec_from_file_location(
-        "release_tool", REPO_ROOT / "tools" / "release.py"
-    )
+def load_script(path: Path, name: str) -> ModuleType:
+    """The Python file at ``path`` as a module called ``name``, for scripts that
+    live outside any package (``tools/``, ``packaging/mcpb/src/``)."""
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_release_tool() -> ModuleType:
+    """``tools/release.py`` as a module (``tools/`` is not a package)."""
+    return load_script(REPO_ROOT / "tools" / "release.py", "release_tool")
 
 
 def payload_with_rows_from(template: dict) -> Callable[..., dict]:

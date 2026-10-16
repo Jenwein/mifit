@@ -1,0 +1,7 @@
+# Claude Desktop installs this bundle's one dependency with uv (manifest.json,
+# server.type "uv"). There is no build system: the bundle itself is not a package.
+[project]
+name = "mifit-claude-desktop"
+version = "0.3.0"
+requires-python = ">=3.12"
+dependencies = ["mifit==0.3.0"]

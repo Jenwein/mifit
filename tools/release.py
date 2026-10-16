@@ -2,16 +2,20 @@
 
 Standard library only, so the workflow runs it with a bare Python before
 anything is installed. It reads this repository's ``pyproject.toml``,
-``CHANGELOG.md``, ``README.md`` and ``server.json``. Subcommands:
+``CHANGELOG.md``, ``README.md``, ``server.json`` and the Claude Desktop bundle
+sources in ``packaging/mcpb/``. Subcommands:
 
 - ``version``: print the project version (``[project].version``).
 - ``check-version --tag TAG``: the tag must be ``v<version>``, the CHANGELOG
   must have a non-empty ``## <version>`` section, ``server.json`` must carry
-  ``<version>`` twice, and the README must declare ``mcp-name: <its name>``.
-  Exit 1 otherwise.
+  ``<version>`` twice, the README must declare ``mcp-name: <its name>``, and
+  the bundle's manifest and pyproject must carry ``<version>`` and pin
+  ``mifit==<version>``. Exit 1 otherwise.
 - ``check-dist DIR``: ``DIR`` must hold exactly this version's sdist and wheel,
   with no private file in either (see ``dist_problems``), and the wheel must
   carry ``py.typed`` and the ``mifit`` console script. Exit 1 otherwise.
+- ``check-mcpb PATH``: ``PATH`` must be this version's Claude Desktop bundle,
+  ``mifit-<version>.mcpb``, holding exactly ``BUNDLE_MEMBERS``. Exit 1 otherwise.
 - ``notes VERSION``: print that version's CHANGELOG section (the GitHub
   Release body). Exit 1 if there is none.
 
@@ -41,6 +45,13 @@ CONSOLE_SCRIPT = "mifit = mifit.cli:main"
 
 SERVER_JSON_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
 """The MCP Registry's ``server.json`` schema that ``server.json`` follows."""
+
+BUNDLE_DIR = Path("packaging", "mcpb")
+"""The Claude Desktop bundle sources, relative to ``ROOT``."""
+
+BUNDLE_MEMBERS = frozenset({"manifest.json", "pyproject.toml", "src/server.py"})
+"""Everything a packed bundle holds: anything else (a local ``.venv``, ``uv.lock``,
+a session file) must never ship."""
 
 
 def project_version(pyproject: Path) -> str:
@@ -124,6 +135,53 @@ def server_json_problems(server: dict, version: str, readme: str) -> list[str]:
     return problems
 
 
+def bundle_source_problems(manifest: dict, bundle_pyproject: dict, version: str) -> list[str]:
+    """What keeps the bundle sources (the parsed ``manifest.json`` and
+    ``pyproject.toml`` of ``BUNDLE_DIR``) from being packed for ``version``;
+    empty when nothing does."""
+    manifest_path = (BUNDLE_DIR / "manifest.json").as_posix()
+    pyproject_path = (BUNDLE_DIR / "pyproject.toml").as_posix()
+    project = bundle_pyproject.get("project", {})
+    problems: list[str] = []
+    if manifest.get("version") != version:
+        problems.append(
+            f"{manifest_path} has version {manifest.get('version')}; expected {version} (pyproject)"
+        )
+    if project.get("version") != version:
+        problems.append(
+            f"{pyproject_path} has version {project.get('version')}; expected {version} (pyproject)"
+        )
+    if project.get("dependencies") != [f"mifit=={version}"]:
+        problems.append(
+            f"{pyproject_path} depends on {project.get('dependencies')}; "
+            f'expected ["mifit=={version}"]'
+        )
+    return problems
+
+
+def bundle_problems(bundle: Path, version: str) -> list[str]:
+    """What is wrong with the packed bundle ``bundle``; empty when nothing is."""
+    expected_name = f"mifit-{version}.mcpb"
+    problems: list[str] = []
+    if bundle.name != expected_name:
+        problems.append(f"bundle {bundle.name} should be named {expected_name}")
+    with zipfile.ZipFile(bundle) as packed:
+        members = {name for name in packed.namelist() if not name.endswith("/")}
+        manifest = (
+            json.loads(packed.read("manifest.json")) if "manifest.json" in members else {}
+        )
+    problems += [f"{bundle.name} lacks {name}" for name in sorted(BUNDLE_MEMBERS - members)]
+    problems += [
+        f"{bundle.name} holds an extra file: {name}" for name in sorted(members - BUNDLE_MEMBERS)
+    ]
+    if "manifest.json" in members and manifest.get("version") != version:
+        problems.append(
+            f"{bundle.name}: manifest.json has version {manifest.get('version')}; "
+            f"expected {version}"
+        )
+    return problems
+
+
 def _private(member: str) -> bool:
     path = PurePosixPath(member)
     return (
@@ -185,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
     check_version.add_argument("--tag", required=True)
     check_dist = commands.add_parser("check-dist", help="the built sdist and wheel are clean")
     check_dist.add_argument("dist_dir", type=Path)
+    check_mcpb = commands.add_parser("check-mcpb", help="the packed Claude Desktop bundle is clean")
+    check_mcpb.add_argument("bundle", type=Path)
     notes = commands.add_parser("notes", help="print a version's CHANGELOG section")
     notes.add_argument("version")
     args = parser.parse_args(argv)
@@ -197,12 +257,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check-version":
         server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        bundle = ROOT / BUNDLE_DIR
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        bundle_pyproject = tomllib.loads((bundle / "pyproject.toml").read_text(encoding="utf-8"))
         return _report(
             version_problems(args.tag, version, changelog)
             + server_json_problems(server, version, readme)
+            + bundle_source_problems(manifest, bundle_pyproject, version)
         )
     if args.command == "check-dist":
         return _report(dist_problems(args.dist_dir, version))
+    if args.command == "check-mcpb":
+        return _report(bundle_problems(args.bundle, version))
     section = changelog_section(changelog, args.version)
     if not section:
         return _report([f'CHANGELOG.md has no "## {args.version}" section'])
