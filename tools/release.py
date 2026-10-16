@@ -6,16 +6,19 @@ anything is installed. It reads this repository's ``pyproject.toml``,
 sources in ``packaging/mcpb/``. Subcommands:
 
 - ``version``: print the project version (``[project].version``).
-- ``check-version --tag TAG``: the tag must be ``v<version>``, the CHANGELOG
-  must have a non-empty ``## <version>`` section, ``server.json`` must carry
-  ``<version>`` twice, the README must declare ``mcp-name: <its name>``, and
-  the bundle's manifest and pyproject must carry ``<version>`` and pin
-  ``mifit==<version>``. Exit 1 otherwise.
+- ``check-version --tag TAG [--owner OWNER]``: the tag must be ``v<version>``,
+  the CHANGELOG must have a non-empty ``## <version>`` section, ``server.json``
+  must carry ``<version>`` twice, the README must declare ``mcp-name: <its
+  name>``, and the bundle's manifest and pyproject must carry ``<version>`` and
+  pin ``mifit==<version>``. With ``--owner`` (the workflow passes
+  ``$GITHUB_REPOSITORY_OWNER``), the ``server.json`` name must also start with
+  ``io.github.<OWNER>/``. Exit 1 otherwise.
 - ``check-dist DIR``: ``DIR`` must hold exactly this version's sdist and wheel,
   with no private file in either (see ``dist_problems``), and the wheel must
   carry ``py.typed`` and the ``mifit`` console script. Exit 1 otherwise.
 - ``check-mcpb PATH``: ``PATH`` must be this version's Claude Desktop bundle,
-  ``mifit-<version>.mcpb``, holding exactly ``BUNDLE_MEMBERS``. Exit 1 otherwise.
+  ``mifit-<version>.mcpb``, holding exactly ``BUNDLE_MEMBERS``, each with the
+  bytes of its source in ``packaging/mcpb/``. Exit 1 otherwise.
 - ``notes VERSION``: print that version's CHANGELOG section (the GitHub
   Release body). Exit 1 if there is none.
 
@@ -135,6 +138,22 @@ def server_json_problems(server: dict, version: str, readme: str) -> list[str]:
     return problems
 
 
+def owner_problems(name: str, owner: str) -> list[str]:
+    """What keeps the registry from granting ``name`` to a workflow of a repository
+    owned by ``owner``; empty when nothing does.
+
+    The registry grants ``io.github.<owner>/*`` with the owner spelled as GitHub
+    spells it, and compares case-sensitively (registry issue #689).
+    """
+    if owner and name.startswith(f"io.github.{owner}/"):
+        return []
+    return [
+        f"server.json name {name} is not under io.github.{owner}/ "
+        f"(the repository owner, $GITHUB_REPOSITORY_OWNER = {owner!r}), "
+        "so the MCP Registry would refuse it"
+    ]
+
+
 def bundle_source_problems(manifest: dict, bundle_pyproject: dict, version: str) -> list[str]:
     """What keeps the bundle sources (the parsed ``manifest.json`` and
     ``pyproject.toml`` of ``BUNDLE_DIR``) from being packed for ``version``;
@@ -159,8 +178,9 @@ def bundle_source_problems(manifest: dict, bundle_pyproject: dict, version: str)
     return problems
 
 
-def bundle_problems(bundle: Path, version: str) -> list[str]:
-    """What is wrong with the packed bundle ``bundle``; empty when nothing is."""
+def bundle_problems(bundle: Path, version: str, sources: Path) -> list[str]:
+    """What is wrong with the packed bundle ``bundle``, packed from ``sources``
+    (``ROOT / BUNDLE_DIR``); empty when nothing is."""
     expected_name = f"mifit-{version}.mcpb"
     problems: list[str] = []
     if bundle.name != expected_name:
@@ -170,9 +190,18 @@ def bundle_problems(bundle: Path, version: str) -> list[str]:
         manifest = (
             json.loads(packed.read("manifest.json")) if "manifest.json" in members else {}
         )
+        differs = [
+            name
+            for name in sorted(BUNDLE_MEMBERS & members)
+            if packed.read(name) != (sources / name).read_bytes()
+        ]
     problems += [f"{bundle.name} lacks {name}" for name in sorted(BUNDLE_MEMBERS - members)]
     problems += [
         f"{bundle.name} holds an extra file: {name}" for name in sorted(members - BUNDLE_MEMBERS)
+    ]
+    problems += [
+        f"{bundle.name}: {name} differs from {(BUNDLE_DIR / name).as_posix()}"
+        for name in differs
     ]
     if "manifest.json" in members and manifest.get("version") != version:
         problems.append(
@@ -239,8 +268,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tools/release.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version", help="print the project version")
-    check_version = commands.add_parser("check-version", help="the tag, pyproject and CHANGELOG agree")
+    check_version = commands.add_parser(
+        "check-version",
+        help="the tag and every version place agree; with --owner, the registry name too",
+        description=(
+            "The tag is v<version> (pyproject.toml); CHANGELOG.md has that version's "
+            "section; server.json carries the version twice and the README marker names "
+            "it; packaging/mcpb (manifest.json, pyproject.toml) carries the version and "
+            "pins mifit==<version>. With --owner, the server.json name is under "
+            "io.github.<OWNER>/."
+        ),
+    )
     check_version.add_argument("--tag", required=True)
+    check_version.add_argument(
+        "--owner", help="the GitHub repository owner, exactly ($GITHUB_REPOSITORY_OWNER)"
+    )
     check_dist = commands.add_parser("check-dist", help="the built sdist and wheel are clean")
     check_dist.add_argument("dist_dir", type=Path)
     check_mcpb = commands.add_parser("check-mcpb", help="the packed Claude Desktop bundle is clean")
@@ -260,15 +302,17 @@ def main(argv: list[str] | None = None) -> int:
         bundle = ROOT / BUNDLE_DIR
         manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
         bundle_pyproject = tomllib.loads((bundle / "pyproject.toml").read_text(encoding="utf-8"))
+        owner = [] if args.owner is None else owner_problems(server.get("name", ""), args.owner)
         return _report(
             version_problems(args.tag, version, changelog)
             + server_json_problems(server, version, readme)
+            + owner
             + bundle_source_problems(manifest, bundle_pyproject, version)
         )
     if args.command == "check-dist":
         return _report(dist_problems(args.dist_dir, version))
     if args.command == "check-mcpb":
-        return _report(bundle_problems(args.bundle, version))
+        return _report(bundle_problems(args.bundle, version, ROOT / BUNDLE_DIR))
     section = changelog_section(changelog, args.version)
     if not section:
         return _report([f'CHANGELOG.md has no "## {args.version}" section'])

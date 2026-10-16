@@ -262,6 +262,30 @@ def test_main_check_version_names_a_stale_server_json(tmp_path, monkeypatch, cap
     assert release.main(["check-version", "--tag", "v0.3.0"]) == 0
 
 
+def test_owner_problems_need_the_exact_owner():
+    assert release.owner_problems("io.github.Jenwein/mifit", "Jenwein") == []
+    # The registry compares case-sensitively; an empty owner is an unset variable.
+    for owner in ("jenwein", "", "Jen", "someone"):
+        [problem] = release.owner_problems("io.github.Jenwein/mifit", owner)
+        assert "io.github.Jenwein/mifit" in problem and "GITHUB_REPOSITORY_OWNER" in problem
+
+
+def test_main_check_version_checks_the_owner_only_when_given(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(release, "ROOT", _repo(tmp_path / "r"))
+    assert release.main(["check-version", "--tag", "v0.3.0", "--owner", "Jenwein"]) == 0
+    assert release.main(["check-version", "--tag", "v0.3.0"]) == 0
+    assert release.main(["check-version", "--tag", "v0.3.0", "--owner", "jenwein"]) == 1
+    assert "jenwein" in capsys.readouterr().err
+
+
+def test_check_version_help_says_what_it_checks(capsys):
+    with pytest.raises(SystemExit):
+        release.main(["check-version", "--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    for text in ("CHANGELOG.md", "server.json", "README", "packaging/mcpb", "--owner"):
+        assert text in out, text
+
+
 def test_bundle_source_problems_name_a_stale_manifest_or_pin():
     manifest = {"version": "0.3.0"}
     bundle = {"project": {"version": "0.3.0", "dependencies": ["mifit==0.3.0"]}}
@@ -290,23 +314,38 @@ def _bundle(
     extra: tuple[str, ...] = (),
     manifest_version: str | None = None,
     drop: tuple[str, ...] = (),
-) -> Path:
-    """A real ``mifit-<version>.mcpb`` zip in ``tmp_path`` with the bundle's three
-    files (less ``drop``) plus ``extra``; its manifest says ``manifest_version``
-    (default ``version``)."""
+    changed: tuple[str, ...] = (),
+) -> tuple[Path, Path]:
+    """A real ``mifit-<version>.mcpb`` zip in ``tmp_path`` and the sources it was
+    packed from (``tmp_path / "sources"``).
+
+    The sources hold the bundle's three files; the zip holds them too (less
+    ``drop``, with a newline more in ``changed``) plus ``extra``. Both manifests
+    say ``manifest_version`` (default ``version``)."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / f"mifit-{version}.mcpb"
     manifest = json.dumps({"manifest_version": "0.4", "version": manifest_version or version})
+    contents = {
+        "manifest.json": manifest.encode("utf-8"),
+        "pyproject.toml": _bundle_pyproject(version).encode("utf-8"),
+        "src/server.py": b"import sys\n",
+    }
+    sources = tmp_path / "sources"
+    for name, data in contents.items():
+        (sources / name).parent.mkdir(parents=True, exist_ok=True)
+        (sources / name).write_bytes(data)
     with zipfile.ZipFile(path, "w") as bundle:
         for name in (*BUNDLE_FILES, *extra):
             if name in drop:
                 continue
-            bundle.writestr(name, manifest if name == "manifest.json" else "")
-    return path
+            data = contents.get(name, b"")
+            bundle.writestr(name, data + b"\n" if name in changed else data)
+    return path, sources
 
 
 def test_bundle_problems_empty_for_a_clean_bundle(tmp_path):
-    assert release.bundle_problems(_bundle(tmp_path, "0.3.0"), "0.3.0") == []
+    bundle, sources = _bundle(tmp_path, "0.3.0")
+    assert release.bundle_problems(bundle, "0.3.0", sources) == []
 
 
 @pytest.mark.parametrize(
@@ -314,29 +353,56 @@ def test_bundle_problems_empty_for_a_clean_bundle(tmp_path):
     [".venv/pyvenv.cfg", "uv.lock", "session.json", "src/__pycache__/server.cpython-314.pyc"],
 )
 def test_bundle_problems_need_exactly_the_three_files(tmp_path, extra):
-    [problem] = release.bundle_problems(_bundle(tmp_path, "0.3.0", extra=(extra,)), "0.3.0")
+    bundle, sources = _bundle(tmp_path, "0.3.0", extra=(extra,))
+    [problem] = release.bundle_problems(bundle, "0.3.0", sources)
     assert extra in problem
 
 
+@pytest.mark.parametrize("member", BUNDLE_FILES)
+def test_bundle_problems_name_a_member_that_differs_from_its_source(tmp_path, member):
+    bundle, sources = _bundle(tmp_path, "0.3.0", changed=(member,))
+    problems = release.bundle_problems(bundle, "0.3.0", sources)
+    assert any(member in p and "differs" in p for p in problems), problems
+
+
 def test_bundle_problems_name_a_missing_file_a_wrong_name_or_version(tmp_path):
-    [missing] = release.bundle_problems(
-        _bundle(tmp_path / "a", "0.3.0", drop=("src/server.py",)), "0.3.0"
-    )
+    bundle, sources = _bundle(tmp_path / "a", "0.3.0", drop=("src/server.py",))
+    [missing] = release.bundle_problems(bundle, "0.3.0", sources)
     assert "src/server.py" in missing
 
-    misnamed = _bundle(tmp_path / "b", "0.2.0", manifest_version="0.3.0")
-    [name] = release.bundle_problems(misnamed, "0.3.0")
+    misnamed, sources = _bundle(tmp_path / "b", "0.2.0", manifest_version="0.3.0")
+    [name] = release.bundle_problems(misnamed, "0.3.0", sources)
     assert "mifit-0.2.0.mcpb" in name and "mifit-0.3.0.mcpb" in name
 
-    stale = _bundle(tmp_path / "c", "0.3.0", manifest_version="0.2.0")
-    [inner] = release.bundle_problems(stale, "0.3.0")
+    stale, sources = _bundle(tmp_path / "c", "0.3.0", manifest_version="0.2.0")
+    [inner] = release.bundle_problems(stale, "0.3.0", sources)
     assert "manifest.json" in inner and "0.2.0" in inner
+
+
+def _pack_this_repository(path: Path, *, changed: str | None = None, extra: str | None = None):
+    """Zip this repository's bundle sources into ``path``, as ``mcpb pack`` does:
+    the bytes as they are, with a newline more in ``changed`` and an empty ``extra``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as bundle:
+        for name in BUNDLE_FILES:
+            data = (release.ROOT / release.BUNDLE_DIR / name).read_bytes()
+            bundle.writestr(name, data + b"\n" if name == changed else data)
+        if extra:
+            bundle.writestr(extra, b"")
+    return path
 
 
 def test_main_check_mcpb(tmp_path, capsys):
     version = release.project_version(release.ROOT / "pyproject.toml")  # what check-mcpb expects
-    assert release.main(["check-mcpb", str(_bundle(tmp_path / "ok", version))]) == 0
-    dirty = _bundle(tmp_path / "dirty", version, extra=("uv.lock",))
+    name = f"mifit-{version}.mcpb"
+    assert release.main(["check-mcpb", str(_pack_this_repository(tmp_path / "ok" / name))]) == 0
+
+    changed = _pack_this_repository(tmp_path / "changed" / name, changed="src/server.py")
+    assert release.main(["check-mcpb", str(changed)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "src/server.py" in err and "differs" in err
+
+    dirty = _pack_this_repository(tmp_path / "dirty" / name, extra="uv.lock")
     assert release.main(["check-mcpb", str(dirty)]) == 1
     err = capsys.readouterr().err
     assert err.startswith("error: ") and "uv.lock" in err
