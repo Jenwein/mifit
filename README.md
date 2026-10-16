@@ -129,6 +129,17 @@ After `uv tool install mifit`, the command can be `mifit` with the argument
 `mcp` instead. To allow GPS tracks, add `--allow-gps` after `mcp`
 (`["mifit", "mcp", "--allow-gps"]`).
 
+mifit is also listed in the official
+[MCP Registry](https://modelcontextprotocol.io/registry/about) as
+`io.github.Jenwein/mifit`, for clients that install servers from it.
+
+**Claude Desktop, in one click.** Download `mifit-<version>.mcpb` from the
+[latest release](https://github.com/Jenwein/mifit/releases/latest) and open it
+(or install it from Claude Desktop's Settings → Extensions): Claude Desktop
+(Windows, macOS) offers to install the extension. Its settings have an
+**Allow GPS tracks** switch, off by default. Use either the extension or the
+JSON config above, not both.
+
 **Tools.** Each reads one kind of data; dates are local calendar days.
 
 | Tool | What it reads | Per call |

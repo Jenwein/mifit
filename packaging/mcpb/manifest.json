@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "mifit",
   "display_name": "mifit (Mi Fitness data)",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Your own Mi Fitness (Xiaomi) health data for Claude: sleep, heart rate, steps, workouts. Read-only.",
   "long_description": "Unofficial: not affiliated with Xiaomi. mifit reads your own Mi Fitness data from the Xiaomi cloud when you ask Claude about it (\"how did I sleep last week?\"). The results of its tools go to Claude's model provider, like the rest of the chat. Your login stays in ~/.mifit on this computer. If you are not logged in, ask Claude to log you in: it shows a QR code (login_start) to scan with the Xiaomi or Mi Fitness app. GPS routes are off unless you turn on Allow GPS tracks, and a route shows where you were, including where you live.",
   "author": {"name": "mifit contributors", "url": "https://github.com/Jenwein/mifit"},

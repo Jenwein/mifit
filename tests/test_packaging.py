@@ -146,10 +146,22 @@ def test_readme_mcp_section():
     assert "the login tools save the new session" in " ".join(section.split())
 
 
-def test_version_is_0_3_0_with_its_changelog():
-    assert _pyproject()["project"]["version"] == "0.3.0"
+def test_version_is_0_3_1_with_its_changelog():
+    assert _pyproject()["project"]["version"] == "0.3.1"
     release = load_release_tool()
     notes = release.changelog_section(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.0"
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.1"
     )
-    assert "mifit mcp" in notes and "--allow-gps" in notes and "mcp>=2.3,<3" in notes
+    for text in ("MCP Registry", "io.github.Jenwein/mifit", ".mcpb", "Allow GPS tracks"):
+        assert text in notes, text
+
+
+def test_readme_points_to_the_registry_and_the_bundle():
+    section = _section(_readme(), "Use with an AI assistant (MCP)")
+    for text in (
+        "io.github.Jenwein/mifit",
+        "https://github.com/Jenwein/mifit/releases/latest",
+        ".mcpb",
+        "Allow GPS tracks",
+    ):
+        assert text in section, text

@@ -5,6 +5,25 @@ All notable changes to mifit are listed here. The format follows
 0.x, a minor version can still change or remove parts of the API; the
 "Breaking" list of each version says what.
 
+## 0.3.1 — 2026-10-16
+
+mifit can now be found and installed in two more ways: the official MCP
+Registry and a one-click extension for Claude Desktop.
+
+### Added
+
+- mifit is listed in the official MCP Registry as `io.github.Jenwein/mifit`.
+  The release workflow publishes `server.json` there after PyPI.
+- `mifit-<version>.mcpb`: a Claude Desktop extension attached to each GitHub
+  Release. Claude Desktop installs mifit with uv, so no Python setup is needed.
+  Its "Allow GPS tracks" switch is off by default.
+
+### Fixed
+
+- The README's registry marker now spells the GitHub owner as the registry
+  checks it (`Jenwein`). The registry compares names case-sensitively, so 0.3.0
+  could not be listed.
+
 ## 0.3.0 — 2026-10-16
 
 mifit now serves your data to AI assistants: `mifit mcp` is a Model Context

@@ -2,6 +2,6 @@
 # server.type "uv"). There is no build system: the bundle itself is not a package.
 [project]
 name = "mifit-claude-desktop"
-version = "0.3.0"
+version = "0.3.1"
 requires-python = ">=3.12"
-dependencies = ["mifit==0.3.0"]
+dependencies = ["mifit==0.3.1"]
