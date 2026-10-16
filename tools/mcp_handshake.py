@@ -4,11 +4,13 @@ Standard library only. The release workflow runs it on the Claude Desktop
 bundle (``uv run ... src/server.py``); the ``smoke`` job keeps its own inline
 copy because it runs without a checkout. Usage::
 
-    python tools/mcp_handshake.py COMMAND [ARG...]
+    python tools/mcp_handshake.py [--expect-version VERSION] COMMAND [ARG...]
 
-The arguments are the server's command, taken verbatim. On success it prints
-``MCP server answered: <n> tools`` and exits 0; when the server fails, or does
-not list ``get_status``, it prints ``error: <message>`` to stderr and exits 1.
+The arguments after the option are the server's command, taken verbatim. On
+success it prints ``MCP server answered: <name> <version>, <n> tools`` and exits
+0. It prints ``error: <message>`` to stderr and exits 1 when the server fails,
+does not list ``get_status``, or (with ``--expect-version``) reports another
+version in its ``serverInfo``.
 """
 
 from __future__ import annotations
@@ -34,8 +36,12 @@ MESSAGES = [
 ]
 
 
-def handshake(command: list[str], timeout_s: float = 120) -> set[str]:
-    """Start ``command``, initialize it and return the names of the tools it lists.
+USAGE = "usage: mcp_handshake.py [--expect-version VERSION] COMMAND [ARG...]"
+
+
+def handshake(command: list[str], timeout_s: float = 120) -> tuple[dict, set[str]]:
+    """Start ``command``, initialize it and return its ``serverInfo`` (``{}`` when
+    the reply has none) and the names of the tools it lists.
 
     Like a client, it waits for each reply before sending the next message, because
     the server stops at the end of stdin and drops requests still in flight. Any
@@ -79,20 +85,33 @@ def handshake(command: list[str], timeout_s: float = 120) -> set[str]:
         raise RuntimeError(f"the server wrote more than its replies to stdout: {rest[:200]!r}")
     if [reply.get("id") for reply in replies] != [1, 2] or "result" not in replies[1]:
         raise RuntimeError(f"unexpected replies: {replies!r}")
-    return {tool["name"] for tool in replies[1]["result"]["tools"]}
+    info = replies[0].get("result", {}).get("serverInfo", {})
+    return info, {tool["name"] for tool in replies[1]["result"]["tools"]}
 
 
 def main(argv: list[str] | None = None) -> int:
     command = sys.argv[1:] if argv is None else argv
+    expected = None
+    if command[:1] == ["--expect-version"]:
+        expected, command = (command[1], command[2:]) if len(command) > 1 else (None, [])
+    if not command:
+        print(f"error: {USAGE}", file=sys.stderr)
+        return 1
     try:
-        names = handshake(command)
+        info, names = handshake(command)
     except (OSError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if "get_status" not in names:
         print(f"error: the server lists no get_status tool: {sorted(names)}", file=sys.stderr)
         return 1
-    print(f"MCP server answered: {len(names)} tools")
+    if expected is not None and info.get("version") != expected:
+        print(
+            f"error: the server reports version {info.get('version')}; expected {expected}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"MCP server answered: {info.get('name')} {info.get('version')}, {len(names)} tools")
     return 0
 
 

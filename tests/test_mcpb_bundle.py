@@ -124,10 +124,50 @@ def test_packaging_folder_is_not_a_python_package():
     assert not list((ROOT / "packaging").rglob("__init__.py"))
 
 
+SERVER = [sys.executable, "-m", "mifit.cli", "mcp"]
+
+
 def test_handshake_lists_this_servers_tools():
-    assert HANDSHAKE.handshake([sys.executable, "-m", "mifit.cli", "mcp"]) == P2_TOOLS
+    info, names = HANDSHAKE.handshake(SERVER)
+    assert names == P2_TOOLS
+    assert (info["name"], info["version"]) == ("mifit", mifit.__version__)
 
 
 def test_handshake_fails_on_a_server_that_exits(capsys):
     assert HANDSHAKE.main([sys.executable, "-c", "pass"]) == 1
     assert capsys.readouterr().err.startswith("error: ")
+
+
+def test_handshake_checks_the_expected_version(capsys):
+    assert HANDSHAKE.main(["--expect-version", mifit.__version__, *SERVER]) == 0
+    assert f"mifit {mifit.__version__}" in capsys.readouterr().out
+    assert HANDSHAKE.main(["--expect-version", "9.9.9", *SERVER]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "9.9.9" in err and mifit.__version__ in err
+
+
+# Answers like an MCP server, but its initialize result has no serverInfo.
+FAKE_SERVER = """\
+import json, sys
+for line in sys.stdin:
+    msg = json.loads(line)
+    if "id" not in msg:
+        continue
+    if msg["id"] == 1:
+        result = {"protocolVersion": "2025-06-18", "capabilities": {}}
+    else:
+        result = {"tools": [{"name": "get_status"}]}
+    print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
+"""
+
+
+def test_handshake_names_a_missing_server_info(capsys):
+    assert HANDSHAKE.main(["--expect-version", "0.3.2", sys.executable, "-c", FAKE_SERVER]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "0.3.2" in err
+
+
+@pytest.mark.parametrize("argv", [[], ["--expect-version"], ["--expect-version", "0.3.2"]])
+def test_handshake_usage_errors(argv, capsys):
+    assert HANDSHAKE.main(argv) == 1
+    assert capsys.readouterr().err.startswith("error: usage")
