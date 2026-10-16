@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -237,7 +238,18 @@ def test_registry_publish_retries_while_pypi_catches_up():
     assert run.index("for attempt in") < run.index("login github-oidc")  # a fresh token per try
 
 
-BASH = shutil.which("bash")
+def _find_bash() -> str | None:
+    """A bash that runs a script as the runner does. On Windows, Git's own: the
+    bash.exe first on PATH may be the WSL launcher, which neither passes the
+    environment on nor runs the script as given."""
+    if sys.platform == "win32" and (git := shutil.which("git")):
+        bash = Path(git).resolve().parents[1] / "bin" / "bash.exe"
+        if bash.is_file():
+            return str(bash)
+    return shutil.which("bash")
+
+
+BASH = _find_bash()
 
 # Stands in for mcp-publisher: logs each call; publish succeeds from call $SUCCEED_ON on.
 FAKE_PUBLISHER = """#!/bin/sh
@@ -251,11 +263,19 @@ exit 0
 
 
 def _bash_works() -> bool:
-    # On Windows, bash.exe may be the WSL launcher, with no Linux inside.
+    # What the test relies on: the script runs as given, and sees the environment.
     if not BASH:
         return False
-    done = subprocess.run([BASH, "-c", "echo ok"], capture_output=True, text=True)
-    return done.stdout == "ok\n"
+    try:
+        done = subprocess.run(
+            [BASH, "-c", 'x=ok; echo "$x $PROBE"'],
+            env={**os.environ, "PROBE": "ok"},
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.stdout == b"ok ok\n"
 
 
 @pytest.mark.skipif(not _bash_works(), reason="needs a working bash")

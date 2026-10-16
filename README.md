@@ -158,7 +158,7 @@ either the extension or the JSON config above, not both.
 | `get_workouts` | workouts | 92 days |
 | `get_heart_rate` | heart-rate samples, in buckets beyond 500 | 7 days |
 | `get_spo2` | blood-oxygen readings, in buckets beyond 500 | 7 days |
-| `get_workout_detail` | one workout's per-second samples (outdoor runs and rides), and its GPS track with `--allow-gps` | one workout, ≤ 500 rows |
+| `get_workout_detail` | one workout's per-second samples (outdoor runs and rides), and its GPS track with `--allow-gps` (the extension: with **Allow GPS tracks** on) | one workout, ≤ 500 rows |
 | `get_profile` | height, weight and daily goals | — |
 | `login_start` | log in by QR code (returns the code) | — |
 | `login_status` | how that login stands | — |

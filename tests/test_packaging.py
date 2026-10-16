@@ -148,6 +148,11 @@ def test_readme_mcp_section():
     assert "**Allow GPS tracks** switch is on" in " ".join(section.split())
 
 
+def test_readme_tools_table_names_the_gps_switch():
+    [row] = [line for line in _readme().splitlines() if line.startswith("| `get_workout_detail` |")]
+    assert "`--allow-gps`" in row and "Allow GPS tracks" in row
+
+
 def test_version_is_0_3_2_with_its_changelog():
     assert _pyproject()["project"]["version"] == "0.3.2"
     release = load_release_tool()
