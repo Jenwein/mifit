@@ -69,7 +69,8 @@ def _serve(*args, messages):
             proc.stdin.flush()
             if "id" in message:
                 replies.append(json.loads(proc.stdout.readline()))
-        proc.stdin.close()
+        # communicate() closes stdin itself (closing it first fails on Python 3.12,
+        # whose communicate() flushes stdin without checking that it is open).
         rest, err = proc.communicate()
     finally:
         watchdog.cancel()

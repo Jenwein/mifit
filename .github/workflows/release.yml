@@ -124,8 +124,7 @@ jobs:
               proc.stdin.flush()
               if "id" in m:
                   replies.append(json.loads(proc.stdout.readline()))
-          proc.stdin.close()
-          rest, err = proc.communicate()
+          rest, err = proc.communicate()  # closes stdin (closing it first fails on Python 3.12)
           assert proc.returncode == 0, err
           assert rest == "", rest
           assert [r["id"] for r in replies] == [1, 2], replies
