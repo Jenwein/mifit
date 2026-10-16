@@ -67,6 +67,17 @@ jobs:
       - name: Tag, pyproject and CHANGELOG agree
         if: github.ref_type == 'tag'
         run: python tools/release.py check-version --tag "$GITHUB_REF_NAME"
+      - name: The MCP Registry accepts server.json
+        # validate asks the registry (schema and semantic checks, no token), so a
+        # server.json it would refuse stops the release before anything is published.
+        # The binary stays outside the build tree.
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum --check
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          cd "$GITHUB_WORKSPACE"
+          $RUNNER_TEMP/mcp-publisher validate server.json
       - name: Install the build tools
         run: python -m pip install build twine
       - name: Build
@@ -238,7 +249,6 @@ jobs:
           curl -sSfL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
           echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum --check
           tar -xzf mcp-publisher.tar.gz mcp-publisher
-          ./mcp-publisher validate registry/server.json
       - name: Publish
         run: |
           # The registry reads the version from PyPI, which can take a moment to list a

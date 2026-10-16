@@ -32,7 +32,7 @@ Checked against the primary sources: the registry repository at tag v1.8.1 and `
   - `repository` requires `url` and `source`.
   - The registry also accepts `registryType: "mcpb"` (GitHub/GitLab release URL + `fileSha256`). This plan does not use it (E-D2).
 - **mcp-publisher.** v1.8.1 (2026-08-06) is still the latest release. The archive `mcp-publisher_linux_amd64.tar.gz` (7.3 MB) has the SHA-256 `a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc`; the Windows one (7.5 MB) has `399ad0d6e00a50812b563a71d8bfbff5160c085e6b13aac6ec083d98d5ff7c45` (`registry_1.8.1_checksums.txt`).
-  - CLI: `mcp-publisher validate [file]` (offline schema and semantic checks), `mcp-publisher login github-oidc` (needs `id-token: write`), `mcp-publisher publish [file]` (default `./server.json`).
+  - CLI: `mcp-publisher validate [file]` (schema and semantic checks; it asks the registry's `/v0/validate` endpoint, so it needs the network but no token, and package ownership is checked only on publish — corrected in the final review), `mcp-publisher login github-oidc` (needs `id-token: write`), `mcp-publisher publish [file]` (default `./server.json`).
   - An outdated binary fails with `invalid audience`, so the pin must be the newest release when it goes in (Task 2 checks).
   - A version the registry already holds cannot be published again. A just-published PyPI version can briefly be missing from PyPI's JSON API; the registry then says "version … was not found … retry".
 - **The owner's case (§13).** `io.github.Jenwein/mifit`, with a capital J.
@@ -62,11 +62,11 @@ Each can be overruled. They are listed here so the reviewer can check them.
   - Later, if a client wants it.
 - **E-D3: the registry job runs no project code.**
   - It downloads `server.json` from the `build` job's artifact; there is no checkout. It downloads the pinned `mcp-publisher` and checks its SHA-256.
-  - Then: `validate`, followed by up to 6 tries of `login github-oidc` + `publish`, 20 s apart. The tries cover PyPI's listing lag; each try gets a fresh token.
+  - Then: up to 6 tries of `login github-oidc` + `publish`, 20 s apart. The tries cover PyPI's listing lag; each try gets a fresh token. (`validate` runs earlier, in the `build` job, before anything is published: final-review fix.)
   - It has no `environment`: the registry's OIDC check ignores it, and an environment without rules protects nothing.
 - **E-D4: no registry dry run.**
   - `workflow_dispatch` (the TestPyPI dry run) never touches the registry: the official registry has no test namespace, and a registered version is final.
-  - `mcp-publisher validate` runs locally in Task 1 and in the job before publishing.
+  - `mcp-publisher validate` runs locally in Task 1, and in the `build` job on every run (the dry run included), before any publish job starts.
 - **E-D5: the GPS switch reaches mifit as an argument, not an environment variable** (#297).
   - `mcp_config.args` ends with `${user_config.allow_gps}`. The entry script turns on `--allow-gps` only for exactly `"true"`; anything else keeps GPS off (fail closed).
   - The default is `false`, so §5.5's two gates still hold: the switch, then the tool's `include_track`.

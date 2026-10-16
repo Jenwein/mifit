@@ -190,9 +190,25 @@ def test_registry_job_runs_a_pinned_checked_publisher_on_the_built_server_json()
     runs = _runs(job)
     assert MCP_PUBLISHER in runs and MCP_PUBLISHER_SHA256 in runs and "sha256sum --check" in runs
     assert "releases/latest" not in runs
-    assert "mcp-publisher validate registry/server.json" in runs
     assert "mcp-publisher login github-oidc" in runs
     assert "mcp-publisher publish registry/server.json" in runs
+    # validate asks the registry over the network; here, after PyPI, a hiccup in it
+    # would fail the job outside the retry loop.
+    assert "validate" not in runs
+
+
+def test_server_json_is_validated_before_anything_is_published():
+    # The registry's own check runs in the build job, which every publish needs,
+    # so a server.json the registry would refuse stops the release before PyPI.
+    [step] = [s for s in _steps(JOBS["build"]) if "mcp-publisher validate" in s.get("run", "")]
+    assert "if" not in step  # also on the TestPyPI dry run
+    run = step["run"]
+    assert MCP_PUBLISHER in run and MCP_PUBLISHER_SHA256 in run and "sha256sum --check" in run
+    assert "$RUNNER_TEMP/mcp-publisher validate server.json" in run  # outside the build tree
+    names = [s.get("name", s.get("uses", "")) for s in _steps(JOBS["build"])]
+    assert names.index(step["name"]) < names.index("Build")  # before any project build code
+    for name in ("publish-pypi", "publish-testpypi", "publish-mcp-registry"):
+        assert "build" in JOBS[name]["needs"], name
 
 
 def test_registry_publish_retries_while_pypi_catches_up():
