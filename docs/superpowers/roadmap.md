@@ -31,7 +31,7 @@
 | T5 | 密码登录备选 | 推迟；扫码登录够用就不做 |
 | R | 发布到 PyPI：打包元数据、`mifit --version`、标签触发的发布流水线（Trusted Publishing）、GitHub Release | ✅ 0.2.0 已发布到 PyPI（2026-10-15，Trusted Publishing，带 PEP 740 证明；GitHub Release `v0.2.0`）；计划 [2026-10-15-mifit-release-pypi](plans/2026-10-15-mifit-release-pypi.md) |
 | P | MCP 服务：`mifit mcp`，本机 stdio、只读，每个已核对的数据域一个工具 | ✅ 0.3.0 已发布到 PyPI（2026-10-16，带 PEP 740 证明；GitHub Release `v0.3.0`）；真机：各日数据工具与 `mifit export` 逐字段一致，`get_calories` 31 天约 42 s；用户在自己 AI 客户端里的核对（设计 §5.12）跳过；计划 [2026-10-15-mifit-mcp-server](plans/2026-10-15-mifit-mcp-server.md) |
-| E | 生态登记：官方 MCP Registry、Claude Desktop 一键安装包（`.mcpb`）、各客户端配置 | ✅ 0.3.1 已发布（2026-10-16，PyPI 带 PEP 740 证明；GitHub Release `v0.3.1` 附 `mifit-0.3.1.mcpb`）；官方 MCP Registry 已登记 `io.github.Jenwein/mifit` 0.3.1（注册表区分大小写，0.3.0 的小写标记无法登记）；`.mcpb`（uv 类型）发布前已在用户的 Claude Desktop 里装过并核对；`uvx mifit@0.3.1 mcp` 应答 16 个工具；计划 [2026-10-16-mifit-ecosystem-registration](plans/2026-10-16-mifit-ecosystem-registration.md) |
+| E | 生态登记：官方 MCP Registry、Claude Desktop 一键安装包（`.mcpb`）、各客户端配置 | ✅ 0.3.1 已发布（2026-10-16，PyPI 带 PEP 740 证明；GitHub Release `v0.3.1` 附 `mifit-0.3.1.mcpb`）；官方 MCP Registry 已登记 `io.github.Jenwein/mifit` 0.3.1（注册表区分大小写，0.3.0 的小写标记无法登记）；`.mcpb`（uv 类型）发布前已在用户的 Claude Desktop 里装过并核对；`uvx mifit@0.3.1 mcp` 应答 16 个工具；计划 [2026-10-16-mifit-ecosystem-registration](plans/2026-10-16-mifit-ecosystem-registration.md)。✅ 0.3.2 已发布（2026-10-16，PyPI、Registry 最新版、GitHub Release 附 `mifit-0.3.2.mcpb`），修掉 E 终审留下的小问题：GPS 提示同时写明扩展的 "Allow GPS tracks" 开关；发布前核对注册名属主、扩展包逐字节等于 `packaging/mcpb/`、扩展包启动的服务器报告正在构建的版本；计划 [2026-10-16-mifit-0.3.2-e-minors](plans/2026-10-16-mifit-0.3.2-e-minors.md) |
 
 主线顺序沿用设计 §4.6/§10：步数 → 睡眠 → 心率 → 运动记录 → 血氧、体重 → FDS 明细 → 其余。唯一的插入是 M2 开头的"日语义统一"（理由见 M2）。
 
