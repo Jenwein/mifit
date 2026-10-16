@@ -55,6 +55,7 @@ def test_jobs():
         "smoke",
         "publish-pypi",
         "publish-testpypi",
+        "mcpb",
         "publish-mcp-registry",
         "github-release",
     }
@@ -80,7 +81,7 @@ def test_publish_jobs_run_no_project_code():
     for name in ("publish-pypi", "publish-testpypi"):
         assert not [u for u in _uses(JOBS[name]) if u.startswith("actions/checkout")], name
         assert "pypa/gh-action-pypi-publish@release/v1" in _uses(JOBS[name]), name
-        assert set(JOBS[name]["needs"]) == {"test", "build", "smoke"}, name
+        assert set(JOBS[name]["needs"]) == {"test", "build", "smoke", "mcpb"}, name
 
 
 def test_pypi_job_runs_on_version_tags_in_the_pypi_environment():
@@ -133,6 +134,29 @@ def test_github_release_follows_the_pypi_publish():
     assert job["permissions"] == {"contents": "write"}
     assert "publish-pypi" in job["needs"] and job["if"] == TAG_PUSH
     assert "tools/release.py notes" in _runs(job) and "gh release create" in _runs(job)
+    assert "mcpb" in job["needs"] and "bundle/*.mcpb" in _runs(job)
+
+
+def test_mcpb_job_packs_checks_and_runs_the_bundle_with_pinned_tools():
+    job = JOBS["mcpb"]
+    assert job["needs"] in ("build", ["build"]) and "if" not in job and "permissions" not in job
+    runs = _runs(job)
+    assert "npx --yes @anthropic-ai/mcpb@2.1.2 pack packaging/mcpb" in runs
+    assert "npx --yes @anthropic-ai/mcpb@2.1.2 validate packaging/mcpb/manifest.json" in runs
+    assert "tools/release.py check-mcpb" in runs
+    assert "tools/mcp_handshake.py uv run" in runs and '--find-links "$PWD/dist"' in runs
+    assert "actions/setup-node@v7" in _uses(job)
+    uploads = [
+        s["with"]["name"]
+        for s in _steps(job)
+        if s.get("uses", "").startswith("actions/upload-artifact")
+    ]
+    assert uploads == ["mcpb"]
+
+
+def test_a_broken_bundle_stops_every_publish():
+    for name in ("publish-pypi", "publish-testpypi"):
+        assert "mcpb" in JOBS[name]["needs"], name
 
 
 MCP_PUBLISHER = (

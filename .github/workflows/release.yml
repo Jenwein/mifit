@@ -1,7 +1,8 @@
 # Release: build mifit, check it, and publish it.
 #
 # - Pushing a tag vX.Y.Z publishes that version to PyPI, then creates the
-#   GitHub Release with the CHANGELOG section and the built files.
+#   GitHub Release with the CHANGELOG section, the built files and the Claude
+#   Desktop bundle (mifit-X.Y.Z.mcpb).
 # - After PyPI, a tag push also publishes server.json to the official MCP
 #   Registry, with the job's OIDC token and no stored secret.
 # - Running the workflow by hand (workflow_dispatch) publishes to TestPyPI
@@ -140,9 +141,48 @@ jobs:
           print("MCP server answered:", len(names), "tools")
           EOF
 
+  mcpb:
+    name: Claude Desktop bundle
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Pack
+        run: |
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate packaging/mcpb/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 pack packaging/mcpb "mifit-$VERSION.mcpb"
+      - name: Check the contents
+        run: python tools/release.py check-mcpb "mifit-$VERSION.mcpb"
+      - name: The bundle starts the server with uv
+        # Against the wheel just built: on a tag, PyPI does not have it yet.
+        run: |
+          python -m pip install uv
+          python -m zipfile -e "mifit-$VERSION.mcpb" bundle
+          python tools/mcp_handshake.py uv run --directory "$PWD/bundle" --find-links "$PWD/dist" src/server.py false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: mifit-*.mcpb
+          if-no-files-found: error
+
   publish-pypi:
     name: Publish to PyPI
-    needs: [test, build, smoke]
+    needs: [test, build, smoke, mcpb]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -160,7 +200,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dry run)
-    needs: [test, build, smoke]
+    needs: [test, build, smoke, mcpb]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -214,7 +254,7 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [build, publish-pypi]
+    needs: [build, publish-pypi, mcpb]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -231,11 +271,15 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: mcpb
+          path: bundle/
       - name: Release notes from the CHANGELOG
         run: python tools/release.py notes "${{ needs.build.outputs.version }}" > notes.md
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "$GITHUB_REF_NAME" dist/*
+          gh release create "$GITHUB_REF_NAME" dist/* bundle/*.mcpb
           --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
