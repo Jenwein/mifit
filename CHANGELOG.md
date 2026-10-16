@@ -5,6 +5,29 @@ All notable changes to mifit are listed here. The format follows
 0.x, a minor version can still change or remove parts of the API; the
 "Breaking" list of each version says what.
 
+## 0.3.2 — 2026-10-16
+
+Small fixes after 0.3.1.
+
+### Fixed
+
+- The GPS refusal and the tool descriptions now also name the Claude Desktop
+  extension's "Allow GPS tracks" switch: an extension user cannot pass
+  `--allow-gps`.
+- The README says how to update the extension: it runs the mifit release it
+  came with, so install the `.mcpb` of the new release.
+
+### Changed
+
+- The release workflow checks more before it publishes:
+  - on a tag, the `server.json` name must be under the repository's owner,
+    spelled exactly as GitHub spells it;
+  - each file of the Claude Desktop bundle must be byte-equal to its source in
+    `packaging/mcpb/`;
+  - the bundle's server must report the version being built (`serverInfo`).
+- `server.json` is uploaded before the build tools run, and the MCP Registry
+  publish no longer waits after its last try.
+
 ## 0.3.1 — 2026-10-16
 
 mifit can now be found and installed in two more ways: the official MCP

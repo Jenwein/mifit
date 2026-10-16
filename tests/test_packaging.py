@@ -148,13 +148,13 @@ def test_readme_mcp_section():
     assert "**Allow GPS tracks** switch is on" in " ".join(section.split())
 
 
-def test_version_is_0_3_1_with_its_changelog():
-    assert _pyproject()["project"]["version"] == "0.3.1"
+def test_version_is_0_3_2_with_its_changelog():
+    assert _pyproject()["project"]["version"] == "0.3.2"
     release = load_release_tool()
     notes = release.changelog_section(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.1"
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.2"
     )
-    for text in ("MCP Registry", "io.github.Jenwein/mifit", ".mcpb", "Allow GPS tracks"):
+    for text in ("Allow GPS tracks", "serverInfo", "server.json"):
         assert text in notes, text
 
 
