@@ -7,8 +7,12 @@ run no project code, and that every checkout drops its credentials.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,6 +110,18 @@ def test_build_job_checks_version_and_dist():
     [check] = [s for s in _steps(JOBS["build"]) if "check-version" in s.get("run", "")]
     assert check["if"] == "github.ref_type == 'tag'"
     assert '--tag "$GITHUB_REF_NAME"' in check["run"]
+    # The registry grants io.github.<owner>/* only to that owner's workflows.
+    assert '--owner "$GITHUB_REPOSITORY_OWNER"' in check["run"]
+    assert "server.json" in check["name"] and "bundle" in check["name"]
+
+
+def test_build_job_uploads_server_json_before_running_anything():
+    # What the registry job publishes is the checked-out file, before any build
+    # tool or project code has run in the workspace.
+    steps = _steps(JOBS["build"])
+    [upload] = [i for i, s in enumerate(steps) if s.get("with", {}).get("name") == "server-json"]
+    first_run = min(i for i, s in enumerate(steps) if "run" in s)
+    assert steps[0]["uses"].startswith("actions/checkout") and upload < first_run
 
 
 def test_smoke_installs_the_built_wheel_on_three_systems_without_checkout():
@@ -144,7 +160,8 @@ def test_mcpb_job_packs_checks_and_runs_the_bundle_with_pinned_tools():
     assert "npx --yes @anthropic-ai/mcpb@2.1.2 pack packaging/mcpb" in runs
     assert "npx --yes @anthropic-ai/mcpb@2.1.2 validate packaging/mcpb/manifest.json" in runs
     assert "tools/release.py check-mcpb" in runs
-    assert "tools/mcp_handshake.py uv run" in runs and '--find-links "$PWD/dist"' in runs
+    assert 'tools/mcp_handshake.py --expect-version "$VERSION" uv run' in runs
+    assert '--find-links "$PWD/dist"' in runs
     assert "actions/setup-node@v7" in _uses(job)
     uploads = [
         s["with"]["name"]
@@ -218,6 +235,51 @@ def test_registry_publish_retries_while_pypi_catches_up():
     run = step["run"]
     assert "for attempt in" in run and "sleep 20" in run
     assert run.index("for attempt in") < run.index("login github-oidc")  # a fresh token per try
+
+
+BASH = shutil.which("bash")
+
+# Stands in for mcp-publisher: logs each call; publish succeeds from call $SUCCEED_ON on.
+FAKE_PUBLISHER = """#!/bin/sh
+echo "$*" >> calls.log
+if [ "$1" = publish ]; then
+  [ "$(grep -c '^publish' calls.log)" -ge "$SUCCEED_ON" ] && exit 0
+  exit 1
+fi
+exit 0
+"""
+
+
+def _bash_works() -> bool:
+    # On Windows, bash.exe may be the WSL launcher, with no Linux inside.
+    if not BASH:
+        return False
+    done = subprocess.run([BASH, "-c", "echo ok"], capture_output=True, text=True)
+    return done.stdout == "ok\n"
+
+
+@pytest.mark.skipif(not _bash_works(), reason="needs a working bash")
+@pytest.mark.parametrize(("succeed_on", "code", "sleeps"), [(3, 0, 2), (6, 0, 5), (99, 1, 5)])
+def test_registry_retry_loop_sleeps_only_between_tries(tmp_path, succeed_on, code, sleeps):
+    [step] = [
+        s for s in _steps(JOBS["publish-mcp-registry"]) if "publish registry/" in s.get("run", "")
+    ]
+    publisher = tmp_path / "mcp-publisher"
+    publisher.write_bytes(FAKE_PUBLISHER.encode("utf-8"))
+    publisher.chmod(0o755)
+    script = 'sleep() { echo "sleep $1" >> calls.log; }\n' + step["run"]
+    # As the runner runs a `shell: bash` step.
+    done = subprocess.run(
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "SUCCEED_ON": str(succeed_on)},
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == code, done.stderr
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+    assert sum(line.startswith("sleep") for line in calls) == sleeps, calls
+    assert sum(line.startswith("publish") for line in calls) == min(succeed_on, 6), calls
 
 
 def test_every_checkout_drops_its_credentials():
