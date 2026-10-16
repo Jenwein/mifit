@@ -1,0 +1,6 @@
+# Left behind by local runs (uv run --directory packaging/mcpb, the tests);
+# tools/release.py check-mcpb catches anything else.
+.venv
+uv.lock
+__pycache__
+*.pyc

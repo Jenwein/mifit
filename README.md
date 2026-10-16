@@ -138,8 +138,9 @@ mifit is also listed in the official
 [latest release](https://github.com/Jenwein/mifit/releases/latest) and open it
 (or install it from Claude Desktop's Settings → Extensions): Claude Desktop
 (Windows, macOS) offers to install the extension. Its settings have an
-**Allow GPS tracks** switch, off by default. Use either the extension or the
-JSON config above, not both.
+**Allow GPS tracks** switch, off by default. The extension runs the mifit
+release it came with: to update, install the `.mcpb` of the new release. Use
+either the extension or the JSON config above, not both.
 
 **Tools.** Each reads one kind of data; dates are local calendar days.
 

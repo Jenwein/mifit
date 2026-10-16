@@ -29,6 +29,8 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Made by `uv run --directory packaging/mcpb`; the bundle ships without one
+packaging/mcpb/uv.lock
 
 # OS / editor
 .DS_Store

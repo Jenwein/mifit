@@ -167,3 +167,5 @@ def test_readme_points_to_the_registry_and_the_bundle():
         "Allow GPS tracks",
     ):
         assert text in section, text
+    # The extension pins its mifit release, so it never updates by itself.
+    assert "to update, install the `.mcpb` of the new release" in " ".join(section.split())

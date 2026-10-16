@@ -119,6 +119,15 @@ def test_entry_runs_mifit_mcp(monkeypatch):
     assert exit_.value.code == 0 and seen == [["mcp"]]
 
 
+def test_local_packing_leaves_out_what_uv_and_tests_leave_behind():
+    # `uv run --directory packaging/mcpb` makes .venv and uv.lock; loading
+    # src/server.py in these tests makes __pycache__. mcpb pack reads .mcpbignore.
+    patterns = (BUNDLE / ".mcpbignore").read_text(encoding="utf-8").splitlines()
+    assert {".venv", "uv.lock", "__pycache__", "*.pyc"} <= set(patterns)
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "packaging/mcpb/uv.lock" in gitignore
+
+
 def test_packaging_folder_is_not_a_python_package():
     # A regular package called "packaging" here could shadow the packaging library.
     assert not list((ROOT / "packaging").rglob("__init__.py"))
