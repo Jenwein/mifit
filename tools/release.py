@@ -1,12 +1,14 @@
 """Release checks for mifit, run by ``.github/workflows/release.yml``.
 
 Standard library only, so the workflow runs it with a bare Python before
-anything is installed. It reads this repository's ``pyproject.toml`` and
-``CHANGELOG.md``. Subcommands:
+anything is installed. It reads this repository's ``pyproject.toml``,
+``CHANGELOG.md``, ``README.md`` and ``server.json``. Subcommands:
 
 - ``version``: print the project version (``[project].version``).
-- ``check-version --tag TAG``: the tag must be ``v<version>`` and the CHANGELOG
-  must have a non-empty ``## <version>`` section. Exit 1 otherwise.
+- ``check-version --tag TAG``: the tag must be ``v<version>``, the CHANGELOG
+  must have a non-empty ``## <version>`` section, ``server.json`` must carry
+  ``<version>`` twice, and the README must declare ``mcp-name: <its name>``.
+  Exit 1 otherwise.
 - ``check-dist DIR``: ``DIR`` must hold exactly this version's sdist and wheel,
   with no private file in either (see ``dist_problems``), and the wheel must
   carry ``py.typed`` and the ``mifit`` console script. Exit 1 otherwise.
@@ -19,6 +21,7 @@ Problems go to stderr as ``error: <message>``, one per line.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tarfile
@@ -35,6 +38,9 @@ PRIVATE_DIRS = frozenset(
 scratch, sessions, credentials and the orchestration ledger (all git-ignored)."""
 
 CONSOLE_SCRIPT = "mifit = mifit.cli:main"
+
+SERVER_JSON_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
+"""The MCP Registry's ``server.json`` schema that ``server.json`` follows."""
 
 
 def project_version(pyproject: Path) -> str:
@@ -69,6 +75,52 @@ def version_problems(tag: str, version: str, changelog: str) -> list[str]:
         problems.append(f"tag {tag} does not match pyproject version {version} (expected v{version})")
     if not changelog_section(changelog, version):
         problems.append(f'CHANGELOG.md has no "## {version}" section (or it is empty)')
+    return problems
+
+
+_SERVER_NAME_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+)
+
+
+def mcp_name_declared(readme: str, name: str) -> bool:
+    """Whether ``readme`` declares ``mcp-name: <name>`` the way the MCP Registry
+    checks it (``containsMCPNameToken``, registry v1.8.1).
+
+    Some occurrence of the token must be followed by the end of the text, a
+    character that cannot continue a server name, or a comment close (``-->`` /
+    ``--!>``). The comparison is case-sensitive, as the registry's is.
+    """
+    token = f"mcp-name: {name}"
+    start = readme.find(token)
+    while start >= 0:
+        rest = readme[start + len(token) :]
+        if not rest or rest[0] not in _SERVER_NAME_CHARS or rest.startswith(("-->", "--!>")):
+            return True
+        start = readme.find(token, start + 1)
+    return False
+
+
+def server_json_problems(server: dict, version: str, readme: str) -> list[str]:
+    """What keeps ``server.json`` (parsed as ``server``) from being published with
+    ``version``; empty when nothing does. ``readme`` is the README PyPI shows."""
+    problems: list[str] = []
+    if server.get("version") != version:
+        problems.append(
+            f"server.json has version {server.get('version')}; expected {version} (pyproject)"
+        )
+    for package in server.get("packages", []):
+        if package.get("version") != version:
+            problems.append(
+                f"server.json package {package.get('identifier')} has version "
+                f"{package.get('version')}; expected {version} (pyproject)"
+            )
+    name = server.get("name", "")
+    if not mcp_name_declared(readme, name):
+        problems.append(
+            f"README.md does not declare `mcp-name: {name}` (the server.json name), "
+            "so the MCP Registry would reject it"
+        )
     return problems
 
 
@@ -143,7 +195,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if args.command == "check-version":
-        return _report(version_problems(args.tag, version, changelog))
+        server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        return _report(
+            version_problems(args.tag, version, changelog)
+            + server_json_problems(server, version, readme)
+        )
     if args.command == "check-dist":
         return _report(dist_problems(args.dist_dir, version))
     section = changelog_section(changelog, args.version)

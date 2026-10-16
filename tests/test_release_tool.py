@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tarfile
 import zipfile
 from pathlib import Path
@@ -171,3 +172,77 @@ def test_main_check_dist_reports_problems_on_stderr(tmp_path, capsys):
     assert release.main(["check-dist", str(dist)]) == 1
     err = capsys.readouterr().err
     assert err.startswith("error: ") and "session.json" in err
+
+
+SERVER = {
+    "name": "io.github.Jenwein/mifit",
+    "version": "0.3.0",
+    "packages": [{"registryType": "pypi", "identifier": "mifit", "version": "0.3.0"}],
+}
+README = "# mifit\n\n<!-- mcp-name: io.github.Jenwein/mifit -->\n"
+
+
+def _repo(root: Path, *, server_version: str = "0.3.0") -> Path:
+    """A minimal repository at ``root`` for ``check-version``: pyproject at 0.3.0,
+    a CHANGELOG with a 0.3.0 section, the README marker and a ``server.json``
+    carrying ``server_version`` in both places."""
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_bytes(b'[project]\nname = "mifit"\nversion = "0.3.0"\n')
+    (root / "CHANGELOG.md").write_bytes(TEXT.encode("utf-8"))
+    (root / "README.md").write_bytes(README.encode("utf-8"))
+    server = {
+        **SERVER,
+        "version": server_version,
+        "packages": [{**SERVER["packages"][0], "version": server_version}],
+    }
+    (root / "server.json").write_bytes(json.dumps(server).encode("utf-8"))
+    return root
+
+
+def test_server_json_problems_empty_when_versions_and_marker_agree():
+    assert release.server_json_problems(SERVER, "0.3.0", README) == []
+
+
+def test_server_json_problems_name_each_stale_version():
+    stale = {
+        **SERVER,
+        "version": "0.2.0",
+        "packages": [{**SERVER["packages"][0], "version": "0.2.0"}],
+    }
+    problems = release.server_json_problems(stale, "0.3.0", README)
+    assert len(problems) == 2
+    assert all("server.json" in p and "0.2.0" in p and "0.3.0" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "readme",
+    [
+        "<!-- mcp-name: io.github.jenwein/mifit -->",  # the owner's case differs
+        "mcp-name: io.github.Jenwein/mifit-pro",  # a longer name
+        "mcp-name: io.github.Jenwein/mifit.",  # glued to a name character
+        "mcp-name:io.github.Jenwein/mifit",  # no space after the colon
+    ],
+)
+def test_server_json_problems_need_the_exact_marker(readme):
+    [problem] = release.server_json_problems(SERVER, "0.3.0", readme)
+    assert "README.md" in problem and "mcp-name: io.github.Jenwein/mifit" in problem
+
+
+@pytest.mark.parametrize(
+    "readme",
+    [
+        "<!-- mcp-name: io.github.Jenwein/mifit-->",  # comment close right after the name
+        "mcp-name: io.github.Jenwein/mifit",  # end of text
+        "x mcp-name: io.github.Jenwein/mifit-pro\nmcp-name: io.github.Jenwein/mifit\n",
+    ],
+)
+def test_mcp_name_declared_accepts_the_registry_boundaries(readme):
+    assert release.mcp_name_declared(readme, "io.github.Jenwein/mifit")
+
+
+def test_main_check_version_names_a_stale_server_json(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(release, "ROOT", _repo(tmp_path / "stale", server_version="0.2.0"))
+    assert release.main(["check-version", "--tag", "v0.3.0"]) == 1
+    assert "server.json" in capsys.readouterr().err
+    monkeypatch.setattr(release, "ROOT", _repo(tmp_path / "ok"))
+    assert release.main(["check-version", "--tag", "v0.3.0"]) == 0

@@ -3,7 +3,7 @@
 [![CI](https://github.com/Jenwein/mifit/actions/workflows/ci.yml/badge.svg)](https://github.com/Jenwein/mifit/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/mifit)](https://pypi.org/project/mifit/)
 
-<!-- mcp-name: io.github.jenwein/mifit -->
+<!-- mcp-name: io.github.Jenwein/mifit -->
 
 Read your own Mi Fitness (小米运动健康) data from the Xiaomi cloud: a small
 Python library, a command-line tool and an MCP server for AI assistants.

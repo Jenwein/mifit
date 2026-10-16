@@ -116,12 +116,14 @@ def test_changelog_0_2_0_lists_the_packaging():
     assert "### Packaging" in section and "uv tool install mifit" in section
 
 
-# The MCP Registry checks this comment in the README of the PyPI version it lists.
-MCP_NAME_MARKER = "<!-- mcp-name: io.github.jenwein/mifit -->"
+# The MCP Registry checks this comment in the README of the PyPI version it lists,
+# case-sensitively: the owner is spelled as on GitHub.
+MCP_NAME_MARKER = "<!-- mcp-name: io.github.Jenwein/mifit -->"
 
 
 def test_readme_carries_the_mcp_registry_marker():
     assert _readme().count(MCP_NAME_MARKER) == 1
+    assert "io.github.jenwein" not in _readme()
 
 
 def test_readme_mcp_section():
