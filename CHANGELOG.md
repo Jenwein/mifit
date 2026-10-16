@@ -5,7 +5,7 @@ All notable changes to mifit are listed here. The format follows
 0.x, a minor version can still change or remove parts of the API; the
 "Breaking" list of each version says what.
 
-## 0.3.0 — 2026-10-15
+## 0.3.0 — 2026-10-16
 
 mifit now serves your data to AI assistants: `mifit mcp` is a Model Context
 Protocol server that runs on your own computer.
