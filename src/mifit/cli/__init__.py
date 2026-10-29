@@ -12,8 +12,9 @@ own eyes. ``raw`` reads one key of the fitness-data endpoint, any key, and write
 rows as the service sent them, with ``value`` decoded (``records`` is empty; see
 ``notes/domain-catalog.md``); ``--daily`` reads the key's daily report instead. It is
 one paged read, never chunked and without ``--resume``. ``mcp`` serves the data to AI
-assistants as a read-only MCP server on stdin/stdout (``mifit.mcp_server``); GPS tracks
-need ``--allow-gps``. ``mifit --version`` prints the installed version
+assistants as a read-only MCP server on stdin/stdout (``mifit.mcp_server``), or with
+``--transport http`` on streamable HTTP for clients on other machines; GPS tracks need
+``--allow-gps``. ``mifit --version`` prints the installed version
 (``mifit.__version__``).
 
 A range longer than one chunk (``mifit.chunks``: a week for raw heart rate, SpO2 and
@@ -42,6 +43,7 @@ import argparse
 import contextlib
 import io
 import json
+import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -72,6 +74,7 @@ from mifit.domains.base import REGISTRY, DomainResult
 from mifit.domains.days import parse_day
 from mifit.errors import AuthError, MiFitError, NotificationRequiredError
 from mifit.jsonsafe import json_ready
+from mifit.mcp_server import HTTP_HOST, HTTP_PATH, HTTP_PORT  # these names load no SDK
 
 __all__ = ["main"]
 
@@ -540,11 +543,59 @@ def _cmd_raw(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+# A Host header value: a name or IPv4 address, or an IPv6 address in brackets, with an
+# optional port or ``*`` (any port), as the SDK compares it.
+_HOST_HEADER = re.compile(r"(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(?::(?:[0-9]{1,5}|\*))?")
+
+# The ``mcp`` options that only the HTTP server uses, with their ``args`` names.
+_HTTP_OPTIONS = (
+    ("--host", "host"),
+    ("--port", "port"),
+    ("--path", "path"),
+    ("--allowed-host", "allowed_hosts"),
+)
+
+
+def _mcp_usage_error(args: argparse.Namespace) -> str | None:
+    """Why these ``mcp`` arguments are refused before the server starts, or ``None``."""
+    if args.transport != "http":
+        given = [flag for flag, name in _HTTP_OPTIONS if getattr(args, name) not in (None, [])]
+        if given:
+            verb = "applies" if len(given) == 1 else "apply"
+            return f"mcp: {', '.join(given)} {verb} only with --transport http"
+        return None
+    if args.host is not None and not args.host.strip():
+        return "mcp: --host must not be empty"
+    if args.port is not None and not 1 <= args.port <= 65535:
+        return "mcp: --port must be between 1 and 65535"
+    if args.path is not None and not args.path.startswith("/"):
+        return "mcp: --path must start with / (such as /mcp)"
+    for value in args.allowed_hosts:
+        if not _HOST_HEADER.fullmatch(value):
+            return (
+                "mcp: --allowed-host takes a Host header value, a name or address with "
+                f"an optional port, such as mifit.ts.internal:8766 (got {value!r})"
+            )
+    return None
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     # Imported here, so the other commands never load the MCP SDK.
     from mifit import mcp_server
 
-    mcp_server.run(allow_gps=args.allow_gps)
+    if args.transport == "http":
+        host = args.host if args.host is not None else HTTP_HOST
+        if host.startswith("[") and host.endswith("]"):  # an IPv6 address as URLs write it
+            host = host[1:-1]
+        mcp_server.run_http(
+            allow_gps=args.allow_gps,
+            host=host,
+            port=args.port if args.port is not None else HTTP_PORT,
+            path=args.path if args.path is not None else HTTP_PATH,
+            allowed_hosts=tuple(args.allowed_hosts),
+        )
+    else:
+        mcp_server.run(allow_gps=args.allow_gps)
     return _EXIT_OK
 
 
@@ -681,6 +732,42 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="let get_workout_detail return GPS tracks when asked (they show where you were)",
     )
+    mcp.add_argument(
+        "--transport",
+        choices=("stdio", "http"),
+        default="stdio",
+        help=(
+            "stdio (default): the AI client starts the server on this computer; http: a "
+            "long-running server on streamable HTTP for clients on other machines, with "
+            "no authentication"
+        ),
+    )
+    mcp.add_argument(
+        "--host",
+        metavar="ADDRESS",
+        help=(
+            f"http only: the address to listen on (default {HTTP_HOST}); any other "
+            "address must be on a private network, since anyone who reaches it can read "
+            "your data"
+        ),
+    )
+    mcp.add_argument(
+        "--port", type=int, metavar="PORT", help=f"http only: the port (default {HTTP_PORT})"
+    )
+    mcp.add_argument(
+        "--path", metavar="PATH", help=f"http only: the endpoint path (default {HTTP_PATH})"
+    )
+    mcp.add_argument(
+        "--allowed-host",
+        dest="allowed_hosts",
+        action="append",
+        default=[],
+        metavar="HOST[:PORT]",
+        help=(
+            "http only: also accept requests whose Host header is this, such as "
+            "mifit.ts.internal:8766 (NAME:* for any port); repeat for more names"
+        ),
+    )
     mcp.set_defaults(handler=_cmd_mcp)
     return parser
 
@@ -697,6 +784,7 @@ def _add_json_option(command: argparse.ArgumentParser) -> None:
 # Commands whose arguments are checked after parsing, before anything is read.
 _USAGE_CHECKS: dict[str, Callable[[argparse.Namespace], str | None]] = {
     "export": _export_usage_error,
+    "mcp": _mcp_usage_error,
     "raw": _raw_usage_error,
 }
 
