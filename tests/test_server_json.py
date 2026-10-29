@@ -11,6 +11,7 @@ import json
 import tomllib
 from pathlib import Path
 
+from mifit import mcp_server
 from support import load_release_tool
 
 release = load_release_tool()
@@ -44,16 +45,37 @@ def test_server_json_fields():
     }
     assert 1 <= len(SERVER["description"]) <= 100 and 1 <= len(SERVER["title"]) <= 100
     assert SERVER["repository"] == {"url": "https://github.com/Jenwein/mifit", "source": "github"}
-    assert SERVER["packages"] == [
-        {
-            "registryType": "pypi",
-            "identifier": "mifit",
-            "version": SERVER["version"],
-            "runtimeHint": "uvx",
-            "transport": {"type": "stdio"},
-            "packageArguments": [{"type": "positional", "value": "mcp"}],
-        }
-    ]
+    stdio, http = SERVER["packages"]
+    assert stdio == {
+        "registryType": "pypi",
+        "identifier": "mifit",
+        "version": SERVER["version"],
+        "runtimeHint": "uvx",
+        "transport": {"type": "stdio"},
+        "packageArguments": [{"type": "positional", "value": "mcp"}],
+    }
+    assert {key: http[key] for key in ("registryType", "identifier", "version", "runtimeHint")} == {
+        "registryType": "pypi",
+        "identifier": "mifit",
+        "version": SERVER["version"],
+        "runtimeHint": "uvx",
+    }
+
+
+def test_http_package_runs_the_http_server_with_its_defaults():
+    # A client that installs this package starts `mifit mcp --transport http` itself
+    # and connects to it on loopback: the URL must be the one the server listens on.
+    [http] = [p for p in SERVER["packages"] if p["transport"]["type"] != "stdio"]
+    assert http["transport"] == {
+        "type": "streamable-http",
+        "url": f"http://{mcp_server.HTTP_HOST}:{{--port}}{mcp_server.HTTP_PATH}",
+    }
+    positional, transport, port = http["packageArguments"]
+    assert positional == {"type": "positional", "value": "mcp"}
+    assert transport == {"type": "named", "name": "--transport", "value": "http"}
+    assert port["type"] == "named" and port["name"] == "--port"
+    assert port["default"] == str(mcp_server.HTTP_PORT) and port["format"] == "number"
+    assert "value" not in port  # the client may choose another port
 
 
 def test_server_json_never_turns_on_gps():

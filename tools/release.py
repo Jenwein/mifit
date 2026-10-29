@@ -8,8 +8,8 @@ sources in ``packaging/mcpb/``. Subcommands:
 - ``version``: print the project version (``[project].version``).
 - ``check-version --tag TAG [--owner OWNER]``: the tag must be ``v<version>``,
   the CHANGELOG must have a non-empty ``## <version>`` section, ``server.json``
-  must carry ``<version>`` twice, the README must declare ``mcp-name: <its
-  name>``, and the bundle's manifest and pyproject must carry ``<version>`` and
+  must carry ``<version>`` as its own and each package's version, the README must
+  declare ``mcp-name: <its name>``, and the bundle's manifest and pyproject must carry ``<version>`` and
   pin ``mifit==<version>``. With ``--owner`` (the workflow passes
   ``$GITHUB_REPOSITORY_OWNER``), the ``server.json`` name must also start with
   ``io.github.<OWNER>/``. Exit 1 otherwise.
@@ -273,8 +273,8 @@ def main(argv: list[str] | None = None) -> int:
         help="the tag and every version place agree; with --owner, the registry name too",
         description=(
             "The tag is v<version> (pyproject.toml); CHANGELOG.md has that version's "
-            "section; server.json carries the version twice and the README marker names "
-            "it; packaging/mcpb (manifest.json, pyproject.toml) carries the version and "
+            "section; server.json carries the version (its own and each package's) and the "
+            "README marker names it; packaging/mcpb (manifest.json, pyproject.toml) carries the version and "
             "pins mifit==<version>. With --owner, the server.json name is under "
             "io.github.<OWNER>/."
         ),

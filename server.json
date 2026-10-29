@@ -3,16 +3,34 @@
   "name": "io.github.Jenwein/mifit",
   "title": "mifit",
   "description": "Read-only access to your own Mi Fitness (Xiaomi) data: sleep, heart rate, steps, workouts",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "repository": {"url": "https://github.com/Jenwein/mifit", "source": "github"},
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mifit",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "runtimeHint": "uvx",
       "transport": {"type": "stdio"},
       "packageArguments": [{"type": "positional", "value": "mcp"}]
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "mifit",
+      "version": "0.4.0",
+      "runtimeHint": "uvx",
+      "transport": {"type": "streamable-http", "url": "http://127.0.0.1:{--port}/mcp"},
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"},
+        {"type": "named", "name": "--transport", "value": "http"},
+        {
+          "type": "named",
+          "name": "--port",
+          "default": "8766",
+          "format": "number",
+          "description": "The port the server listens on, on 127.0.0.1"
+        }
+      ]
     }
   ]
 }
