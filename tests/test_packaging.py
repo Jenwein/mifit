@@ -153,14 +153,30 @@ def test_readme_tools_table_names_the_gps_switch():
     assert "`--allow-gps`" in row and "Allow GPS tracks" in row
 
 
-def test_version_is_0_3_2_with_its_changelog():
-    assert _pyproject()["project"]["version"] == "0.3.2"
+def test_version_is_0_4_0_with_its_changelog():
+    assert _pyproject()["project"]["version"] == "0.4.0"
     release = load_release_tool()
     notes = release.changelog_section(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.3.2"
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.4.0"
     )
-    for text in ("Allow GPS tracks", "serverInfo", "server.json"):
+    notes = " ".join(notes.split())  # the CHANGELOG is hard-wrapped
+    for text in ("--transport http", "--allowed-host", "no authentication", "server.json"):
         assert text in notes, text
+
+
+def test_readme_remote_access_section():
+    section = " ".join(_section(_readme(), "Use with an AI assistant (MCP)").split())
+    for text in (
+        "mifit mcp --transport http --host",
+        "--allowed-host mifit.ts.internal:8766",
+        "claude mcp add --scope user --transport http mifit http://mifit.ts.internal:8766/mcp",
+        "codex mcp add mifit --url http://mifit.ts.internal:8766/mcp",
+        "no authentication",
+        "whole Xiaomi account",
+        "HTTP 421",
+        "systemctl --user enable --now mifit",
+    ):
+        assert text in section, text
 
 
 def test_readme_points_to_the_registry_and_the_bundle():

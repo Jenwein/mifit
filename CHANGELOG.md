@@ -5,6 +5,37 @@ All notable changes to mifit are listed here. The format follows
 0.x, a minor version can still change or remove parts of the API; the
 "Breaking" list of each version says what.
 
+## 0.4.0 — 2026-10-29
+
+`mifit mcp` can now also run as a service for AI assistants on other machines.
+`mifit mcp` without options is the stdio server of 0.3.2, unchanged.
+
+### Added
+
+- `mifit mcp --transport http`: the MCP server on streamable HTTP, served by the
+  MCP SDK's own transport. `--host` (default `127.0.0.1`), `--port` (default
+  `8766`) and `--path` (default `/mcp`) say where. The HTTP server has no
+  authentication; when it listens beyond loopback, it prints a warning on
+  stderr.
+- `--allowed-host HOST[:PORT]`, repeatable: a `Host` header the HTTP server
+  accepts besides the ones it knows: `127.0.0.1`, `localhost` and `[::1]` when
+  it listens on loopback or on every interface, its `--host` address with the
+  port otherwise. Requests with any other `Host` header get HTTP 421: the SDK's
+  DNS rebinding protection is always on.
+- On the HTTP server, dates and local times are counted in the server's time
+  zone, as on stdio they are in the user's computer's.
+- On the HTTP server, `login_start` and `login_status` serve a client on
+  another machine. The QR code comes in the tool result only, nothing is opened
+  on the server, and the session is saved in the server's `~/.mifit`. The tool
+  descriptions, the login messages and `get_status` say the login is kept on
+  the server. A security confirmation is left to `mifit login` in a terminal on
+  the server.
+- `server.json` lists a second way to run the PyPI package for the MCP
+  Registry: `mifit mcp --transport http`, at `http://127.0.0.1:{--port}/mcp`.
+- The README's "Remote access (HTTP)" section: running the server on a tailnet,
+  adding it to Claude Code and Codex, a systemd user service, and what an
+  unauthenticated server exposes.
+
 ## 0.3.2 — 2026-10-16
 
 Small fixes after 0.3.1.

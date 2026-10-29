@@ -95,7 +95,9 @@ only reads your health data (the login tools save the new session to
 `~/.mifit`). GPS tracks are off: the server gives a workout's route only when it
 was started with `--allow-gps` (in the Claude Desktop extension: when its
 **Allow GPS tracks** switch is on) *and* the assistant asks for it, and a route
-shows where you were, including where you live.
+shows where you were, including where you live. (To serve assistants on other
+machines instead, see [Remote access (HTTP)](https://github.com/Jenwein/mifit#remote-access-http):
+that server does open a port.)
 
 **Log in once**, in a terminal:
 
@@ -170,6 +172,87 @@ five minutes, so asking again sends no new requests.
 
 Ask in your own words; the assistant picks the tools. For example: "Did my
 resting heart rate go up this month?"
+
+### Remote access (HTTP)
+
+`mifit mcp --transport http` runs the same server as a long-running service on
+[streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http),
+so assistants on other machines can use it. Run it on the machine that keeps
+the login, such as a home server on your Tailscale or Headscale tailnet:
+
+```bash
+uv tool install mifit
+mifit login    # once, on the server: the session is saved in the server's ~/.mifit
+mifit mcp --transport http --host 100.64.0.5 --port 8766 --allowed-host mifit.ts.internal:8766
+```
+
+- `--host ADDRESS`: the address to listen on. The default, `127.0.0.1`, serves
+  this machine only; give the server's tailnet address to serve the tailnet.
+  `0.0.0.0` listens on every interface.
+- `--port PORT`: default `8766`. `--path PATH`: the endpoint, default `/mcp`.
+- `--allowed-host HOST[:PORT]`: a `Host` header to accept. The server answers
+  only requests whose `Host` header it knows, and refuses the others with HTTP
+  421 (the MCP SDK's DNS rebinding protection, always on). It knows `127.0.0.1`,
+  `localhost` and `[::1]` (any port) when it listens on loopback or on every
+  interface, and its `--host` address with the port otherwise. Add each name the
+  clients connect by, as they send it: `mifit.ts.internal:8766`, or
+  `mifit.ts.internal:*` for any port. Repeat the option for more names.
+- `--allow-gps` works as it does on stdio.
+
+Dates and local times are counted in the server's time zone. If it is not
+yours, start the server with yours, such as `TZ=Asia/Shanghai` (in the systemd
+unit below, its `Environment=` line).
+
+At startup the server prints its URL and the `Host` headers it accepts on
+standard error. Then add it to each assistant by its URL:
+
+```bash
+claude mcp add --scope user --transport http mifit http://mifit.ts.internal:8766/mcp
+codex mcp add mifit --url http://mifit.ts.internal:8766/mcp
+```
+
+Other clients take the URL as a streamable HTTP (`http`) server. To log in
+without a terminal on the server, ask the assistant: `login_start` returns the
+QR code in the tool result, nothing opens on the server's screen, and the
+session is saved on the server. If Xiaomi asks for a security confirmation,
+run `mifit login` in a terminal on the server (over SSH, say) and follow it.
+
+**Security.** The HTTP server has no authentication. Anyone who can reach its
+port can read your Mi Fitness data through it, and can start a login that
+replaces yours. The session file on the server grants access to your whole
+Xiaomi account, not just Mi Fitness (see
+[Log in](https://github.com/Jenwein/mifit#log-in)). So keep the server on a
+private network: listen on the tailnet address only, never forward the port to
+the internet, and use your tailnet's access rules to limit which machines reach
+it. The server prints a warning on standard error when it listens beyond
+loopback. Requests are plain HTTP: on a tailnet, WireGuard encrypts them between
+machines.
+
+To keep it running, use a systemd user service, here with the `mifit` of
+`uv tool install`:
+
+```ini
+# ~/.config/systemd/user/mifit.service
+[Unit]
+Description=mifit MCP server (streamable HTTP)
+
+[Service]
+ExecStart=%h/.local/bin/mifit mcp --transport http --host 100.64.0.5 --port 8766 --allowed-host mifit.ts.internal:8766
+# The time zone the dates are counted in, when the server's own is not yours.
+#Environment=TZ=Asia/Shanghai
+# Retries until the tailnet address exists after a boot.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mifit
+loginctl enable-linger "$USER"   # keep user services running while you are logged out
+```
 
 ## Export
 
