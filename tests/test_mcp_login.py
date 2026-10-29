@@ -39,13 +39,21 @@ CONFIRM_UNOPENED = (
 )
 IDLE = "No login in progress. Call login_start to log in."
 UNOPENED_REMARK = " (The QR image could not be opened on this computer.)"
+REMOTE_SUCCEEDED = (
+    "Logged in. The session is saved on the server mifit runs on; the data tools work now."
+)
+REMOTE_CONFIRM = (
+    "Xiaomi asks for a security confirmation, which this server cannot show. Run "
+    "`mifit login` in a terminal on the server mifit runs on (over SSH, for example) and "
+    "follow it; then the data tools work."
+)
 
 
 class Harness:
     """A ``LoginFlow`` on fakes, recording what it did."""
 
     def __init__(self, tmp_path, *, poll_error=None, request_error=None, save_error=None,
-                 opener_result=True, request_delay=0.0):
+                 opener_result=True, request_delay=0.0, remote=False):
         self.poll_error = poll_error
         self.request_error = request_error
         self.save_error = save_error
@@ -62,6 +70,7 @@ class Harness:
         self.qr_path = tmp_path / "mifit-home" / LOGIN_QR_FILE_NAME
         self.flow = LoginFlow(
             on_success=lambda: self.switched.append(True),
+            remote=remote,
             qr_path=self.qr_path,
             opener=self.open,
             spawn=self.jobs.append,
@@ -278,3 +287,44 @@ def test_qr_file_that_cannot_be_written_only_adds_a_remark(tmp_path):
     view = h.flow.start()
     assert view.status == "pending" and view.message.endswith(UNOPENED_REMARK)
     assert h.opened == []
+
+
+# --- the HTTP server's login (remote=True) ------------------------------------
+
+
+def test_remote_start_returns_the_qr_and_opens_nothing(tmp_path):
+    h = Harness(tmp_path, remote=True)
+    view = h.flow.start()
+    assert view.status == "pending" and view.message == PENDING  # no "could not open"
+    assert view.login_url == LOGIN_URL and view.png.startswith(b"\x89PNG")
+    assert h.opened == [] and not h.qr_path.exists()
+    assert len(h.jobs) == 1
+    _no_long_poll_url(view)
+
+
+def test_remote_success_says_the_session_is_on_the_server(tmp_path):
+    h = Harness(tmp_path, remote=True)
+    h.flow.start()
+    assert h.finish() == LoginView("succeeded", REMOTE_SUCCEEDED)
+    assert h.saved == [SESSION] and h.recorded == [("login", SESSION)]
+    assert h.switched == [True] and h.opened == []
+
+
+def test_remote_confirmation_points_to_the_terminal_and_hides_the_url(tmp_path):
+    h = Harness(tmp_path, remote=True, poll_error=NotificationRequiredError(NOTE_URL))
+    h.flow.start()
+    view = h.finish()
+    assert view == LoginView("confirmation_required", REMOTE_CONFIRM)
+    assert h.opened == []  # nothing opens on the server
+    assert "SYNTH-NOTE-SECRET" not in repr(view)
+    assert h.saved == [] and h.switched == []
+
+
+def test_remote_login_leaves_a_local_qr_file_alone(tmp_path):
+    # The file belongs to a stdio server on the same machine, if any.
+    h = Harness(tmp_path, remote=True)
+    h.qr_path.parent.mkdir(parents=True)
+    h.qr_path.write_bytes(b"another server's code")
+    h.flow.start()
+    h.finish()
+    assert h.qr_path.read_bytes() == b"another server's code"

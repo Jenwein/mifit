@@ -10,7 +10,8 @@ may have run ``mifit login`` in a terminal meanwhile, or another process renewed
 Only a session that differs from the one in use is tried; the same session would
 only be refused again, after one more renewal attempt.
 
-Read errors become ``ToolFailure``s with safe messages (``errors.failure_for``).
+Read errors become ``ToolFailure``s with safe messages (``errors.failure_for``); those
+about the session end with the login advice the server was given.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from mifit.errors import AuthError
-from mifit.mcp_server.errors import NOT_LOGGED_IN, ToolFailure, failure_for
+from mifit.mcp_server.errors import LOGIN_ADVICE, ToolFailure, failure_for, not_logged_in
 
 __all__ = ["Access"]
 
@@ -29,10 +30,12 @@ T = TypeVar("T")
 
 class Access:
     """The server's client. ``factory`` opens one from the stored session (``MiFit``)
-    and raises ``AuthError`` when there is none it can use."""
+    and raises ``AuthError`` when there is none it can use; ``advice`` ends the
+    messages about the session (``errors.LOGIN_ADVICE`` by default)."""
 
-    def __init__(self, factory: Callable[[], Any]) -> None:
+    def __init__(self, factory: Callable[[], Any], *, advice: str = LOGIN_ADVICE) -> None:
         self._factory = factory
+        self._advice = advice
         self._client: Any = None
         self._lock = threading.Lock()
 
@@ -50,7 +53,7 @@ class Access:
             except AuthError as exc:
                 failure = self._after_refusal(client, exc)
             except Exception as exc:
-                failure = failure_for(exc)
+                failure = failure_for(exc, advice=self._advice)
                 if failure is None:
                     raise
             # Raised (or retried) here, outside the ``except`` blocks, so that a
@@ -74,7 +77,7 @@ class Access:
         else:
             missing = False
         if missing:
-            raise ToolFailure(NOT_LOGGED_IN)
+            raise ToolFailure(not_logged_in(self._advice))
         return self._client
 
     def _after_refusal(self, client: Any, refusal: AuthError) -> ToolFailure | None:
@@ -84,10 +87,10 @@ class Access:
             fresh = self._factory()
         except AuthError:
             self._client = None
-            return ToolFailure(NOT_LOGGED_IN)
+            return ToolFailure(not_logged_in(self._advice))
         if fresh.session.service_token == client.session.service_token:
             self._client = client
-            return failure_for(refusal)
+            return failure_for(refusal, advice=self._advice)
         self._client = fresh
         return None
 
@@ -97,7 +100,7 @@ class Access:
         try:
             return fn(self._client)
         except Exception as exc:
-            failure = failure_for(exc)
+            failure = failure_for(exc, advice=self._advice)
             if failure is None:
                 raise
         raise failure

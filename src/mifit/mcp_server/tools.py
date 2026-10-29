@@ -6,6 +6,8 @@ server (``server.py``) builds them from ``DATA_TOOLS``, so every tool of a kind 
 the same parameters and answers the same way. The descriptions give every output
 field with its meaning and unit, worded as the B-layer models word them, the limit
 per call and the known limitations: they are all the AI client knows about the data.
+The login tools have a second wording for the HTTP server (``REMOTE_*``): its login
+is saved on the server, and nothing is opened where the user sits.
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ __all__ = [
     "LOGIN_START_DESCRIPTION",
     "LOGIN_STATUS_DESCRIPTION",
     "PROFILE_DESCRIPTION",
+    "REMOTE_LOGIN_START_DESCRIPTION",
+    "REMOTE_LOGIN_STATUS_DESCRIPTION",
     "SERIES_MAX_DAYS",
     "SLEEP_STAGES_MAX_DAYS",
     "START_DATE_DOC",
@@ -293,21 +297,51 @@ STATUS_DESCRIPTION = (
     "version. Reads nothing from the cloud."
 )
 
-LOGIN_START_DESCRIPTION = (
-    "Log the user in to Mi Fitness by QR code, on this computer. Only needed when "
-    "get_status says the user is not logged in, or a tool says the session expired. "
+_LOGIN_WHEN = (
+    "Only needed when get_status says the user is not logged in, or a tool says the "
+    "session expired. "
+)
+_LOGIN_QR = (
     "Returns the QR code as an image and its login_url: the user scans the code with "
     "the Xiaomi or Mi Fitness app and approves the login (or opens login_url on a phone "
-    "signed in to the Xiaomi account). The QR image is also opened on this computer. "
+    "signed in to the Xiaomi account). "
+)
+_LOGIN_THEN = (
     "Then call login_status. A second call while a login is waiting returns the same "
     "code."
 )
 
-LOGIN_STATUS_DESCRIPTION = (
-    "How the QR login started by login_start stands: pending (waiting for the user to "
-    "approve), succeeded (the data tools work now), failed, confirmation_required "
-    "(Xiaomi wants a security confirmation; a page was opened on this computer) or "
-    "expired (call login_start again)."
+LOGIN_START_DESCRIPTION = (
+    "Log the user in to Mi Fitness by QR code, on this computer. "
+    + _LOGIN_WHEN
+    + _LOGIN_QR
+    + "The QR image is also opened on this computer. "
+    + _LOGIN_THEN
+)
+
+REMOTE_LOGIN_START_DESCRIPTION = (
+    "Log the user in to Mi Fitness by QR code, on the server mifit runs on: the session "
+    "is saved there, not on the user's computer. "
+    + _LOGIN_WHEN
+    + _LOGIN_QR
+    + "Nothing opens on the user's screen by itself: show them the QR image or "
+    "login_url. "
+    + _LOGIN_THEN
+)
+
+
+def _login_status(confirmation: str) -> str:
+    return (
+        "How the QR login started by login_start stands: pending (waiting for the user to "
+        "approve), succeeded (the data tools work now), failed, confirmation_required "
+        f"(Xiaomi wants a security confirmation; {confirmation}) or expired (call "
+        "login_start again)."
+    )
+
+
+LOGIN_STATUS_DESCRIPTION = _login_status("a page was opened on this computer")
+REMOTE_LOGIN_STATUS_DESCRIPTION = _login_status(
+    "the message says how to give it on the server"
 )
 
 PROFILE_DESCRIPTION = (

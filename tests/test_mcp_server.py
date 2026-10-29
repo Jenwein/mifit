@@ -70,7 +70,9 @@ class CountingFactory:
         return self.outcome
 
 
-def build(fake, *, allow_gps=False, factory=None, clock=None, loader=None, login=None):
+def build(
+    fake, *, allow_gps=False, factory=None, clock=None, loader=None, login=None, remote=False
+):
     """A server on ``fake``; its login is ``login`` (a ``login_factory``), or a
     ``FakeLogin``, so no test starts a real login."""
     return build_server(
@@ -81,6 +83,7 @@ def build(fake, *, allow_gps=False, factory=None, clock=None, loader=None, login
         clock=clock if clock is not None else Clock(),
         session_loader=loader if loader is not None else (lambda: fake.session),
         login_factory=login if login is not None else (lambda on_success: FakeLogin()),
+        remote=remote,
     )
 
 
@@ -617,3 +620,52 @@ def test_login_tools_hide_the_long_poll_and_confirmation_urls(tmp_path, fake):
     assert account.opened[-1] == account.NOTE_URL  # opened here, never sent
     for text in texts:
         assert "SYNTH-LP-SECRET" not in text and "SYNTH-NOTE-SECRET" not in text
+
+
+# --- the HTTP server's wording (remote=True) ----------------------------------
+
+
+def test_remote_server_lists_the_same_tools_with_its_login_wording(fake):
+    local = {t.name: t for t in list_tools(build(fake))}
+    remote = {t.name: t for t in list_tools(build(fake, remote=True))}
+    assert set(remote) == set(local) == P2_TOOLS
+    assert remote["login_start"].description == tools.REMOTE_LOGIN_START_DESCRIPTION
+    assert remote["login_status"].description == tools.REMOTE_LOGIN_STATUS_DESCRIPTION
+    for name in set(local) - {"login_start", "login_status"}:
+        assert remote[name].description == local[name].description, name
+    start = remote["login_start"].description
+    assert "on the server mifit runs on" in start and "on this computer" not in start
+    assert "on this computer" not in remote["login_status"].description
+
+
+def test_remote_get_status_says_the_login_is_on_the_server(fake):
+    data = payload(call_tool(build(fake, remote=True), "get_status"))
+    assert data["privacy"] == server_module.REMOTE_PRIVACY_NOTE
+    assert "stays on the server mifit runs on" in data["privacy"]
+    data = payload(call_tool(build(fake, loader=lambda: None, remote=True), "get_status"))
+    assert data["next_step"] == errors.not_logged_in(errors.REMOTE_LOGIN_ADVICE)
+
+
+def test_remote_read_errors_give_the_server_login_advice(fake):
+    missing = build(fake, factory=CountingFactory(AuthError("No valid session.")), remote=True)
+    assert text_of(call_tool(missing, "get_steps", ONE_DAY)).endswith(
+        errors.not_logged_in(errors.REMOTE_LOGIN_ADVICE)
+    )
+    fake.fail["steps"] = RenewalError("Renewal failed.")
+    refused = build(fake, remote=True)
+    text = text_of(call_tool(refused, "get_steps", ONE_DAY))
+    assert text.endswith(errors.REMOTE_LOGIN_ADVICE) and "mifit login` in a terminal or" not in text
+
+
+@pytest.mark.parametrize("remote", [False, True])
+def test_the_default_login_is_remote_on_the_http_server(monkeypatch, fake, remote):
+    made = []
+
+    def flow(**kwargs):
+        made.append(kwargs)
+        return FakeLogin()
+
+    monkeypatch.setattr(server_module, "LoginFlow", flow)
+    build_server(lambda: fake, tz=CST, now=lambda: NOW, remote=remote)
+    [kwargs] = made
+    assert kwargs["remote"] is remote and callable(kwargs["on_success"])

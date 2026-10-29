@@ -13,6 +13,12 @@ an AI client that does not show images; the file is deleted when the login ends.
 security confirmation Xiaomi asks for is opened in the local browser: its URL never
 leaves this computer, and neither does the long-polling URL, which lives only in the
 background job.
+
+The HTTP server's login (``remote=True``) runs on a server the user is not sitting
+at: it writes and opens nothing there, so the QR code reaches the user through the
+tool result alone, and the messages say the session is saved on the server. A
+security confirmation is left to ``mifit login`` in a terminal on the server, which
+prints its URL, so the URL still never reaches a tool result.
 """
 
 from __future__ import annotations
@@ -58,6 +64,14 @@ _CONFIRM_UNOPENED = (
     "computer. Run `mifit login` in a terminal instead."
 )
 _IDLE = "No login in progress. Call login_start to log in."
+_REMOTE_SUCCEEDED = (
+    "Logged in. The session is saved on the server mifit runs on; the data tools work now."
+)
+_REMOTE_CONFIRM = (
+    "Xiaomi asks for a security confirmation, which this server cannot show. Run "
+    "`mifit login` in a terminal on the server mifit runs on (over SSH, for example) and "
+    "follow it; then the data tools work."
+)
 
 Status = Literal["idle", "pending", "succeeded", "failed", "confirmation_required", "expired"]
 
@@ -105,7 +119,8 @@ def _failed(exc: BaseException) -> LoginView:
 
 class LoginFlow:
     """One QR login at a time. ``on_success`` runs after the new session is saved (the
-    server drops its client then, so the next read opens the new session). The other
+    server drops its client then, so the next read opens the new session). ``remote``
+    is the HTTP server's login: nothing is written or opened on the server. The other
     arguments replace the account requests, the session store, the log, the local
     opener and the background thread, for tests."""
 
@@ -113,6 +128,7 @@ class LoginFlow:
         self,
         *,
         on_success: Callable[[], None],
+        remote: bool = False,
         qr_path: Path | None = None,
         opener: Callable[[str], Any] = webbrowser.open,
         spawn: Callable[[Callable[[], None]], None] = _in_background,
@@ -124,6 +140,7 @@ class LoginFlow:
         http_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._on_success = on_success
+        self._remote = remote
         self._qr_path = qr_path if qr_path is not None else app_data_dir() / LOGIN_QR_FILE_NAME
         self._opener = opener
         self._spawn = spawn
@@ -168,7 +185,10 @@ class LoginFlow:
                 return failed
 
             png = qr_png(challenge.login_url)
-            message = _PENDING if self._show(png) else _PENDING + _UNOPENED_REMARK
+            if self._remote or self._show(png):
+                message = _PENDING
+            else:
+                message = _PENDING + _UNOPENED_REMARK
             self._set(LoginView("pending", message, challenge.login_url, png))
 
             def job() -> None:
@@ -203,10 +223,11 @@ class LoginFlow:
             failure = exc
         if failure is not None:
             final = _failed(failure)
-        try:
-            self._qr_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if not self._remote:
+            try:
+                self._qr_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         self._set(final)
 
     def _approve(self, challenge: Any, http: Any, device_id: str) -> LoginView:
@@ -214,6 +235,8 @@ class LoginFlow:
             result = self._poll(challenge, http, device_id=device_id)
             session = self._exchange(result, SID, http, device_id=device_id)
         except NotificationRequiredError as exc:
+            if self._remote:
+                return LoginView("confirmation_required", _REMOTE_CONFIRM)
             url = exc.notification_url
             opened = self._open(url)
             return LoginView("confirmation_required", _CONFIRM if opened else _CONFIRM_UNOPENED)
@@ -228,4 +251,4 @@ class LoginFlow:
             return LoginView("failed", f"Login failed: could not save the session ({reason}).")
         self._record("login", session)
         self._on_success()
-        return LoginView("succeeded", _SUCCEEDED)
+        return LoginView("succeeded", _REMOTE_SUCCEEDED if self._remote else _SUCCEEDED)

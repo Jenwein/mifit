@@ -12,6 +12,9 @@ the event loop keeps answering while a read waits on its pacing; a long range is
 read chunk by chunk (``mifit.chunks``), with a progress notification after each
 chunk when the client asked for them. Successful results are cached for five
 minutes (``TtlCache``); ``get_status`` is not cached and never opens a client.
+
+The HTTP server (``remote=True``) is the same server with the wording of a server the
+user is not sitting at: its login is saved on the server and opens nothing there.
 """
 
 from __future__ import annotations
@@ -41,8 +44,9 @@ from mifit.mcp_server.cache import TtlCache
 from mifit.mcp_server.errors import (
     GPS_DISABLED,
     LOGIN_ADVICE,
-    NOT_LOGGED_IN,
+    REMOTE_LOGIN_ADVICE,
     ToolFailure,
+    not_logged_in,
 )
 from mifit.mcp_server.login import LoginFlow
 from mifit.mcp_server.present import (
@@ -61,6 +65,7 @@ __all__ = [
     "LOGIN_ANNOTATIONS",
     "PRIVACY_NOTE",
     "READ_ANNOTATIONS",
+    "REMOTE_PRIVACY_NOTE",
     "SERVER_NAME",
     "build_server",
     "guarded",
@@ -77,12 +82,18 @@ Start with the daily tools (get_steps, get_sleep, get_heart_rate_daily, ...); us
 Limits per call: 92 days for daily tools (31 for get_calories), 7 days for get_heart_rate, get_spo2 and sleep stages; dense results are cut down to at most 500 rows and the notes say how.
 The figures were checked against the Mi Fitness app. Tell the user what the notes say. This is not medical advice."""
 
-PRIVACY_NOTE = (
-    "Tool results are sent to the AI assistant's model provider. The Mi Fitness login "
-    "stays on this computer; GPS tracks are only available when the server was started "
-    "with --allow-gps (in the Claude Desktop extension: when its Allow GPS tracks switch "
-    "is on)."
-)
+
+def _privacy_note(where: str) -> str:
+    return (
+        "Tool results are sent to the AI assistant's model provider. The Mi Fitness login "
+        f"stays {where}; GPS tracks are only available when the server was started "
+        "with --allow-gps (in the Claude Desktop extension: when its Allow GPS tracks switch "
+        "is on)."
+    )
+
+
+PRIVACY_NOTE = _privacy_note("on this computer")
+REMOTE_PRIVACY_NOTE = _privacy_note("on the server mifit runs on")
 
 READ_ANNOTATIONS = ToolAnnotations(
     read_only_hint=True, open_world_hint=True, idempotent_hint=True
@@ -155,6 +166,8 @@ class _Tools:
         now: Callable[[], datetime],
         session_loader: Callable[[], Any],
         login: Any,
+        advice: str,
+        privacy: str,
     ) -> None:
         self.access = access
         self.cache = cache
@@ -163,6 +176,8 @@ class _Tools:
         self.now = now
         self.session_loader = session_loader
         self.login = login
+        self.advice = advice
+        self.privacy = privacy
 
     async def cached(self, key: Hashable, make: Callable[[], Awaitable[str]]) -> str:
         """The cached answer for ``key``, or ``make()``'s, stored if it succeeds."""
@@ -309,10 +324,10 @@ class _Tools:
         }
         try:
             stored = self.session_loader()
-            problem = NOT_LOGGED_IN
+            problem = not_logged_in(self.advice)
         except ValueError:  # the file exists but is not a session
             stored = None
-            problem = "The stored Mi Fitness session is unreadable. " + LOGIN_ADVICE
+            problem = "The stored Mi Fitness session is unreadable. " + self.advice
         if stored is not None and stored.is_valid():
             login_age_s, token_age_s = session_ages(stored, moment)
             status["logged_in"] = True
@@ -328,7 +343,7 @@ class _Tools:
         if not status["logged_in"]:
             status["next_step"] = problem
         status["gps_enabled"] = self.allow_gps
-        status["privacy"] = PRIVACY_NOTE
+        status["privacy"] = self.privacy
         return status
 
 
@@ -430,6 +445,7 @@ def build_server(
     clock: Callable[[], float] = time.monotonic,
     session_loader: Callable[[], Any] | None = None,
     login_factory: Callable[[Callable[[], None]], Any] | None = None,
+    remote: bool = False,
 ) -> MCPServer:
     """The MCP server with every tool registered.
 
@@ -441,7 +457,9 @@ def build_server(
     stored session for ``get_status`` (``mifit.auth.session.load_session``).
     ``login_factory(on_success)`` makes the QR login of ``login_start`` (a
     ``LoginFlow`` by default); ``on_success`` drops the server's client, so the next
-    read opens the newly saved session, and clears the cached results.
+    read opens the newly saved session, and clears the cached results. ``remote`` is
+    the HTTP server: the login opens nothing on the server, and the login tools, the
+    login advice and ``get_status``'s privacy note say the login is kept on the server.
     """
 
     def default_factory() -> Any:
@@ -454,9 +472,10 @@ def build_server(
         return datetime.now(tz) if tz is not None else datetime.now().astimezone()
 
     def default_login(on_success: Callable[[], None]) -> LoginFlow:
-        return LoginFlow(on_success=on_success)
+        return LoginFlow(on_success=on_success, remote=remote)
 
-    access = Access(client_factory or default_factory)
+    advice = REMOTE_LOGIN_ADVICE if remote else LOGIN_ADVICE
+    access = Access(client_factory or default_factory, advice=advice)
     cache = TtlCache(clock=clock)
 
     def logged_in() -> None:
@@ -474,6 +493,8 @@ def build_server(
         now=now or default_now,
         session_loader=session_loader or default_loader,
         login=login,
+        advice=advice,
+        privacy=REMOTE_PRIVACY_NOTE if remote else PRIVACY_NOTE,
     )
     server = MCPServer(SERVER_NAME, version=mifit.__version__, instructions=INSTRUCTIONS)
 
@@ -532,12 +553,11 @@ def build_server(
     for tool in tools.DATA_TOOLS:
         add(_FACTORIES[tool.kind](state, tool), tool.name, tool.title, tool.description)
     add(get_profile, "get_profile", "Profile", tools.PROFILE_DESCRIPTION)
-    add(
-        login_start, "login_start", "Log in by QR code", tools.LOGIN_START_DESCRIPTION,
-        LOGIN_ANNOTATIONS,
-    )
-    add(
-        login_status, "login_status", "Login status", tools.LOGIN_STATUS_DESCRIPTION,
-        LOGIN_ANNOTATIONS,
-    )
+    if remote:
+        start_doc = tools.REMOTE_LOGIN_START_DESCRIPTION
+        status_doc = tools.REMOTE_LOGIN_STATUS_DESCRIPTION
+    else:
+        start_doc, status_doc = tools.LOGIN_START_DESCRIPTION, tools.LOGIN_STATUS_DESCRIPTION
+    add(login_start, "login_start", "Log in by QR code", start_doc, LOGIN_ANNOTATIONS)
+    add(login_status, "login_status", "Login status", status_doc, LOGIN_ANNOTATIONS)
     return server
