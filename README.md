@@ -1,5 +1,6 @@
 # mifit
 
+god
 [![CI](https://github.com/Jenwein/mifit/actions/workflows/ci.yml/badge.svg)](https://github.com/Jenwein/mifit/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/mifit)](https://pypi.org/project/mifit/)
 
